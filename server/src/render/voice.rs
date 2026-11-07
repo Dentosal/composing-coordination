@@ -285,7 +285,17 @@ pub fn schedule_env(p: &AudioParam, a: f64, d: f64, s: f64, r: f64, amount: f32,
         p.linear_ramp_to_value_at_time((amt * gate / a) as f32, tg);
     } else {
         p.linear_ramp_to_value_at_time(amount, t0 + a);
-        p.set_target_at_time((amt * s) as f32, t0 + a, d / ENV_TAU_DIV);
+        let sustain = amt * s;
+        let tau_d = d / ENV_TAU_DIV;
+        p.set_target_at_time(sustain as f32, t0 + a, tau_d);
+        // Level of the decay curve at gate end (the spec's setTarget formula).
+        let level = sustain + (amt - sustain) * (-(tg - (t0 + a)) / tau_d).exp();
+        // web-audio-api 1.7.0 bug: a setTarget that is still in the future overwrites the held
+        // value with exp(+(t - T0) / tau) at the end of every block, which explodes whenever the
+        // value being held differs from the target (any sustain > 0). An explicit setValueAtTime
+        // at the same instant keeps the setTarget behind it in the queue until it really starts.
+        // The value equals the curve's own, so browsers render the same. Mirror this in the JS port.
+        p.set_value_at_time(level as f32, tg);
     }
     p.set_target_at_time(0.0, tg, r / ENV_TAU_DIV);
 }
