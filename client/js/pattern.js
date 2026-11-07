@@ -172,7 +172,14 @@ export class PatternEditor {
         if (li === this.cur.lane && r === this.cur.row) cls += ' cur';
         row.append(h('div', {
           class: cls,
-          onmousedown: () => { this.cur = { lane: li, row: r }; this.render(); this.grid.focus(); },
+          // preventDefault: render() replaces this cell mid-click, and browsers that then run the
+          // default focus step on the detached node (Safari, Firefox) leave the grid unfocused.
+          onmousedown: (e) => {
+            e.preventDefault();
+            this.cur = { lane: li, row: r };
+            this.render();
+            this.grid.focus({ preventScroll: true });
+          },
         }, text));
       });
       this.rowEls.push(row);
