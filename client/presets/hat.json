@@ -1,0 +1,61 @@
+{
+ "label": "Hat",
+ "instrument": {
+  "id": "hat",
+  "gain": 0.6,
+  "send_delay": 0,
+  "send_reverb": 0.05,
+  "nodes": [
+   {
+    "id": "n",
+    "type": "noise",
+    "color": "white"
+   },
+   {
+    "id": "hp",
+    "type": "filter",
+    "mode": "highpass",
+    "freq": 7000,
+    "q": 0.7,
+    "key_track": 0
+   },
+   {
+    "id": "vca",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "aenv",
+    "type": "env",
+    "attack": 0.001,
+    "decay": 0.05,
+    "sustain": 0,
+    "release": 0.02,
+    "amount": 0.8
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": [
+   {
+    "from": "n",
+    "to": "hp"
+   },
+   {
+    "from": "hp",
+    "to": "vca"
+   },
+   {
+    "from": "aenv",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "vca",
+    "to": "out"
+   }
+  ]
+ }
+}

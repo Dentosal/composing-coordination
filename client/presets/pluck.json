@@ -1,0 +1,94 @@
+{
+ "label": "Pluck",
+ "instrument": {
+  "id": "pluck",
+  "gain": 0.8,
+  "send_delay": 0.25,
+  "send_reverb": 0.2,
+  "nodes": [
+   {
+    "id": "o1",
+    "type": "osc",
+    "wave": "sawtooth"
+   },
+   {
+    "id": "o2",
+    "type": "osc",
+    "wave": "square",
+    "detune": 6
+   },
+   {
+    "id": "mix",
+    "type": "gain",
+    "gain": 0.4
+   },
+   {
+    "id": "lp",
+    "type": "filter",
+    "mode": "lowpass",
+    "freq": 500,
+    "q": 2,
+    "key_track": 0.4
+   },
+   {
+    "id": "fenv",
+    "type": "env",
+    "attack": 0.002,
+    "decay": 0.18,
+    "sustain": 0,
+    "release": 0.1,
+    "amount": 4500
+   },
+   {
+    "id": "vca",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "aenv",
+    "type": "env",
+    "attack": 0.002,
+    "decay": 0.4,
+    "sustain": 0,
+    "release": 0.1,
+    "amount": 1
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": [
+   {
+    "from": "o1",
+    "to": "mix"
+   },
+   {
+    "from": "o2",
+    "to": "mix"
+   },
+   {
+    "from": "mix",
+    "to": "lp"
+   },
+   {
+    "from": "fenv",
+    "to": "lp",
+    "port": "freq"
+   },
+   {
+    "from": "lp",
+    "to": "vca"
+   },
+   {
+    "from": "aenv",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "vca",
+    "to": "out"
+   }
+  ]
+ }
+}

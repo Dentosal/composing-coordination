@@ -1,0 +1,94 @@
+{
+ "label": "Bass",
+ "instrument": {
+  "id": "bass",
+  "gain": 0.9,
+  "send_delay": 0,
+  "send_reverb": 0.05,
+  "nodes": [
+   {
+    "id": "o1",
+    "type": "osc",
+    "wave": "sawtooth"
+   },
+   {
+    "id": "o2",
+    "type": "osc",
+    "wave": "square",
+    "semitones": -12
+   },
+   {
+    "id": "mix",
+    "type": "gain",
+    "gain": 0.5
+   },
+   {
+    "id": "lp",
+    "type": "filter",
+    "mode": "lowpass",
+    "freq": 350,
+    "q": 4,
+    "key_track": 0.3
+   },
+   {
+    "id": "fenv",
+    "type": "env",
+    "attack": 0.005,
+    "decay": 0.25,
+    "sustain": 0.2,
+    "release": 0.1,
+    "amount": 1800
+   },
+   {
+    "id": "vca",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "aenv",
+    "type": "env",
+    "attack": 0.005,
+    "decay": 0.2,
+    "sustain": 0.7,
+    "release": 0.1,
+    "amount": 1
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": [
+   {
+    "from": "o1",
+    "to": "mix"
+   },
+   {
+    "from": "o2",
+    "to": "mix"
+   },
+   {
+    "from": "mix",
+    "to": "lp"
+   },
+   {
+    "from": "fenv",
+    "to": "lp",
+    "port": "freq"
+   },
+   {
+    "from": "lp",
+    "to": "vca"
+   },
+   {
+    "from": "aenv",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "vca",
+    "to": "out"
+   }
+  ]
+ }
+}

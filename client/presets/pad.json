@@ -1,0 +1,91 @@
+{
+ "label": "Pad",
+ "instrument": {
+  "id": "pad",
+  "gain": 0.6,
+  "send_delay": 0.1,
+  "send_reverb": 0.45,
+  "nodes": [
+   {
+    "id": "o1",
+    "type": "osc",
+    "wave": "sawtooth",
+    "detune": -9
+   },
+   {
+    "id": "o2",
+    "type": "osc",
+    "wave": "sawtooth",
+    "detune": 9
+   },
+   {
+    "id": "o3",
+    "type": "osc",
+    "wave": "triangle",
+    "semitones": -12
+   },
+   {
+    "id": "mix",
+    "type": "gain",
+    "gain": 0.3
+   },
+   {
+    "id": "lp",
+    "type": "filter",
+    "mode": "lowpass",
+    "freq": 1100,
+    "q": 0.8,
+    "key_track": 0.4
+   },
+   {
+    "id": "vca",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "aenv",
+    "type": "env",
+    "attack": 0.6,
+    "decay": 0.5,
+    "sustain": 0.8,
+    "release": 1,
+    "amount": 1
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": [
+   {
+    "from": "o1",
+    "to": "mix"
+   },
+   {
+    "from": "o2",
+    "to": "mix"
+   },
+   {
+    "from": "o3",
+    "to": "mix"
+   },
+   {
+    "from": "mix",
+    "to": "lp"
+   },
+   {
+    "from": "lp",
+    "to": "vca"
+   },
+   {
+    "from": "aenv",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "vca",
+    "to": "out"
+   }
+  ]
+ }
+}

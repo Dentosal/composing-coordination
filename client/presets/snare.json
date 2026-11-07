@@ -1,0 +1,94 @@
+{
+ "label": "Snare",
+ "instrument": {
+  "id": "snare",
+  "gain": 0.8,
+  "send_delay": 0,
+  "send_reverb": 0.2,
+  "nodes": [
+   {
+    "id": "n",
+    "type": "noise",
+    "color": "white"
+   },
+   {
+    "id": "hp",
+    "type": "filter",
+    "mode": "highpass",
+    "freq": 1500,
+    "q": 0.7,
+    "key_track": 0
+   },
+   {
+    "id": "v1",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "e1",
+    "type": "env",
+    "attack": 0.001,
+    "decay": 0.18,
+    "sustain": 0,
+    "release": 0.05,
+    "amount": 0.9
+   },
+   {
+    "id": "o",
+    "type": "osc",
+    "wave": "triangle",
+    "fixed_hz": 190
+   },
+   {
+    "id": "v2",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "e2",
+    "type": "env",
+    "attack": 0.001,
+    "decay": 0.09,
+    "sustain": 0,
+    "release": 0.05,
+    "amount": 0.6
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": [
+   {
+    "from": "n",
+    "to": "hp"
+   },
+   {
+    "from": "hp",
+    "to": "v1"
+   },
+   {
+    "from": "e1",
+    "to": "v1",
+    "port": "gain"
+   },
+   {
+    "from": "o",
+    "to": "v2"
+   },
+   {
+    "from": "e2",
+    "to": "v2",
+    "port": "gain"
+   },
+   {
+    "from": "v1",
+    "to": "out"
+   },
+   {
+    "from": "v2",
+    "to": "out"
+   }
+  ]
+ }
+}

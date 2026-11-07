@@ -1,0 +1,105 @@
+{
+ "label": "Lead",
+ "instrument": {
+  "id": "lead",
+  "gain": 0.7,
+  "send_delay": 0.25,
+  "send_reverb": 0.2,
+  "nodes": [
+   {
+    "id": "o1",
+    "type": "osc",
+    "wave": "square"
+   },
+   {
+    "id": "o2",
+    "type": "osc",
+    "wave": "sawtooth",
+    "detune": 7
+   },
+   {
+    "id": "lfo",
+    "type": "osc",
+    "wave": "sine",
+    "fixed_hz": 5.5
+   },
+   {
+    "id": "vib",
+    "type": "gain",
+    "gain": 12
+   },
+   {
+    "id": "mix",
+    "type": "gain",
+    "gain": 0.35
+   },
+   {
+    "id": "lp",
+    "type": "filter",
+    "mode": "lowpass",
+    "freq": 2600,
+    "q": 1.5,
+    "key_track": 0.5
+   },
+   {
+    "id": "vca",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "aenv",
+    "type": "env",
+    "attack": 0.01,
+    "decay": 0.15,
+    "sustain": 0.7,
+    "release": 0.2,
+    "amount": 1
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": [
+   {
+    "from": "lfo",
+    "to": "vib"
+   },
+   {
+    "from": "vib",
+    "to": "o1",
+    "port": "detune"
+   },
+   {
+    "from": "vib",
+    "to": "o2",
+    "port": "detune"
+   },
+   {
+    "from": "o1",
+    "to": "mix"
+   },
+   {
+    "from": "o2",
+    "to": "mix"
+   },
+   {
+    "from": "mix",
+    "to": "lp"
+   },
+   {
+    "from": "lp",
+    "to": "vca"
+   },
+   {
+    "from": "aenv",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "vca",
+    "to": "out"
+   }
+  ]
+ }
+}

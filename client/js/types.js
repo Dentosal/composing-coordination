@@ -1,0 +1,26 @@
+// JSDoc mirror of the orders format. Source of truth: server/src/orders.rs.
+
+/** @typedef {'sine'|'square'|'sawtooth'|'triangle'} Wave */
+/** @typedef {'lowpass'|'highpass'|'bandpass'|'notch'} FilterMode */
+/**
+ * @typedef {{id:string,type:'osc',wave:Wave,semitones?:number,detune?:number,fixed_hz?:number|null}
+ *  | {id:string,type:'noise',color:'white'|'pink'}
+ *  | {id:string,type:'gain',gain:number}
+ *  | {id:string,type:'filter',mode:FilterMode,freq:number,q:number,key_track?:number}
+ *  | {id:string,type:'env',attack:number,decay:number,sustain:number,release:number,amount:number}
+ *  | {id:string,type:'shaper',drive:number}
+ *  | {id:string,type:'out'}} OrdersNode
+ */
+/** @typedef {{from:string,to:string,port?:string|null}} OrdersEdge */
+/** @typedef {{id:string,gain:number,send_delay:number,send_reverb:number,nodes:OrdersNode[],edges:OrdersEdge[]}} OrdersInstrument */
+/** @typedef {{row:number,note:number|null,vel:number}} OrdersStep  note null = note-off */
+/** @typedef {{instrument:string,steps:OrdersStep[]}} OrdersLane */
+/** @typedef {{instruments:OrdersInstrument[],lanes:OrdersLane[]}} Orders */
+
+/**
+ * @typedef {{seats:number,bpm:number,bars:number,rows_per_bar:number,max_lanes:number,
+ *  max_instruments:number,rounds:number|null,round_timer_secs:number|null,
+ *  timeout_policy:'Wait'|'RepeatLast',seed:number}} SessionConfig
+ */
+
+export {};

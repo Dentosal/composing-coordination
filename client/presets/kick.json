@@ -1,0 +1,64 @@
+{
+ "label": "Kick",
+ "instrument": {
+  "id": "kick",
+  "gain": 1,
+  "send_delay": 0,
+  "send_reverb": 0,
+  "nodes": [
+   {
+    "id": "o",
+    "type": "osc",
+    "wave": "sine",
+    "fixed_hz": 45
+   },
+   {
+    "id": "penv",
+    "type": "env",
+    "attack": 0.001,
+    "decay": 0.09,
+    "sustain": 0,
+    "release": 0.05,
+    "amount": 220
+   },
+   {
+    "id": "vca",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "aenv",
+    "type": "env",
+    "attack": 0.001,
+    "decay": 0.3,
+    "sustain": 0,
+    "release": 0.05,
+    "amount": 1
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": [
+   {
+    "from": "penv",
+    "to": "o",
+    "port": "freq"
+   },
+   {
+    "from": "o",
+    "to": "vca"
+   },
+   {
+    "from": "aenv",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "vca",
+    "to": "out"
+   }
+  ]
+ }
+}
