@@ -229,7 +229,7 @@ export class Game {
 
   updateLobby() {
     if (this.view !== 'lobby') return;
-    this.refs.seats.textContent = `${this.st.seat_count} / ${this.st.config.seats}`;
+    this.refs.seats.textContent = String(this.st.seat_count);
   }
 
   buildGame() {
@@ -276,7 +276,7 @@ export class Game {
     const st = this.st;
     r.round.textContent = `Round ${st.round?.n ?? '–'}${st.config.rounds ? ` / ${st.config.rounds}` : ''}`;
     r.ready.textContent = `ready ${st.ready_count} / ${st.eligible_count}`;
-    r.seats.textContent = `${st.seat_count} / ${st.config.seats} seats`;
+    r.seats.textContent = `${st.seat_count} seated`;
     if (st.end_requested) r.round.textContent += ' (last)';
     this.tick();
   }

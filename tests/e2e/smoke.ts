@@ -18,7 +18,6 @@ async function page() {
 
 const host = await page();
 await host.goto(base);
-await host.fill('input[name=seats]', "2");
 await host.fill('input[name=rounds]', "2");
 await host.click("text=Create session");
 await host.waitForSelector("text=Lobby");
@@ -29,7 +28,7 @@ const guest = await page();
 await guest.goto(invite);
 await guest.click("text=Take a seat");
 await guest.waitForSelector("text=Lobby");
-await host.waitForFunction(() => document.body.innerText.includes("2 / 2"));
+await host.waitForFunction(() => document.querySelector(".lobby strong")?.textContent === "2");
 await host.click("text=Start session");
 
 async function play(p: any, name: string, preset: string, notes: string[]) {

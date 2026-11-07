@@ -62,7 +62,6 @@ function enter(sid, tokens) {
 // ---- screens
 
 const FIELDS = [
-  ['seats', 'Seats', 5, 'number'],
   ['bpm', 'BPM', 112, 'number'],
   ['bars', 'Bars per loop', 4, 'number'],
   ['rows_per_bar', 'Rows per bar', 16, 'number'],
@@ -135,15 +134,14 @@ async function showJoin(sid, tokens) {
       h('button', { onclick: () => { location.hash = ''; } }, 'Back')));
     return;
   }
-  const full = info.seat_count >= info.config.seats;
   const msg = h('p.error');
   root.append(h('div.card',
     h('h2', 'Join session'),
-    h('p', `${info.seat_count} / ${info.config.seats} seats taken · ${info.config.bpm} BPM · ${info.config.bars} bars`),
+    h('p', `${info.seat_count} seated · ${info.config.bpm} BPM · ${info.config.bars} bars`),
     info.phase === 'ended' ? h('p', 'This session has ended.') : null,
     tokens.host && !tokens.seat ? h('p.muted', 'You hold the host token for this session.') : null,
     h('button.primary', {
-      disabled: full || info.phase === 'ended',
+      disabled: info.phase === 'ended',
       onclick: async () => {
         try {
           await unlock();
@@ -156,7 +154,7 @@ async function showJoin(sid, tokens) {
           msg.textContent = err.message;
         }
       },
-    }, full ? 'Session is full' : 'Take a seat'),
+    }, 'Take a seat'),
     msg));
 }
 

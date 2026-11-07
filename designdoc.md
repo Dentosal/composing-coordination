@@ -6,7 +6,7 @@ Purely for fun. Not competitive, not a research tool.
 
 ## Game rules (MVP)
 
-- A session has N seats (public count). Seats are anonymous: nobody is shown which part belongs to whom.
+- A session has any number of seats (public count; no cap). The host starts the game whenever they want, and players may keep joining afterwards. Seats are anonymous: nobody is shown which part belongs to whom.
 - A round is a fixed loop (default: 4 bars of 4/4 at 112 BPM, 16 rows per bar = 64 rows, ~8.6 s).
 - **Commit and reveal.** During a round, each player edits their orders (instruments + patterns) against the *previous* round's mix. When the round resolves, the server renders the new mix and everyone hears it at once.
 - **No stems.** Players receive only the full mix. They can render their own part locally, but the client offers no tool for isolating others (no subtraction, no solo of others).
@@ -48,7 +48,6 @@ All configurable at session creation; defaults in brackets.
 
 | Field | Meaning |
 |---|---|
-| `seats` | max players [5] |
 | `bpm`, `bars`, `rows_per_bar` | loop shape [112, 4, 16] |
 | `max_lanes`, `max_instruments` | per-player limits [4, 4] |
 | `rounds` | `Option<u32>`, None = until host ends [None] |

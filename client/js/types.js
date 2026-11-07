@@ -18,7 +18,7 @@
 /** @typedef {{instruments:OrdersInstrument[],lanes:OrdersLane[]}} Orders */
 
 /**
- * @typedef {{seats:number,bpm:number,bars:number,rows_per_bar:number,max_lanes:number,
+ * @typedef {{bpm:number,bars:number,rows_per_bar:number,max_lanes:number,
  *  max_instruments:number,rounds:number|null,round_timer_secs:number|null,
  *  timeout_policy:'Wait'|'RepeatLast',seed:number}} SessionConfig
  */

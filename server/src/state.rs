@@ -37,7 +37,6 @@ pub enum TimeoutPolicy {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
-    pub seats: u32,
     pub bpm: f32,
     pub bars: u32,
     pub rows_per_bar: u32,
@@ -52,7 +51,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            seats: 5,
             bpm: 112.0,
             bars: 4,
             rows_per_bar: 16,
@@ -69,7 +67,6 @@ impl Default for Config {
 impl Config {
     pub fn validate(&self) -> Result<(), String> {
         let chk = |ok: bool, m: &str| if ok { Ok(()) } else { Err(m.to_string()) };
-        chk((1..=16).contains(&self.seats), "seats must be 1..=16")?;
         chk(self.bpm.is_finite() && (40.0..=240.0).contains(&self.bpm), "bpm must be 40..=240")?;
         chk((1..=16).contains(&self.bars), "bars must be 1..=16")?;
         chk(
@@ -207,7 +204,7 @@ impl Session {
     }
 
     pub fn emit_seat_count(&self) {
-        self.emit("seat_count", json!({"count": self.seats.len(), "max": self.config.seats}));
+        self.emit("seat_count", json!({"count": self.seats.len()}));
     }
 
     pub fn emit_ready_count(&self) {
@@ -219,9 +216,6 @@ impl Session {
     pub fn join(&mut self) -> Result<Uuid, ApiError> {
         if self.phase == Phase::Ended {
             return err(StatusCode::CONFLICT, "session has ended");
-        }
-        if self.seats.len() >= self.config.seats as usize {
-            return err(StatusCode::CONFLICT, "session is full");
         }
         let joined_round = match self.phase {
             Phase::Lobby => 1,
