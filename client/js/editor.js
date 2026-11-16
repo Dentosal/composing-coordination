@@ -1,6 +1,7 @@
 // Instrument panel: a tab per instrument, and a fixed-architecture synth patch editor (see synth.js).
 import { h, clear } from './dom.js';
 import { Auditioner } from './audition.js';
+import { adsrControl } from './adsr.js';
 import { routingDiagram } from './routing.js';
 import { FILTER_MODES, WAVES, buildInstrument, defaultPatch, parseInstrument } from './synth.js';
 
@@ -281,10 +282,7 @@ export class InstrumentPanel {
         check('through filter', () => o.filtered, (on) => { o.filtered = on; change(); })));
     const noise = patch.noise;
     const adsr = (title, e, amount) => module(title,
-      knob('attack', e, 'attack', { min: 0.001, max: 5, log: true, unit: ' s' }, change),
-      knob('decay', e, 'decay', { min: 0.001, max: 5, log: true, unit: ' s' }, change),
-      knob('sustain', e, 'sustain', { min: 0, max: 1 }, change),
-      knob('release', e, 'release', { min: 0.001, max: 5, log: true, unit: ' s' }, change),
+      adsrControl(e, change, { defaults: DEFAULTS.get(e) }),
       amount ? knob(amount.label, e, 'amount', amount, change) : null);
 
     return h('div.patch', head, this.auditionBar(inst), this.section('nodes', 'Node configuration', 'nodesOpen', h('div.patch-grid',

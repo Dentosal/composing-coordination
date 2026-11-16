@@ -118,3 +118,11 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 audio { width: 100%; max-width: 520px; }
 input[type=range] { accent-color: var(--accent); }
 .lane-head.active .lane-vol { accent-color: var(--accent-ink); }
+
+.adsr { display: grid; gap: 6px; }
+.adsr-preview { width: 100%; height: 56px; background: var(--bg); border-radius: 6px; display: block; }
+.adsr-area { fill: var(--accent); opacity: .18; }
+.adsr-line { fill: none; stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.adsr-sliders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.adsr-col { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.adsr-col input[type=range] { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 88px; padding: 0; margin: 0; }
