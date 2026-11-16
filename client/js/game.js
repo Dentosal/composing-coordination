@@ -33,6 +33,9 @@ export class Game {
     this.previewBusy = false;
     this.previewStale = false;
     this.previewMsg = '';
+    // Local-only listening state per track (keyed by instrument id). Never part of the orders, so it can't be committed.
+    this.muted = new Set();
+    this.solo = new Set();
     this.playing = false;
     this.mixRound = null;
     this.mixLoading = null;
@@ -70,6 +73,7 @@ export class Game {
     this.player.stop();
     this.previewPlayer.stop();
     this.panel?.destroy();
+    this.pattern?.destroy();
   }
 
   fatal(e) {
@@ -274,6 +278,17 @@ export class Game {
       getOrders: () => this.orders, onChange: () => this.touch(), onSpace: () => this.togglePlay(),
       onSelect: () => this.panel.render(), // the active column picks the patch shown in the instrument panel
       onVolume: () => this.panel.render(),
+      // Typing a note sounds the active track's patch (the panel owns the shared auditioner).
+      onAudition: (lane, note, vel) => {
+        const inst = this.orders.instruments.find((i) => i.id === this.orders.lanes[lane]?.instrument);
+        if (inst && this.isAudible(inst.id)) this.panel.aud.once(inst, note, vel);
+      },
+      onPlay: (kind, a, b) => this.playPattern(kind, a, b),
+      isMuted: (id) => this.muted.has(id),
+      isSolo: (id) => this.solo.has(id),
+      isAudible: (id) => this.isAudible(id),
+      onToggleMute: (id) => this.toggleMute(id),
+      onToggleSolo: (id) => this.toggleSolo(id),
     });
     this.panel = new InstrumentPanel(instRoot, {
       presets: this.presets, bpm: cfg.bpm, seed: cfg.seed, getActive: () => this.pattern.cur.lane,
@@ -326,11 +341,62 @@ export class Game {
       previewText = this.previewMsg || (this.previewBusy || !this.previewPlayer.buffer ? 'Rendering preview…' : 'Preview is on.');
       if (this.mixRound) previewText += ' (The mix already contains your last committed part.)';
     }
-    r.mixInfo.textContent = [mixText, previewText].filter(Boolean).join(' ');
+    let listenText = '';
+    if (this.solo.size) listenText = 'Solo: the band mix is silenced; you hear only the soloed track(s) of your draft.';
+    else if (this.muted.size) listenText = 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
+    r.mixInfo.textContent = [mixText, previewText, listenText].filter(Boolean).join(' ');
+  }
+
+  /** With a track soloed only that track is heard, otherwise everything not muted. */
+  isAudible(id) {
+    return this.solo.size ? this.solo.has(id) : !this.muted.has(id);
+  }
+
+  /** Solo is exclusive (at most one track) and soloing a muted track unmutes it. */
+  toggleSolo(id) {
+    if (this.solo.has(id)) this.solo.clear();
+    else {
+      this.solo.clear();
+      this.solo.add(id);
+      this.muted.delete(id);
+    }
+    this.applyListening();
+  }
+
+  /** Muting the soloed track ends its solo, so a track is never both. */
+  toggleMute(id) {
+    if (!this.muted.delete(id)) {
+      this.muted.add(id);
+      this.solo.delete(id);
+    }
+    this.applyListening();
+  }
+
+  /** Update what is heard after a mute/solo change. Only affects local playback, never the orders. */
+  applyListening() {
+    this.pattern.render();
+    // Solo means "hear only this": silence the band mix (it can't be split per track) and make sure the draft preview is on.
+    this.player.setMuted(this.solo.size > 0);
+    if (this.solo.size && !this.previewOn) this.togglePreview();
+    else if (this.previewOn) this.schedulePreview(150);
+    this.updateMix();
+  }
+
+  /** True when there is nothing to play yet: no band mix (round 1) and no rendered preview. */
+  needsPreview() {
+    return !this.mixRound && !(this.previewOn && this.previewPlayer.buffer);
+  }
+
+  /** Nothing to hear yet: turn the preview on and start `what` as soon as it has rendered. */
+  playWhenPreviewReady(what) {
+    this.pendingPlay = what;
+    if (!this.previewOn) this.togglePreview();
+    else this.updateMix();
   }
 
   /** Start or stop the whole transport: the band mix and, if on, the preview, started on the same tick. */
   async togglePlay() {
+    if (!this.playing && this.needsPreview()) return this.playWhenPreviewReady({ kind: 'full' });
     if (this.playing) {
       this.playing = false;
       this.player.stop();
@@ -345,9 +411,34 @@ export class Game {
     this.updateMix();
   }
 
+  /**
+   * Play from a pattern position: 'cursor' starts at row `a` and loops the whole mix; 'region' loops rows a..b.
+   * Restarts if already playing. The preview, if on, follows the same region.
+   */
+  async playPattern(kind, a, b) {
+    if (this.needsPreview()) return this.playWhenPreviewReady({ kind, a, b });
+    const cfg = this.st.config;
+    const rowSecs = 60 / (cfg.bpm * (cfg.rows_per_bar / 4));
+    const total = cfg.bars * cfg.rows_per_bar * rowSecs;
+    const region = kind === 'cursor'
+      ? { offset: a * rowSecs, loopStart: 0, loopEnd: total }
+      : { offset: a * rowSecs, loopStart: a * rowSecs, loopEnd: (b + 1) * rowSecs };
+    if (this.playing) {
+      this.player.stop();
+      this.previewPlayer.stop();
+    }
+    const c = await unlock();
+    const when = c.currentTime + 0.05;
+    this.playing = true;
+    await Promise.all([this.player.play(when, region), this.previewOn ? this.previewPlayer.play(when, region) : null]);
+    if (!this.player.playing && !this.previewPlayer.playing) this.playing = false;
+    this.updateMix();
+  }
+
   togglePreview() {
     this.previewOn = !this.previewOn;
     this.previewMsg = '';
+    if (!this.previewOn) this.pendingPlay = null;
     clearTimeout(this.previewT);
     if (this.previewOn) {
       this.renderPreview();
@@ -376,11 +467,17 @@ export class Game {
     let retry = 0;
     try {
       const snapshot = JSON.parse(JSON.stringify(this.orders));
+      for (const lane of snapshot.lanes) if (!this.isAudible(lane.instrument)) lane.steps = []; // muted / not soloed
       const buf = await decode(await api.fetchPreview(this.sid, this.token, snapshot));
       if (this.previewOn && !this.dead) {
         this.previewMsg = '';
         this.previewPlayer.setBuffer(buf);
-        await this.startPreviewInSync();
+        const pending = this.pendingPlay;
+        this.pendingPlay = null;
+        if (pending) { // a play command was waiting for the first render
+          if (pending.kind === 'full') await this.togglePlay();
+          else await this.playPattern(pending.kind, pending.a, pending.b);
+        } else await this.startPreviewInSync();
       }
     } catch (e) {
       if (e.status === 429) retry = 1500;
@@ -388,6 +485,7 @@ export class Game {
     } finally {
       this.previewBusy = false;
     }
+    if (this.previewMsg && !this.previewPlayer.buffer) this.pendingPlay = null; // the render failed: don't play later by surprise
     if (this.previewOn && (this.previewStale || retry)) this.schedulePreview(retry || 100);
     this.updateMix();
   }
@@ -396,7 +494,7 @@ export class Game {
   async startPreviewInSync() {
     if (!this.playing || this.previewPlayer.playing || !this.previewPlayer.buffer) return;
     const when = this.player.playing ? this.player.nextBoundary() : undefined;
-    await this.previewPlayer.play(when);
+    await this.previewPlayer.play(when, this.player.playing ? this.player.loopRegion() : undefined);
   }
 
   updatePlayhead() {
