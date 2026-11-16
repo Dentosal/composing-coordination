@@ -1,5 +1,6 @@
 // Tracker-style pattern editor: one column per lane, one row per loop row.
 import { h, clear } from './dom.js';
+import { icon } from './icons.js';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
 export const noteName = (m) => `${NOTE_NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
@@ -12,20 +13,6 @@ const KEYMAP = {
 
 /** Shared by every editor instance, so a copy survives switching tracks and rebuilding the screen. */
 let clipboard = null; // {rows, lanes: [[{row, note, vel}]]}, rows relative to the copied block
-
-// Inline icons (static markup, stroke-only so they follow the text colour).
-const SVG = (inner) => `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
-const ICON = {
-  speaker: SVG('<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>'),
-  muted: SVG('<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M16 9l6 6M22 9l-6 6"/>'),
-  headphones: SVG('<path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/><path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>'),
-};
-const icon = (name) => {
-  const s = document.createElement('span');
-  s.className = 'ico';
-  s.innerHTML = ICON[name];
-  return s;
-};
 
 const UNDO_LIMIT = 200;
 const STEPS = [0, 1, 2, 3, 4, 6, 8];

@@ -49,3 +49,35 @@ test('isDefaultPatch: the Init preset and a fresh default are default, edited or
   assert.equal(isDefaultPatch(buildInstrument('x', p)), false);
   assert.equal(isDefaultPatch({ id: 'c', gain: 1, send_delay: 0, send_reverb: 0, nodes: [], edges: [] }), false);
 });
+
+test('patch files: export then import reproduces the patch; shipped presets import too', async () => {
+  const { patchToFile, readPatchFile } = await import('./synth.js');
+  const p = defaultPatch();
+  p.filter.freq = 777;
+  p.osc[1].level = 0.4;
+  p.lfo.cutoff = 900;
+  const inst = { ...buildInstrument('track2', p), name: 'My sound' };
+  const { label, patch } = readPatchFile(JSON.stringify(patchToFile(inst)));
+  assert.equal(label, 'My sound');
+  assert.deepEqual(patch, p);
+  for (const key of presets) {
+    const file = readFileSync(new URL(`${key}.json`, presetDir), 'utf8');
+    assert.ok(readPatchFile(file).patch, key);
+  }
+});
+
+test('patch files: bad input is rejected with a message', async () => {
+  const { patchToFile, readPatchFile, validatePatch } = await import('./synth.js');
+  assert.throws(() => readPatchFile('not json'), /valid JSON/);
+  assert.throws(() => readPatchFile('{"format":"something-else"}'), /not a patch file/);
+  assert.throws(() => readPatchFile('{"label":"x"}'), /No instrument/);
+  assert.throws(() => readPatchFile('x'.repeat(200_001)), /too large/);
+  const custom = { id: 'c', gain: 1, send_delay: 0, send_reverb: 0, nodes: [{ id: 'out', type: 'out' }], edges: [] };
+  assert.throws(() => readPatchFile(JSON.stringify(patchToFile(custom))), /custom signal graph/);
+  const p = defaultPatch();
+  p.osc[0].wave = 'banana';
+  assert.match(validatePatch(p), /banana/);
+  const bad = { ...buildInstrument('t', defaultPatch()) };
+  bad.nodes = bad.nodes.map((n) => (n.id === 'lp' ? { ...n, freq: 'high' } : n));
+  assert.throws(() => readPatchFile(JSON.stringify({ instrument: bad })), /filter/);
+});

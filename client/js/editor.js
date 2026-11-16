@@ -2,8 +2,9 @@
 import { h, clear } from './dom.js';
 import { Auditioner } from './audition.js';
 import { adsrControl } from './adsr.js';
+import { icon } from './icons.js';
 import { routingDiagram } from './routing.js';
-import { FILTER_MODES, WAVES, buildInstrument, defaultPatch, isDefaultPatch, parseInstrument } from './synth.js';
+import { FILTER_MODES, WAVES, buildInstrument, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
 
 let presetCache = null;
 
@@ -176,16 +177,43 @@ export class InstrumentPanel {
     return this.orders.instruments.find((i) => i.id === lane?.instrument) ?? null;
   }
 
-  /** Overwrite the active track's patch with a preset, keeping its id (so the lane stays attached). */
-  loadPreset(key) {
-    const p = this.o.presets.get(key);
+  /** Replace the active track's instrument, keeping its id (so the lane stays attached). */
+  replaceActive(inst, name) {
     const cur = this.active;
-    if (!p || !cur) return;
+    if (!cur) return;
     const i = this.orders.instruments.indexOf(cur);
-    this.orders.instruments[i] = { ...structuredClone(p.instrument), id: cur.id, name: p.label ?? key };
+    this.orders.instruments[i] = { ...inst, id: cur.id, name };
     this.o.onRename?.();
     this.o.onChange();
     this.render();
+  }
+
+  /** Overwrite the active track's patch with a preset. */
+  loadPreset(key) {
+    const p = this.o.presets.get(key);
+    if (p) this.replaceActive(structuredClone(p.instrument), p.label ?? key);
+  }
+
+  /** Save the active track's patch as a .json file the user can keep and import later. */
+  exportPatch() {
+    const cur = this.active;
+    if (!cur) return;
+    const text = JSON.stringify(patchToFile(cur), null, 1) + '\n';
+    const slug = (cur.name || cur.id).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'patch';
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = h('a', { href: url, download: `${slug}.json` });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /** Load a patch file into the active track. Throws a readable Error for files that aren't patches. */
+  async importPatchFile(file) {
+    const { label, patch } = readPatchFile(await file.text());
+    const cur = this.active;
+    if (!cur) return;
+    this.replaceActive(buildInstrument(cur.id, patch, label), label);
   }
 
   destroy() {
@@ -316,7 +344,23 @@ export class InstrumentPanel {
     // An untouched Init patch is a blank slate: nudge towards presets until the patch is edited.
     const hintLoad = () => loader.querySelector('button').classList.toggle('hint', isDefaultPatch(this.orders.instruments[idx()] ?? inst));
     hintLoad();
-    const head = h('div.track-head', h('strong', `Track ${this.o.getActive() + 1}`), nameIn, loader);
+    // Export / import: patches as files, so players can keep their own sounds locally.
+    const ioMsg = h('span.io-msg', { role: 'status' });
+    let msgT;
+    const say = (text) => { ioMsg.textContent = text; clearTimeout(msgT); msgT = setTimeout(() => { ioMsg.textContent = ''; }, 7000); };
+    const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true,
+      onchange: async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = ''; // so picking the same file again still fires
+        if (!file) return;
+        try { await this.importPatchFile(file); } catch (err) { say(err.message); }
+      } });
+    const exportTitle = 'Export: save this track\'s patch as a file';
+    const importTitle = 'Import: load a patch file into this track (replaces its patch)';
+    const exportBtn = h('button.icon-btn', { type: 'button', title: exportTitle, 'aria-label': exportTitle, onclick: () => this.exportPatch() }, icon('download'));
+    const importBtn = h('button.icon-btn', { type: 'button', title: importTitle, 'aria-label': importTitle, onclick: () => fileIn.click() }, icon('upload'));
+    const head = h('div.track-head', h('strong', `Track ${this.o.getActive() + 1}`), nameIn,
+      h('div.loader-group', ioMsg, loader, exportBtn, importBtn, fileIn));
 
     if (!patch) {
       // Not a template instrument (e.g. hand-written orders): only the output levels can be edited here.

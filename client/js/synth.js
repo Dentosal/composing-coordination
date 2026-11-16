@@ -158,3 +158,54 @@ export function isDefaultPatch(inst) {
     ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x));
   return !!p && norm(p) === norm(defaultPatch());
 }
+
+// ------------------------------------------------------------------ patch files (export / import)
+
+export const PATCH_FILE_FORMAT = 'band-game-patch';
+
+/** The file contents for exporting an instrument: the shipped preset shape plus a format marker. */
+export function patchToFile(inst) {
+  return { format: PATCH_FILE_FORMAT, version: 1, label: inst.name ?? inst.id, instrument: inst };
+}
+
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const allNum = (o, keys) => keys.every((k) => isNum(o?.[k]));
+
+/** A message describing the first thing wrong with a parsed patch, or null. Ranges are left to the server. */
+export function validatePatch(p) {
+  if (!allNum(p, ['gain', 'send_delay', 'send_reverb', 'drive'])) return 'output levels must be numbers';
+  for (const o of p.osc) {
+    if (!WAVES.includes(o.wave)) return `unknown oscillator wave "${o.wave}"`;
+    if (!allNum(o, ['semitones', 'detune', 'level']) || (o.fixed_hz != null && !isNum(o.fixed_hz))) return 'oscillator values must be numbers';
+  }
+  if (!['white', 'pink'].includes(p.noise.color) || !isNum(p.noise.level)) return 'invalid noise settings';
+  if (!FILTER_MODES.includes(p.filter.mode) || !allNum(p.filter, ['freq', 'q', 'key_track'])) return 'invalid filter settings';
+  for (const [name, e] of [['amp', p.aenv], ['filter', p.fenv], ['pitch', p.penv]]) {
+    if (!allNum(e, ['attack', 'decay', 'sustain', 'release']) || (name !== 'amp' && !isNum(e.amount))) return `invalid ${name} envelope`;
+  }
+  if (!WAVES.includes(p.lfo.wave) || !allNum(p.lfo, ['rate', 'pitch', 'cutoff', 'amp'])) return 'invalid LFO settings';
+  return null;
+}
+
+/**
+ * Parse an exported patch file (or a shipped preset file). Returns {label, patch}; throws an Error with a
+ * user-readable message for anything that isn't a patch this editor can open.
+ */
+export function readPatchFile(text) {
+  if (text.length > 200_000) throw new Error('That file is too large to be a patch.');
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new Error('That file is not valid JSON.');
+  }
+  if (raw?.format !== undefined && raw.format !== PATCH_FILE_FORMAT) throw new Error('That is not a patch file from this game.');
+  const inst = raw?.instrument;
+  if (!inst || !Array.isArray(inst.nodes) || !Array.isArray(inst.edges)) throw new Error('No instrument found in that file.');
+  const patch = parseInstrument(inst);
+  if (!patch) throw new Error('That patch uses a custom signal graph that this editor cannot open.');
+  const bad = validatePatch(patch);
+  if (bad) throw new Error(`Invalid patch: ${bad}.`);
+  const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim().slice(0, 32) : (inst.name ?? 'Imported');
+  return { label, patch };
+}
