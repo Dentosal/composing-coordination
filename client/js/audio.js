@@ -1,6 +1,7 @@
 // Web Audio plumbing: shared AudioContext and a seamless loop player.
 
 let ctx = null;
+const CROSSFADE = 0.015; // seconds
 
 export function getCtx() {
   if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
@@ -66,9 +67,10 @@ export class LoopPlayer {
     src.loop = true;
     src.loopStart = r.loopStart;
     src.loopEnd = r.loopEnd;
-    src.connect(this._out());
+    const g = c.createGain(); // per-source gain, so a replacement can be crossfaded
+    src.connect(g).connect(this._out());
     src.start(when, r.offset);
-    return { src, start: when, dur, region: r };
+    return { src, g, start: when, dur, region: r };
   }
 
   /** The current loop slice, as a region that starts at its beginning (what a late joiner should use). */
@@ -77,13 +79,41 @@ export class LoopPlayer {
     return r ? { offset: r.loopStart, loopStart: r.loopStart, loopEnd: r.loopEnd } : undefined;
   }
 
-  setBuffer(buffer) {
+  /**
+   * Replace the looped buffer. By default the new one takes over at the next loop boundary (stays on the beat).
+   * With `immediate`, it takes over right now at the same loop position (same-length buffers stay in sync),
+   * with a short crossfade: for hearing edits as soon as they are rendered.
+   */
+  setBuffer(buffer, immediate = false) {
     this.buffer = buffer;
     if (!this.playing) return;
+    if (immediate) return this._swapNow(buffer);
     const boundary = this.nextBoundary();
     if (this.pending) this.pending.src.stop();
     this.cur.src.stop(boundary);
     this.pending = this._startSource(buffer, boundary, this.loopRegion());
+  }
+
+  _swapNow(buffer) {
+    const c = getCtx();
+    this._promote();
+    if (this.pending) this.pending.src.stop();
+    this.pending = null;
+    const old = this.cur;
+    if (c.currentTime < old.start) { // not audible yet: replace outright
+      old.src.stop();
+      this.cur = this._startSource(buffer, old.start, old.region);
+      return;
+    }
+    const when = c.currentTime + 0.01;
+    const next = this._startSource(buffer, when, { ...old.region, offset: this._posAfter(old, when - old.start) });
+    const end = when + CROSSFADE;
+    next.g.gain.setValueAtTime(0, when);
+    next.g.gain.linearRampToValueAtTime(1, end);
+    old.g.gain.setValueAtTime(1, when);
+    old.g.gain.linearRampToValueAtTime(0, end);
+    old.src.stop(end + 0.01);
+    this.cur = next;
   }
 
   /** Position in the loop slice (seconds into the buffer) `e` seconds after the source started. */

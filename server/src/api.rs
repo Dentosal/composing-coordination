@@ -149,6 +149,7 @@ async fn get_state(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMa
             };
             json!({
                 "joined_round": seat.joined_round,
+                "seat_index": seat.index,
                 "eligible": cur.map_or(true, |r| seat.joined_round <= r.index),
                 "ready": cur.map_or(false, |r| r.ready.contains(&seat.id)),
                 "orders": orders,

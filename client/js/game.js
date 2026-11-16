@@ -3,6 +3,7 @@ import * as api from './api.js';
 import { LoopPlayer, decode, unlock } from './audio.js';
 import { h, clear } from './dom.js';
 import { InstrumentPanel, ensureTracks, loadPresets } from './editor.js';
+import { renderPreviewLocal } from './render.js';
 import { PatternEditor } from './pattern.js';
 
 const fmtTime = (ms) => {
@@ -29,6 +30,9 @@ export class Game {
     // Local preview of this seat's uncommitted part, rendered by the server and looped over the mix.
     this.previewPlayer = new LoopPlayer();
     this.previewOn = false;
+    // Preview renders in the browser by default (instant); the checkbox switches to the server's canonical render.
+    this.serverPreview = false;
+    try { this.serverPreview = localStorage.getItem('serverPreview') === '1'; } catch {}
     this.previewT = null;
     this.previewBusy = false;
     this.previewStale = false;
@@ -151,7 +155,10 @@ export class Game {
       this.updateCommit();
     }
     this.scheduleSave(800);
-    if (this.previewOn) this.schedulePreview(600);
+    if (this.previewOn) {
+      this.editAt ??= performance.now(); // first edit not yet heard; used for latency logging
+      this.schedulePreview(this.serverPreview ? 600 : 120);
+    }
   }
 
   scheduleSave(ms) {
@@ -268,8 +275,10 @@ export class Game {
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play mix');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
+    r.serverChk = h('input', { type: 'checkbox', checked: this.serverPreview, onchange: (e) => this.setServerPreview(e.target.checked) });
+    r.serverLbl = h('label.muted', { title: 'Render the preview on the server, exactly like the final band mix (slower). Off: render in your browser for instant feedback.' }, r.serverChk, ' Server render');
     r.mixInfo = h('span.muted');
-    r.mix = h('section.mix', r.playBtn, r.previewBtn, r.mixInfo);
+    r.mix = h('section.mix', r.playBtn, r.previewBtn, r.serverLbl, r.mixInfo);
 
     const instRoot = h('div');
     const patRoot = h('div');
@@ -450,6 +459,12 @@ export class Game {
     this.updateMix();
   }
 
+  setServerPreview(on) {
+    this.serverPreview = on;
+    try { localStorage.setItem('serverPreview', on ? '1' : '0'); } catch {}
+    if (this.previewOn) this.schedulePreview(0);
+  }
+
   schedulePreview(ms) {
     clearTimeout(this.previewT);
     this.previewT = setTimeout(() => this.renderPreview(), ms);
@@ -465,13 +480,31 @@ export class Game {
     this.previewStale = false;
     this.updateMix();
     let retry = 0;
+    const t0 = performance.now();
+    const editAt = this.editAt ?? t0;
+    this.editAt = null;
     try {
       const snapshot = JSON.parse(JSON.stringify(this.orders));
       for (const lane of snapshot.lanes) if (!this.isAudible(lane.instrument)) lane.steps = []; // muted / not soloed
-      const buf = await decode(await api.fetchPreview(this.sid, this.token, snapshot));
+      const local = !this.serverPreview;
+      let buf, size = 0, t1;
+      if (local) {
+        buf = await renderPreviewLocal(snapshot, this.st.config, this.st.you?.seat_index ?? 0);
+        t1 = performance.now();
+      } else {
+        const wav = await api.fetchPreview(this.sid, this.token, snapshot);
+        t1 = performance.now();
+        size = wav.byteLength;
+        buf = await decode(wav);
+      }
+      const t2 = performance.now();
       if (this.previewOn && !this.dead) {
         this.previewMsg = '';
-        this.previewPlayer.setBuffer(buf);
+        this.previewPlayer.setBuffer(buf, true); // swap in at the current playhead, don't wait for the loop boundary
+        const f = (x) => Math.round(x);
+        console.log(
+          `[preview] edit→audible ${f(t2 - editAt)}ms = wait-before-render ${f(t0 - editAt)} + ${local ? 'local render' : 'server'} ${f(t1 - t0)}${local ? '' : ` (${(size / 1024) | 0} KiB)`} + decode ${f(t2 - t1)} (loop ${buf.duration.toFixed(2)}s)`,
+        );
         const pending = this.pendingPlay;
         this.pendingPlay = null;
         if (pending) { // a play command was waiting for the first render
