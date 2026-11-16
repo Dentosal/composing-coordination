@@ -16,21 +16,32 @@ export async function loadPresets() {
   return presetCache;
 }
 
-function uniqueId(base, taken) {
-  if (!taken.has(base)) return base;
-  for (let i = 2; ; i++) {
-    const id = `${base}${i}`.slice(0, 32);
-    if (!taken.has(id)) return id;
-  }
-}
-
 /**
- * Keep exactly `maxLanes` lanes whenever there is at least one instrument. New lanes start on the first
- * instrument and stay empty (an empty lane is valid and renders nothing).
+ * Normalise orders to exactly `n` tracks: track i = lanes[i] + the instrument it names (one-to-one). Orphans and
+ * duplicates are dropped, missing tracks get a copy of the init preset and an empty lane.
  */
-export function ensureLanes(orders, maxLanes) {
-  if (!orders.instruments.length) return;
-  while (orders.lanes.length < maxLanes) orders.lanes.push({ instrument: orders.instruments[0].id, steps: [] });
+export function ensureTracks(orders, n, presets) {
+  const byId = new Map(orders.instruments.map((i) => [i.id, i]));
+  const instruments = [];
+  const lanes = [];
+  for (const lane of orders.lanes) {
+    const inst = byId.get(lane.instrument);
+    if (!inst || lanes.length >= n) continue;
+    byId.delete(lane.instrument); // a second lane on the same instrument is dropped
+    instruments.push(inst);
+    lanes.push(lane);
+  }
+  const taken = new Set(instruments.map((i) => i.id));
+  for (let k = 1; lanes.length < n; k++) {
+    const id = `track${k}`;
+    if (taken.has(id)) continue;
+    taken.add(id);
+    const base = presets.get('init')?.instrument;
+    instruments.push({ ...structuredClone(base), id, name: presets.get('init')?.label ?? 'Init' });
+    lanes.push({ instrument: id, steps: [] });
+  }
+  orders.instruments = instruments;
+  orders.lanes = lanes;
 }
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -100,15 +111,15 @@ const module = (title, ...kids) => h('section.module', h('h4', title), ...kids);
 export class InstrumentPanel {
   /**
    * @param {HTMLElement} root
-   * @param {{maxInstruments:number,maxLanes:number,getOrders:()=>import('./types.js').Orders,
-   *   onChange:()=>void,onStructure?:()=>void,presets:Map<string,any>}} opts
+   * @param {{getOrders:()=>import('./types.js').Orders,
+   *   onChange:()=>void,getActive:()=>number,presets:Map<string,any>}} opts
    */
   constructor(root, opts) {
     this.root = root;
     this.o = opts;
-    this.pick = 'init';
-    this.sel = null; // selected instrument id
-    this.collapsed = false; // hide the patch editor to make room for the pattern
+    this.pick = 'init'; // preset chosen in the overwrite selector
+    this.nodesOpen = true; // node configuration section (collapse to make room for the pattern)
+    this.routingOpen = false; // signal routing diagram, collapsed by default
     this.aud = new Auditioner({ bpm: opts.bpm ?? 120, seed: opts.seed ?? 1 });
     this.audition = { note: 48, vel: 100, rate: 1 }; // audition settings persist across instruments and edits
     this.render();
@@ -118,42 +129,22 @@ export class InstrumentPanel {
     return this.o.getOrders();
   }
 
-  addPreset(key) {
-    const orders = this.orders;
-    if (orders.instruments.length >= this.o.maxInstruments) return;
-    const p = this.o.presets.get(key);
-    if (!p) return;
-    const inst = structuredClone(p.instrument);
-    inst.id = uniqueId(key, new Set(orders.instruments.map((i) => i.id)));
-    orders.instruments.push(inst);
-    // Hand the new instrument the first empty lane (lanes are always present, see ensureLanes).
-    ensureLanes(orders, this.o.maxLanes);
-    const free = orders.lanes.find((l) => l.steps.length === 0);
-    if (free) free.instrument = inst.id;
-    this.sel = inst.id;
-    this.o.onChange();
-    this.render();
-    this.o.onStructure?.();
+  /** The instrument of the active track (the pattern's current column). */
+  get active() {
+    const lane = this.orders.lanes[this.o.getActive()];
+    return this.orders.instruments.find((i) => i.id === lane?.instrument) ?? null;
   }
 
-  /** Replace the selected instrument's patch with a preset, keeping its id (so lanes stay attached). */
+  /** Overwrite the active track's patch with a preset, keeping its id (so the lane stays attached). */
   loadPreset(key) {
     const p = this.o.presets.get(key);
-    const i = this.orders.instruments.findIndex((x) => x.id === this.sel);
-    if (!p || i < 0) return;
-    this.orders.instruments[i] = { ...structuredClone(p.instrument), id: this.sel };
+    const cur = this.active;
+    if (!p || !cur) return;
+    const i = this.orders.instruments.indexOf(cur);
+    this.orders.instruments[i] = { ...structuredClone(p.instrument), id: cur.id, name: p.label ?? key };
+    this.o.onRename?.();
     this.o.onChange();
     this.render();
-  }
-
-  remove(id) {
-    const orders = this.orders;
-    orders.instruments = orders.instruments.filter((i) => i.id !== id);
-    orders.lanes = orders.lanes.filter((l) => l.instrument !== id);
-    if (this.sel === id) this.sel = orders.instruments[0]?.id ?? null;
-    this.o.onChange();
-    this.render();
-    this.o.onStructure?.();
   }
 
   destroy() {
@@ -161,34 +152,14 @@ export class InstrumentPanel {
   }
 
   render() {
-    const orders = this.orders;
     clear(this.root);
-    if (!orders.instruments.some((i) => i.id === this.sel)) this.sel = orders.instruments[0]?.id ?? null;
-    if (this.aud.loopId && this.aud.loopId !== this.sel) this.aud.stopLoop(); // the loop belongs to one instrument
-    const full = orders.instruments.length >= this.o.maxInstruments;
-
-    const tabs = h('div.inst-tabs');
-    for (const inst of orders.instruments) {
-      tabs.append(h('div', { class: `inst-tab${inst.id === this.sel ? ' sel' : ''}` },
-        h('button.link', { onclick: () => { this.sel = inst.id; this.render(); } }, inst.id),
-        h('button.icon', { title: 'Remove instrument', onclick: () => this.remove(inst.id) }, '×')));
-    }
-    const presetOptions = (cur) => [...this.o.presets].map(([k, p]) =>
-      h('option', { value: k, selected: k === cur }, p.label ?? k));
-    const addSel = h('select', { onchange: (e) => { this.pick = e.target.value; } }, presetOptions(this.pick));
-    tabs.append(h('button.small', { onclick: () => { this.collapsed = !this.collapsed; this.render(); } },
-      this.collapsed ? '▸ Show sound editor' : '▾ Hide sound editor'));
-    tabs.append(h('div.inst-add', addSel,
-      h('button', { disabled: full, onclick: () => this.addPreset(this.pick) },
-        full ? `Limit ${this.o.maxInstruments} reached` : '+ Add instrument')));
-    this.root.append(tabs);
-
-    const inst = orders.instruments.find((i) => i.id === this.sel);
+    const inst = this.active;
+    if (this.aud.loopId && this.aud.loopId !== inst?.id) this.aud.stopLoop(); // the loop belongs to one instrument
     if (!inst) {
-      this.root.append(h('p.muted', 'No instruments yet. Pick a preset and add one.'));
+      this.root.append(h('p.muted', 'No track selected.'));
       return;
     }
-    if (!this.collapsed) this.root.append(this.editor(inst));
+    this.root.append(this.editor(inst));
   }
 
   /** Note picker, velocity, and three ways to play it: once, held while pressed, or looped at a BPM multiple. */
@@ -249,33 +220,48 @@ export class InstrumentPanel {
       h('span.loop', loopBtn, h('label', 'rate', rateSel)));
   }
 
+  /** A collapsible section whose open state survives re-renders. */
+  section(cls, title, key, ...kids) {
+    const d = h(`details.${cls}`, { open: this[key] }, h('summary', title), ...kids);
+    d.addEventListener('toggle', () => { this[key] = d.open; });
+    return d;
+  }
+
   editor(inst) {
     const idx = () => this.orders.instruments.findIndex((i) => i.id === inst.id); // by id: edits replace the object
     const patch = parseInstrument(inst);
 
     const loadSel = h('select', presetOptionsFor(this.o.presets));
-    const loader = h('div.loader', h('span.muted', 'Start from'), loadSel,
+    const nameIn = h('input.track-name', { value: inst.name ?? inst.id, maxlength: '32', placeholder: 'Track name', 'aria-label': 'Track name',
+      oninput: (e) => {
+        const cur = this.orders.instruments[idx()];
+        cur.name = e.target.value;
+        this.o.onChange();
+        this.o.onRename?.();
+      } });
+    const loader = h('div.loader', h('span.muted', 'Preset'), loadSel,
       h('button', { onclick: () => {
-        if (confirm(`Replace the sound of "${inst.id}" with the ${loadSel.value} preset?`)) this.loadPreset(loadSel.value);
-      } }, 'Load preset'));
+        if (confirm(`Overwrite the patch of track ${this.o.getActive() + 1} with the ${loadSel.value} preset?`)) this.loadPreset(loadSel.value);
+      } }, 'Overwrite patch'));
+    const head = h('div.track-head', h('strong', `Track ${this.o.getActive() + 1}`), nameIn, loader);
 
     if (!patch) {
       // Not a template instrument (e.g. hand-written orders): only the output levels can be edited here.
       const change = () => this.o.onChange();
       pairDefaults(inst, defaultPatch());
-      return h('div.patch', loader, this.auditionBar(inst),
-        h('p.muted', 'This instrument has a custom signal graph that this editor cannot show. Load a preset to replace it.'),
-        h('div.patch-grid', module('Output',
+      return h('div.patch', head, this.auditionBar(inst),
+        h('p.muted', 'This instrument has a custom signal graph that this editor cannot show. Overwrite it from a preset to edit it here.'),
+        this.section('nodes', 'Node configuration', 'nodesOpen', h('div.patch-grid', module('Output',
           knob('level', inst, 'gain', { min: 0, max: 1 }, change),
           knob('delay', inst, 'send_delay', { min: 0, max: 1 }, change),
-          knob('reverb', inst, 'send_reverb', { min: 0, max: 1 }, change))));
+          knob('reverb', inst, 'send_reverb', { min: 0, max: 1 }, change)))));
     }
 
     // Every edit rebuilds the graph from the patch and swaps it in; lanes refer to the id, which never changes.
     pairDefaults(patch, defaultPatch());
-    const routing = h('details.routing', { open: true }, h('summary', 'Signal routing'), routingDiagram(patch));
+    const routing = this.section('routing', 'Signal routing', 'routingOpen', routingDiagram(patch));
     const change = () => {
-      this.orders.instruments[idx()] = buildInstrument(inst.id, patch);
+      this.orders.instruments[idx()] = buildInstrument(inst.id, patch, this.orders.instruments[idx()].name);
       routing.lastElementChild.replaceWith(routingDiagram(patch));
       this.o.onChange();
     };
@@ -301,7 +287,7 @@ export class InstrumentPanel {
       knob('release', e, 'release', { min: 0.001, max: 5, log: true, unit: ' s' }, change),
       amount ? knob(amount.label, e, 'amount', amount, change) : null);
 
-    return h('div.patch', loader, this.auditionBar(inst), routing, h('div.patch-grid',
+    return h('div.patch', head, this.auditionBar(inst), this.section('nodes', 'Node configuration', 'nodesOpen', h('div.patch-grid',
       module('Oscillators', patch.osc.map((o, i) => oscRow(o, i + 1))),
       module('Noise',
         select('color', noise, 'color', ['white', 'pink'], change),
@@ -325,7 +311,7 @@ export class InstrumentPanel {
       module('Output',
         knob('level', patch, 'gain', { min: 0, max: 1 }, change),
         knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
-        knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change))));
+        knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change)))), routing);
   }
 }
 

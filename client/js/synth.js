@@ -39,7 +39,7 @@ const env = (id, e, amount) => ({
 const gainNode = (id, gain) => ({ id, type: 'gain', gain });
 
 /** Patch -> orders instrument. */
-export function buildInstrument(id, p) {
+export function buildInstrument(id, p, name) {
   const nodes = [];
   const edges = [];
   const edge = (from, to, port) => edges.push(port ? { from, to, port } : { from, to });
@@ -84,7 +84,7 @@ export function buildInstrument(id, p) {
   edge('lfo', 'lfo_a');
   edge('vca', 'out');
 
-  return { id, gain: p.gain, send_delay: p.send_delay, send_reverb: p.send_reverb, nodes, edges };
+  return { id, ...(name ? { name } : {}), gain: p.gain, send_delay: p.send_delay, send_reverb: p.send_reverb, nodes, edges };
 }
 
 // ------------------------------------------------------------------ parsing

@@ -32,6 +32,9 @@ pub struct Orders {
 #[serde(deny_unknown_fields)]
 pub struct Instrument {
     pub id: String,
+    /// Optional display name chosen by the player (the id stays the stable key lanes refer to).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// Bus level, 0..=1.
     #[serde(default = "default_gain")]
     pub gain: f32,
@@ -216,16 +219,25 @@ impl Orders {
             if !inst_ids.insert(inst.id.as_str()) {
                 err(format!("{p}.id"), format!("duplicate instrument id '{}'", inst.id));
             }
+            if let Some(n) = &inst.name {
+                if n.chars().count() > 32 || n.chars().any(|c| c.is_control()) {
+                    err(format!("{p}.name"), "name must be at most 32 characters, without control characters".into());
+                }
+            }
             range(inst.gain, 0.0, 1.0, &format!("{p}.gain"), &mut err);
             range(inst.send_delay, 0.0, 1.0, &format!("{p}.send_delay"), &mut err);
             range(inst.send_reverb, 0.0, 1.0, &format!("{p}.send_reverb"), &mut err);
             validate_instrument(inst, &p, &mut err);
         }
 
+        // One track = one instrument + one lane: every lane has its own instrument and every instrument its own lane.
+        let mut used = HashSet::new();
         for (i, lane) in self.lanes.iter().enumerate() {
             let p = format!("lanes[{i}]");
             if !inst_ids.contains(lane.instrument.as_str()) {
                 err(format!("{p}.instrument"), format!("unknown instrument '{}'", lane.instrument));
+            } else if !used.insert(lane.instrument.as_str()) {
+                err(format!("{p}.instrument"), format!("instrument '{}' already has a lane (one lane per instrument)", lane.instrument));
             }
             if lane.steps.len() > limits.total_rows as usize {
                 err(format!("{p}.steps"), "too many steps".into());
@@ -247,6 +259,11 @@ impl Orders {
                 if s.vel == 0 || s.vel > 127 {
                     err(format!("{sp}.vel"), "velocity must be 1..=127".into());
                 }
+            }
+        }
+        for (i, inst) in self.instruments.iter().enumerate() {
+            if !used.contains(inst.id.as_str()) {
+                err(format!("instruments[{i}]"), format!("instrument '{}' has no lane", inst.id));
             }
         }
         errs
@@ -402,5 +419,25 @@ mod tests {
         let errs = o.validate(&limits());
         assert!(errs.iter().any(|e| e.message.contains("cycle")));
         assert!(errs.iter().any(|e| e.path.ends_with(".row")));
+    }
+
+    #[test]
+    fn tracks_are_one_instrument_one_lane() {
+        let mut o: Orders = serde_json::from_str(GOOD).unwrap();
+        o.lanes.push(Lane { instrument: "b".into(), steps: vec![] });
+        assert!(o.validate(&limits()).iter().any(|e| e.message.contains("already has a lane")));
+        let mut o: Orders = serde_json::from_str(GOOD).unwrap();
+        o.lanes.clear();
+        assert!(o.validate(&limits()).iter().any(|e| e.message.contains("has no lane")));
+    }
+
+    #[test]
+    fn instrument_name_is_optional_and_bounded() {
+        let mut o: Orders = serde_json::from_str(GOOD).unwrap();
+        assert!(o.instruments[0].name.is_none());
+        o.instruments[0].name = Some("Wobbly bass".into());
+        assert!(o.validate(&limits()).is_empty());
+        o.instruments[0].name = Some("x".repeat(33));
+        assert!(o.validate(&limits()).iter().any(|e| e.path.ends_with(".name")));
     }
 }

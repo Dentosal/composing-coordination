@@ -65,8 +65,7 @@ const FIELDS = [
   ['bpm', 'BPM', 112, 'number'],
   ['bars', 'Bars per loop', 4, 'number'],
   ['rows_per_bar', 'Rows per bar', 16, 'number'],
-  ['max_lanes', 'Lanes per player', 4, 'number'],
-  ['max_instruments', 'Instruments per player', 4, 'number'],
+  ['max_tracks', 'Tracks per player', 4, 'number'], // a track = one instrument + its pattern lane
   ['rounds', 'Rounds (blank = until host ends)', '', 'number'],
   ['round_timer_secs', 'Round timer, seconds (blank = none)', '', 'number'],
   ['seed', 'Seed (blank = random)', '', 'text'],
@@ -95,6 +94,8 @@ function showHome() {
       if (v === '') continue;
       cfg[name] = Number(v);
     }
+    if (cfg.max_tracks != null) cfg.max_lanes = cfg.max_instruments = cfg.max_tracks;
+    delete cfg.max_tracks;
     cfg.timeout_policy = inputs.timeout_policy.value;
     try {
       await unlock();

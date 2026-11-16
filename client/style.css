@@ -47,11 +47,9 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .mix { display: flex; align-items: center; gap: 14px; padding: 12px 0; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
-.inst-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
-.inst-tab { display: flex; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 0 2px 0 8px; }
-.inst-tab.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
-.inst-tab .link { padding: 4px 4px; color: var(--text); }
-.inst-add { display: flex; gap: 6px; margin-left: auto; }
+.track-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.track-name { width: 14em; max-width: 100%; }
+.track-head .loader { margin: 0 0 0 auto; }
 .audition { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px; padding: 8px 12px; background: var(--panel2); border-radius: 8px; font-size: .85rem; color: var(--muted); }
 .audition label { display: flex; align-items: center; gap: 6px; }
 .audition output { font-family: var(--mono); color: var(--text); min-width: 2.2em; }
@@ -73,7 +71,9 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .osc-head { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 6px; font-size: .85rem; }
 .osc-head .knob { display: block; }
 .osc-head select { width: 100%; }
-.routing { margin-bottom: 12px; background: var(--panel2); border-radius: 8px; padding: 8px 12px; }
+.nodes { margin-bottom: 12px; }
+.nodes > summary { cursor: pointer; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+.routing { margin-top: 12px; margin-bottom: 12px; background: var(--panel2); border-radius: 8px; padding: 8px 12px; }
 .routing summary { cursor: pointer; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .rd { display: block; width: 100%; max-width: 940px; height: auto; margin-top: 8px; font-family: system-ui, sans-serif; }
 .rd-box rect, .rd-box circle { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
@@ -105,12 +105,16 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .cell.off { color: var(--muted); }
 .cell.cur { background: var(--accent) !important; color: var(--accent-ink); }
 .lane-head { display: flex; gap: 4px; padding: 4px; border-left: 1px solid var(--line); }
-.lane-head select { flex: 1; min-width: 0; padding: 2px 4px; }
+.lane-head { flex-direction: column; gap: 2px; cursor: pointer; min-width: 0; }
+.lane-name { font-size: .8rem; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lane-vol { width: 100%; margin: 2px 0 0; }
+.lane-head.active { background: var(--accent); color: var(--accent-ink); }
+.cell.laneact { box-shadow: inset 0 0 0 100px rgba(255,255,255,.05); }
 .pattern-help { margin-top: 8px; color: var(--muted); font-size: .8rem; }
 .empty { padding: 20px; color: var(--muted); font-family: system-ui; }
-.commitbar { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; border-top: 1px solid var(--line); margin-top: 16px; }
-.commit-row { display: flex; align-items: center; gap: 14px; }
-.errors { margin: 0 0 8px; padding-left: 20px; font-size: .9rem; max-height: 120px; overflow: auto; }
+.commit-info { font-size: .85rem; }
+.errors { margin: 8px 0 0; padding-left: 20px; font-size: .9rem; max-height: 120px; overflow: auto; }
 .errors:empty { display: none; }
 audio { width: 100%; max-width: 520px; }
 input[type=range] { accent-color: var(--accent); }
+.lane-head.active .lane-vol { accent-color: var(--accent-ink); }

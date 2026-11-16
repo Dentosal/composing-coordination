@@ -2,7 +2,7 @@
 import * as api from './api.js';
 import { LoopPlayer, decode, unlock } from './audio.js';
 import { h, clear } from './dom.js';
-import { InstrumentPanel, loadPresets } from './editor.js';
+import { InstrumentPanel, ensureTracks, loadPresets } from './editor.js';
 import { PatternEditor } from './pattern.js';
 
 const fmtTime = (ms) => {
@@ -245,6 +245,8 @@ export class Game {
   }
 
   buildGame() {
+    const tracks = Math.min(this.st.config.max_lanes, this.st.config.max_instruments);
+    ensureTracks(this.orders, tracks, this.presets); // every player always has the full set of tracks
     const r = this.refs;
     const cfg = this.st.config;
     const totalRows = cfg.bars * cfg.rows_per_bar;
@@ -255,7 +257,10 @@ export class Game {
           try { await api.end(this.sid, this.host); this.st.end_requested = true; this.updateTop(); } catch (err) { alert(err.message); }
         } }, 'End after this round')
       : null;
-    r.top = h('header.topbar', r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn);
+    r.errors = h('ul.errors');
+    r.commit = h('button.primary', { onclick: () => this.commit() }, 'Commit & ready');
+    r.commitInfo = h('span.muted.commit-info');
+    r.top = h('header.topbar', r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play mix');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
@@ -267,20 +272,19 @@ export class Game {
     this.pattern = new PatternEditor(patRoot, {
       totalRows, rowsPerBar: cfg.rows_per_bar, maxLanes: cfg.max_lanes,
       getOrders: () => this.orders, onChange: () => this.touch(), onSpace: () => this.togglePlay(),
+      onSelect: () => this.panel.render(), // the active column picks the patch shown in the instrument panel
+      onVolume: () => this.panel.render(),
     });
     this.panel = new InstrumentPanel(instRoot, {
-      maxInstruments: cfg.max_instruments, maxLanes: cfg.max_lanes, presets: this.presets, bpm: cfg.bpm, seed: cfg.seed,
-      getOrders: () => this.orders, onChange: () => this.touch(), onStructure: () => this.pattern.render(),
+      presets: this.presets, bpm: cfg.bpm, seed: cfg.seed, getActive: () => this.pattern.cur.lane,
+      getOrders: () => this.orders, onChange: () => { this.touch(); this.pattern.syncHeads(); },
+      onRename: () => this.pattern.syncHeads(),
     });
 
-    r.errors = h('ul.errors');
-    r.commit = h('button.primary.big', { onclick: () => this.commit() }, 'Commit & ready');
-    r.commitInfo = h('span.muted');
-    this.root.append(r.top, r.mix,
+    this.root.append(r.top, r.errors, r.mix,
       h('div.workspace',
-        h('aside.panel', h('h3', 'Instruments'), instRoot),
-        h('section.panel.pattern', h('h3', 'Pattern'), patRoot)),
-      h('footer.commitbar', r.errors, h('div.commit-row', r.commit, r.commitInfo)));
+        h('aside.panel', h('h3', 'Patch'), instRoot),
+        h('section.panel.pattern', h('h3', 'Pattern'), patRoot)));
   }
 
   updateTop() {

@@ -1,6 +1,5 @@
 // Tracker-style pattern editor: one column per lane, one row per loop row.
 import { h, clear } from './dom.js';
-import { ensureLanes } from './editor.js';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
 export const noteName = (m) => `${NOTE_NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
@@ -15,7 +14,8 @@ export class PatternEditor {
   /**
    * @param {HTMLElement} root
    * @param {{totalRows:number,rowsPerBar:number,maxLanes:number,
-   *   getOrders:()=>import('./types.js').Orders, onChange:()=>void, onSpace?:()=>void}} opts
+   *   getOrders:()=>import('./types.js').Orders, onChange:()=>void, onSpace?:()=>void,
+   *   onSelect?:()=>void, onVolume?:()=>void}} opts
    */
   constructor(root, opts) {
     this.root = root;
@@ -62,12 +62,42 @@ export class PatternEditor {
     this.render();
   }
 
+  instOf(lane) {
+    return this.orders.instruments.find((i) => i.id === lane.instrument);
+  }
+
+  nameOf(lane) {
+    const i = this.instOf(lane);
+    return i?.name || i?.id || '';
+  }
+
+  /** Refresh header names and volumes in place (after an edit made elsewhere); keeps focus and drags intact. */
+  syncHeads() {
+    this.grid.querySelectorAll('.lane-head').forEach((el, li) => {
+      const lane = this.orders.lanes[li];
+      if (!lane) return;
+      const name = el.querySelector('.lane-name');
+      if (name) { name.textContent = this.nameOf(lane); name.title = name.textContent; }
+      const vol = el.querySelector('.lane-vol');
+      const g = String(this.instOf(lane)?.gain ?? 0.8);
+      if (vol && vol !== document.activeElement && vol.value !== g) vol.value = g;
+    });
+  }
+
+  select(lane) {
+    this.cur.lane = lane;
+    this.render();
+    this.grid.focus({ preventScroll: true });
+    this.o.onSelect?.();
+  }
+
   move(dLane, dRow) {
     const lanes = this.orders.lanes.length;
     if (!lanes) return;
     this.cur.lane = (this.cur.lane + dLane + lanes) % lanes;
     this.cur.row = Math.min(this.o.totalRows - 1, Math.max(0, this.cur.row + dRow));
     this.render();
+    if (dLane) this.o.onSelect?.();
   }
 
   onKey(e) {
@@ -134,7 +164,6 @@ export class PatternEditor {
 
   render() {
     const orders = this.orders;
-    ensureLanes(orders, this.o.maxLanes);
     const lanes = orders.lanes;
     if (this.cur.lane >= lanes.length) this.cur.lane = Math.max(0, lanes.length - 1);
     const hadFocus = this.grid.contains(document.activeElement) || document.activeElement === this.grid;
@@ -142,18 +171,25 @@ export class PatternEditor {
     this.rowEls = [];
     this.grid.style.setProperty('--lanes', Math.max(1, lanes.length));
 
-    if (!lanes.length) {
-      this.grid.append(h('div.empty', 'Add an instrument to start writing notes.'));
-      this.renderStatus();
-      return;
-    }
 
     const head = h('div.grid-row.head', h('div.rownum', ''));
     lanes.forEach((lane, li) => {
       head.append(
-        h('div.lane-head',
-          h('select', { onchange: (e) => { lane.instrument = e.target.value; this.changed(); } },
-            orders.instruments.map((i) => h('option', { value: i.id, selected: i.id === lane.instrument }, i.id)))),
+        h('div', { class: `lane-head${li === this.cur.lane ? ' active' : ''}`,
+          onmousedown: (e) => { e.preventDefault(); this.select(li); } },
+          h('strong', `Track ${li + 1}`),
+          h('div.lane-name', { title: this.nameOf(lane) }, this.nameOf(lane)),
+          h('input.lane-vol', { type: 'range', min: '0', max: '1', step: '0.01', title: 'Track volume',
+            value: String(this.instOf(lane)?.gain ?? 0.8),
+            // No selection / re-render on press: this slider must survive the drag.
+            onmousedown: (e) => e.stopPropagation(),
+            oninput: (e) => {
+              const inst = this.instOf(lane);
+              if (!inst) return;
+              inst.gain = Number(e.target.value);
+              this.o.onChange();
+              this.o.onVolume?.();
+            } })),
       );
     });
     this.grid.append(head);
@@ -170,16 +206,18 @@ export class PatternEditor {
           if (s.note == null) { text = 'OFF'; cls += ' off'; }
           else { text = `${noteName(s.note)} ${String(s.vel).padStart(3, ' ')}`; cls += ' note'; }
         }
-        if (li === this.cur.lane && r === this.cur.row) cls += ' cur';
+        if (li === this.cur.lane) cls += r === this.cur.row ? ' cur' : ' laneact';
         row.append(h('div', {
           class: cls,
           // preventDefault: render() replaces this cell mid-click, and browsers that then run the
           // default focus step on the detached node (Safari, Firefox) leave the grid unfocused.
           onmousedown: (e) => {
             e.preventDefault();
+            const moved = li !== this.cur.lane;
             this.cur = { lane: li, row: r };
             this.render();
             this.grid.focus({ preventScroll: true });
+            if (moved) this.o.onSelect?.();
           },
         }, text));
       });
