@@ -64,9 +64,11 @@ function pairDefaults(obj, def) {
 }
 
 /**
- * A labelled slider with a value readout. `o.log` maps the slider exponentially between min and max
- * (for Hz and seconds). Writes `obj[key]` and calls `change` on every input. Double-click resets it to the
- * default patch's value (or `o.def` where the default is not a number).
+ * A labelled slider with an editable value field. `o.log` maps the slider exponentially between min and max
+ * (for Hz and seconds). Writes `obj[key]` and calls `change` on every edit, from either control: dragging the
+ * slider updates the field, and typing a number (units optional) moves the slider. Typed values are clamped to
+ * the range (the unit is displayed next to the field, outside the editable text); Enter or leaving the field tidies the text, Escape restores the value from when the field was entered, ArrowUp/Down nudge by a step
+ * (Shift: ten steps). Double-click the slider to reset it to the default patch's value (or `o.def`).
  */
 function knob(label, obj, key, o, change) {
   const { min, max, step = 0.01, log = false, unit = '' } = o;
@@ -76,26 +78,62 @@ function knob(label, obj, key, o, change) {
     const v = min * (max / min) ** x;
     return Number(v.toPrecision(3));
   };
-  const out = h('output', fmt(obj[key]) + unit);
-  const input = h('input', {
+  /** Clamp to the range and snap to the step (linear knobs) or three significant digits (log knobs). */
+  const normalize = (v) => {
+    const c = Math.min(max, Math.max(min, v));
+    return log ? Number(c.toPrecision(3)) : Number((Math.round(c / step) * step).toFixed(6));
+  };
+  const text = (v) => fmt(v); // the unit is shown beside the field, not inside it
+  const field = h('input.val', { type: 'text', inputmode: 'decimal', value: text(obj[key]), spellcheck: 'false',
+    title: 'Type a value, or use ↑ ↓ (Shift: ×10)', 'aria-label': label });
+  const slider = h('input', {
     title: 'Double-click to reset',
     type: 'range', min: log ? '0' : String(min), max: log ? '1' : String(max), step: log ? '0.001' : String(step),
     value: String(toSlider(obj[key])),
     oninput: (e) => {
       obj[key] = fromSlider(parseFloat(e.target.value));
-      out.textContent = fmt(obj[key]) + unit;
+      field.value = text(obj[key]);
       change();
     },
     ondblclick: () => {
       const def = o.def ?? DEFAULTS.get(obj)?.[key];
       if (typeof def !== 'number') return;
       obj[key] = def;
-      input.value = String(toSlider(def));
-      out.textContent = fmt(def) + unit;
+      slider.value = String(toSlider(def));
+      field.value = text(def);
       change();
     },
   });
-  return h('label.knob', h('span', label), input, out);
+  const apply = (v) => {
+    obj[key] = v;
+    slider.value = String(toSlider(v));
+    change();
+  };
+  // Typing applies as soon as the text is a number, without rewriting what the user is typing.
+  field.addEventListener('input', () => {
+    const v = parseFloat(field.value.replace(',', '.'));
+    if (Number.isFinite(v)) apply(normalize(v));
+  });
+  const tidy = () => { field.value = text(obj[key]); };
+  field.addEventListener('change', tidy);
+  field.addEventListener('blur', tidy);
+  let before = obj[key]; // value when the field was entered, for Escape
+  field.addEventListener('focus', () => { before = obj[key]; field.select(); });
+  field.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { tidy(); field.blur(); return; }
+    if (e.key === 'Escape') { if (obj[key] !== before) apply(before); tidy(); field.blur(); return; }
+    if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    const dir = e.key === 'ArrowUp' ? 1 : -1;
+    const mult = e.shiftKey ? 10 : 1;
+    const cur = obj[key];
+    // Log knobs move proportionally (about a semitone per step); linear knobs by their slider step.
+    const next = log ? cur * (1.06 ** (dir * mult)) : cur + dir * step * mult;
+    apply(normalize(next));
+    tidy();
+    field.select();
+  });
+  return h('label.knob', h('span', label), slider, h('span.val-wrap', field, unit ? h('span.unit', unit.trim()) : null));
 }
 
 function select(label, obj, key, options, change) {

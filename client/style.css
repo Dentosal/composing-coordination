@@ -68,7 +68,7 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .lfo-head .knob { display: block; flex: 1; }
 .lfo-head select { width: 100%; }
 .lfo-ctl strong { font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.lfo-ctl .knob { grid-template-columns: 74px 1fr 62px; }
+.lfo-ctl .knob { grid-template-columns: 74px 1fr 76px; }
 @media (max-width: 1100px) {
   .patch-cols, .lfo-row { grid-template-columns: 1fr; }
 }
@@ -78,7 +78,7 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
   .lfo-row { align-items: stretch; }
   .lfo-amt { position: relative; }
   .lfo-amt .knob { grid-template-columns: 1fr var(--lfo-out-w); }
-  .lfo-amt .knob > span { display: none; }
+  .lfo-amt .knob > span:first-child { display: none; } /* the label only, not the value + unit */
   .lfo-amt::after { content: ''; position: absolute; left: var(--lfo-arrow-x); top: calc(50% + 12px); bottom: -14px; width: 2px; margin-left: -1px; background: var(--accent); }
   .lfo-amt::before { content: ''; position: absolute; left: var(--lfo-arrow-x); top: calc(100% + 14px); margin-left: -5px; border: 5px solid transparent; border-top: 6px solid var(--accent); border-bottom: 0; }
   .lfo-target { box-shadow: inset 0 3px 0 var(--accent); }
@@ -89,16 +89,22 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 }
 /* The connector arrows sit at the centre of the (centred) value readout: its width and the cell padding are shared
    variables, so the arrow position follows from the same numbers that size the readout. */
-.lfo-row { --lfo-pad: 12px; --lfo-out-w: 62px; --lfo-arrow-x: calc(100% - var(--lfo-pad) - var(--lfo-out-w) / 2); }
+.lfo-row { --lfo-pad: 12px; --lfo-out-w: 76px; --lfo-arrow-x: calc(100% - var(--lfo-pad) - var(--lfo-out-w) / 2); }
 .lfo-amt { display: flex; align-items: center; padding: 0 var(--lfo-pad); font-size: .85rem; }
 .lfo-amt .knob { flex: 1; }
 .noise-sec > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .module { background: var(--panel2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
 .module h4 { margin: 0 0 4px; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.knob { display: grid; grid-template-columns: 74px 1fr 62px; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
+.knob { display: grid; grid-template-columns: 74px 1fr 76px; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
 .knob input[type=range] { padding: 0; min-width: 0; }
 .knob select { grid-column: 2 / 4; padding: 2px 4px; }
-.knob output { text-align: right; font-family: var(--mono); font-size: .78rem; color: var(--text); }
+.knob output, .knob .val { text-align: right; font-family: var(--mono); font-size: .78rem; color: var(--text); }
+/* The value field looks like plain text until hovered or focused. */
+.val-wrap { display: flex; align-items: center; justify-content: flex-end; gap: 2px; min-width: 0; }
+.val-wrap .unit { font-family: var(--mono); font-size: .78rem; color: var(--muted); min-width: 1.6ch; }
+.knob .val { flex: 1; width: 3ch; min-width: 0; box-sizing: border-box; padding: 1px 4px; background: transparent; border: 1px solid transparent; border-radius: 4px; }
+.knob .val:hover { border-color: var(--line); }
+.knob .val:focus { outline: none; border-color: var(--accent); background: var(--panel); }
 .check { display: flex; align-items: center; gap: 6px; font-size: .82rem; color: var(--muted); }
 .osc { display: grid; gap: 4px; padding: 6px 0; border-top: 1px solid var(--line); }
 .osc:first-of-type { border-top: none; }
@@ -184,6 +190,8 @@ input[type=range] { accent-color: var(--accent); }
 .env-spacer { display: none; visibility: hidden; pointer-events: none; }
 @media (min-width: 1101px) { .env-spacer { display: block; } }
 .lfo-row .knob output { text-align: center; }
+.lfo-row .val-wrap { justify-content: center; }
+.lfo-row .knob .val { flex: none; width: 4.2ch; }
 
 .loader { position: relative; }
 .preset-dialog { position: absolute; top: calc(100% + 6px); right: 0; left: auto; margin: 0; z-index: 20; min-width: 170px; padding: 6px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
