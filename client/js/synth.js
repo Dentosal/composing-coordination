@@ -150,3 +150,11 @@ export function parseInstrument(inst) {
     return null;
   }
 }
+
+/** True when the instrument is a template instrument still at the default (Init) patch, i.e. nothing edited yet. */
+export function isDefaultPatch(inst) {
+  const p = parseInstrument(inst);
+  const norm = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x)
+    ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, x[k]])) : x));
+  return !!p && norm(p) === norm(defaultPatch());
+}

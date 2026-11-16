@@ -36,3 +36,16 @@ test('hand-edited graphs are reported as custom', () => {
   assert.equal(parseInstrument(rewired), null);
   assert.equal(parseInstrument({ id: 'x', gain: 1, send_delay: 0, send_reverb: 0, nodes: [], edges: [] }), null);
 });
+
+test('isDefaultPatch: the Init preset and a fresh default are default, edited or other patches are not', async () => {
+  const { isDefaultPatch } = await import('./synth.js');
+  const fs = await import('node:fs');
+  const preset = (n) => JSON.parse(fs.readFileSync(new URL(`../presets/${n}.json`, import.meta.url))).instrument;
+  assert.equal(isDefaultPatch(preset('init')), true);
+  assert.equal(isDefaultPatch(preset('bass')), false);
+  const p = defaultPatch();
+  assert.equal(isDefaultPatch(buildInstrument('x', p)), true);
+  p.filter.freq += 1;
+  assert.equal(isDefaultPatch(buildInstrument('x', p)), false);
+  assert.equal(isDefaultPatch({ id: 'c', gain: 1, send_delay: 0, send_reverb: 0, nodes: [], edges: [] }), false);
+});

@@ -34,9 +34,8 @@ await host.click("text=Start session");
 async function play(p: any, name: string, preset: string, notes: string[]) {
   await p.waitForSelector("text=Round 1");
   await p.click(".cell >> nth=0"); // selects track 1; its patch is shown in the instrument panel
-  await p.selectOption(".loader select", preset);
-  p.once("dialog", (d: any) => d.accept());
-  await p.click("text=Overwrite patch");
+  await p.click("text=Load preset");
+  await p.click(`.preset-item >> text=${preset}`); // labels are capitalised; text= matches case-insensitively
   await p.click(".cell >> nth=0");
   for (const k of notes) await p.keyboard.press(k);
   await p.screenshot({ path: `${shots}/${name}-editing.png` });

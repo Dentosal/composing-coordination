@@ -3,7 +3,7 @@ import { h, clear } from './dom.js';
 import { Auditioner } from './audition.js';
 import { adsrControl } from './adsr.js';
 import { routingDiagram } from './routing.js';
-import { FILTER_MODES, WAVES, buildInstrument, defaultPatch, parseInstrument } from './synth.js';
+import { FILTER_MODES, WAVES, buildInstrument, defaultPatch, isDefaultPatch, parseInstrument } from './synth.js';
 
 let presetCache = null;
 
@@ -120,7 +120,6 @@ export class InstrumentPanel {
   constructor(root, opts) {
     this.root = root;
     this.o = opts;
-    this.pick = 'init'; // preset chosen in the overwrite selector
     this.oscTab = 0; // which oscillator is shown in the Oscillators box
     this.nodesOpen = true; // node configuration section (collapse to make room for the pattern)
     this.routingOpen = false; // signal routing diagram, collapsed by default
@@ -268,7 +267,6 @@ export class InstrumentPanel {
     const idx = () => this.orders.instruments.findIndex((i) => i.id === inst.id); // by id: edits replace the object
     const patch = parseInstrument(inst);
 
-    const loadSel = h('select', presetOptionsFor(this.o.presets));
     const nameIn = h('input.track-name', { value: inst.name ?? inst.id, maxlength: '32', placeholder: 'Track name', 'aria-label': 'Track name',
       oninput: (e) => {
         const cur = this.orders.instruments[idx()];
@@ -276,10 +274,10 @@ export class InstrumentPanel {
         this.o.onChange();
         this.o.onRename?.();
       } });
-    const loader = h('div.loader', h('span.muted', 'Preset'), loadSel,
-      h('button', { onclick: () => {
-        if (confirm(`Overwrite the patch of track ${this.o.getActive() + 1} with the ${loadSel.value} preset?`)) this.loadPreset(loadSel.value);
-      } }, 'Overwrite patch'));
+    const loader = presetPicker(this.o.presets, (key) => this.loadPreset(key));
+    // An untouched Init patch is a blank slate: nudge towards presets until the patch is edited.
+    const hintLoad = () => loader.querySelector('button').classList.toggle('hint', isDefaultPatch(this.orders.instruments[idx()] ?? inst));
+    hintLoad();
     const head = h('div.track-head', h('strong', `Track ${this.o.getActive() + 1}`), nameIn, loader);
 
     if (!patch) {
@@ -287,7 +285,7 @@ export class InstrumentPanel {
       const change = () => this.o.onChange();
       pairDefaults(inst, defaultPatch());
       return h('div.patch', head, this.auditionBar(inst),
-        h('p.muted', 'This instrument has a custom signal graph that this editor cannot show. Overwrite it from a preset to edit it here.'),
+        h('p.muted', 'This instrument has a custom signal graph that this editor cannot show. Load a preset to replace it and edit it here.'),
         this.section('nodes', 'Node configuration', 'nodesOpen', h('div.patch-grid', module('Output',
           knob('level', inst, 'gain', { min: 0, max: 1 }, change),
           knob('delay', inst, 'send_delay', { min: 0, max: 1 }, change),
@@ -299,6 +297,7 @@ export class InstrumentPanel {
     const routing = this.section('routing', 'Signal routing', 'routingOpen', routingDiagram(patch));
     const change = () => {
       this.orders.instruments[idx()] = buildInstrument(inst.id, patch, this.orders.instruments[idx()].name);
+      hintLoad();
       routing.lastElementChild.replaceWith(routingDiagram(patch));
       this.highlight(this.hlKey, this.hlDiagramOnly);
       this.o.onChange();
@@ -391,6 +390,31 @@ export class InstrumentPanel {
   }
 }
 
-function presetOptionsFor(presets) {
-  return [...presets].map(([k, p]) => h('option', { value: k }, p.label ?? k));
+/**
+ * A "Load preset" button that opens a small non-modal list of presets with a Cancel button. Picking a preset calls
+ * `onPick(key)` and closes the list; Cancel, Escape or a click anywhere outside the list closes it without picking.
+ */
+function presetPicker(presets, onPick) {
+  const dlg = h('dialog.preset-dialog', { 'aria-label': 'Load preset' });
+  const btn = h('button', { 'aria-haspopup': 'dialog' }, 'Load preset');
+  const wrap = h('div.loader', btn, dlg);
+
+  const onDown = (e) => { if (!dlg.contains(e.target) && e.target !== btn) close(); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  function close() {
+    dlg.close();
+    document.removeEventListener('pointerdown', onDown, true);
+    document.removeEventListener('keydown', onKey, true);
+  }
+  function open() {
+    dlg.replaceChildren(
+      h('div.preset-list', [...presets].map(([key, p]) =>
+        h('button.preset-item', { onclick: () => { close(); onPick(key); } }, p.label ?? key))),
+      h('button.preset-cancel', { onclick: close }, 'Cancel'));
+    dlg.show(); // show(), not showModal(): the rest of the page stays interactive
+    document.addEventListener('pointerdown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+  }
+  btn.addEventListener('click', () => (dlg.open ? close() : open()));
+  return wrap;
 }
