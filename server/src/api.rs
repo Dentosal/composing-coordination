@@ -35,6 +35,7 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/state", get(get_state))
         .route("/api/sessions/{id}/orders", put(put_orders))
         .route("/api/sessions/{id}/ready", post(ready))
+        .route("/api/sessions/{id}/preview", post(preview))
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
         .route("/api/sessions/{id}/song.wav", get(song))
         .route("/api/sessions/{id}/events", get(events))
@@ -209,6 +210,37 @@ async fn ready(
         }
     }
     Ok(Json(json!({"ok": true})))
+}
+
+/// Concurrent preview renders allowed; extra requests get 429 so previews cannot starve round renders.
+static PREVIEW_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+/// Render the caller's draft orders on their own, exactly as the round render would (same seat index,
+/// so seeded noise matches). Nothing is stored. The client loops the result over the latest mix.
+async fn preview(
+    State(sh): State<Shared>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+    q: Q,
+    Json(orders): Json<Orders>,
+) -> Result<Response, ApiError> {
+    let (cfg, seat_index) = {
+        let g = sh.read().await;
+        let s = session(&g, &id)?;
+        let i = seat_of(s, &h, &q)?;
+        let errors = orders.validate(&s.config.limits());
+        if !errors.is_empty() {
+            return Ok((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"ok": false, "errors": errors}))).into_response());
+        }
+        (s.config.render_config(), s.seats[i].index)
+    };
+    let Ok(_permit) = PREVIEW_SLOTS.try_acquire() else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "preview renderer busy, try again");
+    };
+    let wav = tokio::task::spawn_blocking(move || render_preview(&cfg, seat_index, &orders))
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("render failed: {e}")))?;
+    Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "no-store")], wav).into_response())
 }
 
 fn wav_response(data: std::sync::Arc<[u8]>, filename: Option<&str>) -> Response {

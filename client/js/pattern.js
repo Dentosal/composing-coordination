@@ -1,5 +1,6 @@
 // Tracker-style pattern editor: one column per lane, one row per loop row.
 import { h, clear } from './dom.js';
+import { ensureLanes } from './editor.js';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
 export const noteName = (m) => `${NOTE_NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
@@ -133,6 +134,7 @@ export class PatternEditor {
 
   render() {
     const orders = this.orders;
+    ensureLanes(orders, this.o.maxLanes);
     const lanes = orders.lanes;
     if (this.cur.lane >= lanes.length) this.cur.lane = Math.max(0, lanes.length - 1);
     const hadFocus = this.grid.contains(document.activeElement) || document.activeElement === this.grid;
@@ -141,7 +143,7 @@ export class PatternEditor {
     this.grid.style.setProperty('--lanes', Math.max(1, lanes.length));
 
     if (!lanes.length) {
-      this.grid.append(h('div.empty', 'Add an instrument, then add a lane to start writing notes.'));
+      this.grid.append(h('div.empty', 'Add an instrument to start writing notes.'));
       this.renderStatus();
       return;
     }
@@ -151,8 +153,7 @@ export class PatternEditor {
       head.append(
         h('div.lane-head',
           h('select', { onchange: (e) => { lane.instrument = e.target.value; this.changed(); } },
-            orders.instruments.map((i) => h('option', { value: i.id, selected: i.id === lane.instrument }, i.id))),
-          h('button.icon', { title: 'Remove lane', onclick: () => { orders.lanes.splice(li, 1); this.changed(); } }, '×')),
+            orders.instruments.map((i) => h('option', { value: i.id, selected: i.id === lane.instrument }, i.id)))),
       );
     });
     this.grid.append(head);

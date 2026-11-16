@@ -47,6 +47,23 @@ export async function fetchMix(sid, token, n) {
   return r.arrayBuffer();
 }
 
+/** Render the draft orders alone on the server. Resolves to WAV bytes; rejects with e.errors on a 422. */
+export async function fetchPreview(sid, token, orders, signal) {
+  const r = await fetch(`/api/sessions/${sid}/preview`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(orders),
+    signal,
+  });
+  if (r.ok) return r.arrayBuffer();
+  let data = null;
+  try { data = await r.json(); } catch {}
+  const e = new Error(data?.errors?.[0]?.message || data?.error || r.statusText);
+  e.status = r.status;
+  e.errors = data?.errors;
+  throw e;
+}
+
 export const songUrl = (sid, token, download = false) =>
   `/api/sessions/${sid}/song.wav?token=${token}${download ? '&download=1' : ''}`;
 

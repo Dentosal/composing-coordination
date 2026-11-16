@@ -291,7 +291,9 @@ fn validate_instrument(inst: &Instrument, p: &str, err: &mut impl FnMut(String, 
                 }
             }
             NodeKind::Noise { .. } => {}
-            NodeKind::Gain { gain } => range(*gain, -4.0, 4.0, &format!("{np}.gain"), err),
+            // Wide on purpose: a gain node also scales modulators (an LFO into a filter cutoff needs a
+            // depth in the thousands of Hz), same span as `env.amount`.
+            NodeKind::Gain { gain } => range(*gain, -20000.0, 20000.0, &format!("{np}.gain"), err),
             NodeKind::Filter { freq, q, key_track, .. } => {
                 range(*freq, 20.0, 20000.0, &format!("{np}.freq"), err);
                 range(*q, 0.0001, 30.0, &format!("{np}.q"), err);

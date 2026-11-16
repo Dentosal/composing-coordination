@@ -33,7 +33,7 @@ await host.click("text=Start session");
 
 async function play(p: any, name: string, preset: string, notes: string[]) {
   await p.waitForSelector("text=Round 1");
-  await p.selectOption(".preset-picker select", preset);
+  await p.selectOption(".inst-add select", preset);
   await p.click("text=Add instrument");
   await p.click(".cell >> nth=0");
   for (const k of notes) await p.keyboard.press(k);

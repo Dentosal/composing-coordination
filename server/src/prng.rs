@@ -54,6 +54,16 @@ mod tests {
         assert_eq!(seed_from_key("a"), 0xe40c292c);
     }
 
+    /// Pinned against client/js/prng.js (see client/js/prng.test.mjs): both sides must produce these values.
+    #[test]
+    fn matches_the_js_port() {
+        let mut r = Mulberry32::new(1);
+        assert_eq!([r.next_u32(), r.next_u32(), r.next_u32()], [2693262067, 11749833, 2265367787]);
+        assert_eq!(seed_from_key("12345:0:bass:n"), 3960942391);
+        let mut k = Mulberry32::from_key("12345:reverb:0");
+        assert_eq!([k.next_u32(), k.next_u32()], [951796836, 3933183282]);
+    }
+
     #[test]
     fn mulberry_is_deterministic() {
         let mut a = Mulberry32::new(1);

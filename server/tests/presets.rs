@@ -1,7 +1,7 @@
 //! Every shipped preset must render to finite, audible, non-exploding audio, including long held
 //! notes. Guards against the web-audio-api setTarget bug worked around in `schedule_env`.
 
-use band_game::orders::{Instrument, Lane, Orders, Step};
+use band_game::orders::{Instrument, Lane, Limits, Orders, Step};
 use band_game::render::{render, RenderConfig, SeatPart};
 
 #[test]
@@ -21,6 +21,8 @@ fn presets_render_sanely_with_held_notes() {
             Step { row: 32, note: Some(48), vel: 100 },
         ];
         let orders = Orders { lanes: vec![Lane { instrument: inst.id.clone(), steps }], instruments: vec![inst] };
+        let errs = orders.validate(&Limits { max_lanes: 4, max_instruments: 4, total_rows: 64 });
+        assert!(errs.is_empty(), "{name}: preset fails server validation: {errs:?}");
         let parts = vec![SeatPart { seat_index: 0, orders: &orders }];
         let out = render(&cfg, &[parts.clone(), parts], 1);
         let peak = out.left.iter().chain(&out.right).fold(0f32, |m, x| {

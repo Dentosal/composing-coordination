@@ -26,6 +26,14 @@ export class Game {
     this.errors = [];
     this.view = null;
     this.player = new LoopPlayer();
+    // Local preview of this seat's uncommitted part, rendered by the server and looped over the mix.
+    this.previewPlayer = new LoopPlayer();
+    this.previewOn = false;
+    this.previewT = null;
+    this.previewBusy = false;
+    this.previewStale = false;
+    this.previewMsg = '';
+    this.playing = false;
     this.mixRound = null;
     this.mixLoading = null;
     this.queue = Promise.resolve();
@@ -58,7 +66,10 @@ export class Game {
     this.es?.close();
     clearInterval(this.tickT);
     clearTimeout(this.saveT);
+    clearTimeout(this.previewT);
     this.player.stop();
+    this.previewPlayer.stop();
+    this.panel?.destroy();
   }
 
   fatal(e) {
@@ -136,6 +147,7 @@ export class Game {
       this.updateCommit();
     }
     this.scheduleSave(800);
+    if (this.previewOn) this.schedulePreview(600);
   }
 
   scheduleSave(ms) {
@@ -246,8 +258,9 @@ export class Game {
     r.top = h('header.topbar', r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play mix');
+    r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
     r.mixInfo = h('span.muted');
-    r.mix = h('section.mix', r.playBtn, r.mixInfo);
+    r.mix = h('section.mix', r.playBtn, r.previewBtn, r.mixInfo);
 
     const instRoot = h('div');
     const patRoot = h('div');
@@ -256,7 +269,7 @@ export class Game {
       getOrders: () => this.orders, onChange: () => this.touch(), onSpace: () => this.togglePlay(),
     });
     this.panel = new InstrumentPanel(instRoot, {
-      maxInstruments: cfg.max_instruments, maxLanes: cfg.max_lanes, presets: this.presets,
+      maxInstruments: cfg.max_instruments, maxLanes: cfg.max_lanes, presets: this.presets, bpm: cfg.bpm, seed: cfg.seed,
       getOrders: () => this.orders, onChange: () => this.touch(), onStructure: () => this.pattern.render(),
     });
 
@@ -296,25 +309,95 @@ export class Game {
   updateMix() {
     const r = this.refs;
     if (this.view !== 'game' || !r.mix) return;
-    r.playBtn.disabled = !this.mixRound;
-    r.playBtn.textContent = this.player.playing ? '■ Stop' : '▶ Play mix';
-    r.mixInfo.textContent = this.mixRound
+    const hasAudio = !!this.mixRound || (this.previewOn && !!this.previewPlayer.buffer);
+    r.playBtn.disabled = !hasAudio;
+    r.playBtn.textContent = this.playing ? '■ Stop' : this.mixRound ? '▶ Play mix' : '▶ Play';
+    r.previewBtn.classList.toggle('active', this.previewOn);
+    r.previewBtn.textContent = this.previewOn ? '🎧 Previewing my part' : '🎧 Preview my part';
+    const mixText = this.mixRound
       ? `Looping the band mix from round ${this.mixRound}.`
-      : 'No mix yet: round 1 is written blind.';
+      : this.previewOn ? '' : 'No mix yet: round 1 is written blind. Use Preview to hear your part.';
+    let previewText = '';
+    if (this.previewOn) {
+      previewText = this.previewMsg || (this.previewBusy || !this.previewPlayer.buffer ? 'Rendering preview…' : 'Preview is on.');
+      if (this.mixRound) previewText += ' (The mix already contains your last committed part.)';
+    }
+    r.mixInfo.textContent = [mixText, previewText].filter(Boolean).join(' ');
   }
 
+  /** Start or stop the whole transport: the band mix and, if on, the preview, started on the same tick. */
   async togglePlay() {
-    if (this.player.playing) this.player.stop();
-    else {
-      await unlock();
-      await this.player.play();
+    if (this.playing) {
+      this.playing = false;
+      this.player.stop();
+      this.previewPlayer.stop();
+    } else {
+      const c = await unlock();
+      const when = c.currentTime + 0.05;
+      this.playing = true;
+      await Promise.all([this.player.play(when), this.previewOn ? this.previewPlayer.play(when) : null]);
+      if (!this.player.playing && !this.previewPlayer.playing) this.playing = false;
     }
     this.updateMix();
   }
 
+  togglePreview() {
+    this.previewOn = !this.previewOn;
+    this.previewMsg = '';
+    clearTimeout(this.previewT);
+    if (this.previewOn) {
+      this.renderPreview();
+    } else {
+      this.previewStale = false;
+      this.previewPlayer.stop();
+      if (!this.player.playing) this.playing = false;
+    }
+    this.updateMix();
+  }
+
+  schedulePreview(ms) {
+    clearTimeout(this.previewT);
+    this.previewT = setTimeout(() => this.renderPreview(), ms);
+  }
+
+  /** Render the current draft on the server and swap it into the preview loop at the next boundary. */
+  async renderPreview() {
+    if (this.previewBusy) {
+      this.previewStale = true;
+      return;
+    }
+    this.previewBusy = true;
+    this.previewStale = false;
+    this.updateMix();
+    let retry = 0;
+    try {
+      const snapshot = JSON.parse(JSON.stringify(this.orders));
+      const buf = await decode(await api.fetchPreview(this.sid, this.token, snapshot));
+      if (this.previewOn && !this.dead) {
+        this.previewMsg = '';
+        this.previewPlayer.setBuffer(buf);
+        await this.startPreviewInSync();
+      }
+    } catch (e) {
+      if (e.status === 429) retry = 1500;
+      else this.previewMsg = e.errors?.length ? `Preview needs valid orders: ${e.message}` : `Preview failed: ${e.message}`;
+    } finally {
+      this.previewBusy = false;
+    }
+    if (this.previewOn && (this.previewStale || retry)) this.schedulePreview(retry || 100);
+    this.updateMix();
+  }
+
+  /** If the transport is running but the preview is not yet (first render finished late), join on the mix's next loop boundary. */
+  async startPreviewInSync() {
+    if (!this.playing || this.previewPlayer.playing || !this.previewPlayer.buffer) return;
+    const when = this.player.playing ? this.player.nextBoundary() : undefined;
+    await this.previewPlayer.play(when);
+  }
+
   updatePlayhead() {
     if (this.view !== 'game' || !this.pattern) return;
-    const pos = this.player.position();
+    const pos = this.player.position() ?? this.previewPlayer.position();
     if (pos == null) return this.pattern.setPlayhead(null);
     const cfg = this.st.config;
     const rowSecs = 60 / (cfg.bpm * (cfg.rows_per_bar / 4));

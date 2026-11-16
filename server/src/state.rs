@@ -418,6 +418,12 @@ fn render_mix(job: RenderJob) -> Arc<[u8]> {
     Arc::from(wav::encode(&stereo))
 }
 
+/// One seat's orders alone, as a seamless loop (same two-pass render as a round mix).
+pub fn render_preview(cfg: &RenderConfig, seat_index: u32, orders: &Orders) -> Vec<u8> {
+    let parts = vec![SeatPart { seat_index, orders }];
+    wav::encode(&render::render(cfg, &[parts.clone(), parts], 1))
+}
+
 /// Resolve round `n` if its conditions hold. Safe to call redundantly.
 pub async fn try_resolve(shared: Shared, sid: String, n: u32, timer: bool) {
     let job = {

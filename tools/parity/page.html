@@ -1,0 +1,44 @@
+<!doctype html><meta charset="utf-8">
+<!-- Served temporarily from client/ by tools/parity/run.sh; compares live JS voices with the Rust renderer. -->
+<pre id="out">pending</pre>
+<script type="module">
+import { Master, noiseBuffer, startVoice } from '/js/voice.js';
+const out = [];
+const names = (await (await fetch('/_t/names.txt')).text()).trim().split('\n');
+const log = () => { document.getElementById('out').textContent = out.join('\n'); };
+try {
+for (const entry of names) {
+  const [k, gate] = entry.split(':');
+  const orders = await (await fetch(`/_t/${k}.json`)).json();
+  const inst = orders.instruments[0];
+  const wav = new DataView(await (await fetch(`/_t/${k}.wav`)).arrayBuffer());
+  const n = (wav.byteLength - 44) / 4;
+  const ref = [new Float32Array(n), new Float32Array(n)];
+  for (let i = 0; i < n; i++) for (let c = 0; c < 2; c++) ref[c][i] = wav.getInt16(44 + (i * 2 + c) * 2, true) / 32768;
+  const ctx = new OfflineAudioContext(2, n, 48000);
+  const master = new Master(ctx, { bpm: 120, seed: 1 });
+  const noise = new Map();
+  for (const nd of inst.nodes) if (nd.type === 'noise') noise.set(nd.id, noiseBuffer(ctx, 1, 0, inst.id, nd.id, nd.color));
+  startVoice(ctx, master.bus(ctx, inst), inst, noise, 48, 100, 0).release(Number(gate));
+  const buf = await ctx.startRendering();
+  const mono = (get) => { const m = new Float32Array(n); for (let i = 0; i < n; i++) m[i] = (get(0, i) + get(1, i)) / 2; return m; };
+  const R = mono((c, i) => ref[c][i]);
+  const J = mono((c, i) => buf.getChannelData(c)[i]);
+  const db = (x) => (10 * Math.log10(Math.max(x, 1e-20))).toFixed(1);
+  const rms = (a, lo = 0, hi = n) => { let t = 0; for (let i = lo; i < hi; i++) t += a[i] ** 2; return t / (hi - lo); };
+  // time offset: best normalised cross-correlation lag over +-400 samples on the first 0.5 s
+  let bestLag = 0, bestC = -2;
+  for (let lag = -400; lag <= 400; lag += 1) { let rj = 0, rr = 0, jj = 0; for (let i = 500; i < 24000; i++) { const x = R[i], y = J[i + lag]; rj += x * y; rr += x * x; jj += y * y; } const c = rj / Math.sqrt(rr * jj + 1e-30); if (c > bestC) { bestC = c; bestLag = lag; } }
+  // loudness envelope: RMS per 100 ms, worst deviation in dB where the reference is audible
+  let envDev = 0; for (let w = 0; w < 20; w++) { const lo = w * 4800, hi = lo + 4800; const r = rms(R, lo, hi), j = rms(J, lo, hi); if (r > 1e-8) envDev = Math.max(envDev, Math.abs(10 * Math.log10((j + 1e-20) / r))); }
+  // spectrum: energy per octave band over the first 1 s (naive DFT on a downsampled grid of bin centres)
+  const bands = [[60, 120], [120, 240], [240, 480], [480, 960], [960, 1920], [1920, 3840], [3840, 7680], [7680, 15360]];
+  const bandE = (a) => bands.map(([f0, f1]) => { let e = 0; for (let f = f0; f < f1; f += (f1 - f0) / 24) { let re = 0, im = 0; const w = 2 * Math.PI * f / 48000; for (let i = 0; i < 48000; i += 2) { re += a[i] * Math.cos(w * i); im += a[i] * Math.sin(w * i); } e += re * re + im * im; } return e; });
+  const eR = bandE(R), eJ = bandE(J);
+  const bandDev = eR.map((e, i) => (10 * Math.log10((eJ[i] + 1e-20) / (e + 1e-20))).toFixed(0)).join(' ');
+  out.push(`${k.padEnd(6)} level rust ${db(rms(R))} js ${db(rms(J))} dB | lag ${bestLag} corr ${bestC.toFixed(2)} | env dev ${envDev.toFixed(1)} dB | band diff (dB, js-rust, 60Hz..15k): ${bandDev}`);
+  log();
+}
+out.push('done'); log();
+} catch (e) { out.push('ERR ' + e.stack); out.push('done'); log(); }
+</script>

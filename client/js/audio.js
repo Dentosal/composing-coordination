@@ -57,19 +57,27 @@ export class LoopPlayer {
   setBuffer(buffer) {
     this.buffer = buffer;
     if (!this.playing) return;
-    const c = getCtx();
-    this._promote();
-    const { start, dur } = this.cur;
-    const boundary = start + Math.max(1, Math.ceil((c.currentTime - start) / dur + 1e-6)) * dur;
+    const boundary = this.nextBoundary();
     if (this.pending) this.pending.src.stop();
     this.cur.src.stop(boundary);
     this.pending = this._startSource(buffer, boundary);
   }
 
-  async play() {
+  /** AudioContext time of the next loop boundary (or the start, if the loop has not begun yet). */
+  nextBoundary() {
+    const c = getCtx();
+    this._promote();
+    const { start, dur } = this.cur;
+    if (c.currentTime < start) return start;
+    return start + Math.max(1, Math.ceil((c.currentTime - start) / dur + 1e-6)) * dur;
+  }
+
+  /** Start looping at AudioContext time `when` (default: just now). Players of equal-length loops
+   *  started at the same `when`, or on each other's boundaries, stay in sync. */
+  async play(when) {
     if (!this.buffer || this.playing) return;
     const c = await unlock();
-    this.cur = this._startSource(this.buffer, c.currentTime + 0.05);
+    this.cur = this._startSource(this.buffer, when ?? c.currentTime + 0.05);
     this.pending = null;
     this.playing = true;
   }

@@ -9,18 +9,48 @@
    {
     "id": "o1",
     "type": "osc",
-    "wave": "sawtooth"
+    "wave": "sawtooth",
+    "semitones": 0,
+    "detune": 0
+   },
+   {
+    "id": "l1",
+    "type": "gain",
+    "gain": 0.5
    },
    {
     "id": "o2",
     "type": "osc",
     "wave": "square",
-    "semitones": -12
+    "semitones": -12,
+    "detune": 0
    },
    {
-    "id": "mix",
+    "id": "l2",
     "type": "gain",
     "gain": 0.5
+   },
+   {
+    "id": "o3",
+    "type": "osc",
+    "wave": "sawtooth",
+    "semitones": 0,
+    "detune": 0
+   },
+   {
+    "id": "l3",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "n",
+    "type": "noise",
+    "color": "white"
+   },
+   {
+    "id": "ln",
+    "type": "gain",
+    "gain": 0
    },
    {
     "id": "lp",
@@ -31,13 +61,9 @@
     "key_track": 0.3
    },
    {
-    "id": "fenv",
-    "type": "env",
-    "attack": 0.005,
-    "decay": 0.25,
-    "sustain": 0.2,
-    "release": 0.1,
-    "amount": 1800
+    "id": "bus",
+    "type": "gain",
+    "gain": 1
    },
    {
     "id": "vca",
@@ -54,6 +80,47 @@
     "amount": 1
    },
    {
+    "id": "fenv",
+    "type": "env",
+    "attack": 0.005,
+    "decay": 0.25,
+    "sustain": 0.2,
+    "release": 0.1,
+    "amount": 1800
+   },
+   {
+    "id": "penv",
+    "type": "env",
+    "attack": 0.001,
+    "decay": 0.08,
+    "sustain": 0,
+    "release": 0.05,
+    "amount": 0
+   },
+   {
+    "id": "lfo",
+    "type": "osc",
+    "wave": "sine",
+    "semitones": 0,
+    "detune": 0,
+    "fixed_hz": 5
+   },
+   {
+    "id": "lfo_p",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "lfo_c",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "lfo_a",
+    "type": "gain",
+    "gain": 0
+   },
+   {
     "id": "out",
     "type": "out"
    }
@@ -61,15 +128,69 @@
   "edges": [
    {
     "from": "o1",
-    "to": "mix"
+    "to": "l1"
+   },
+   {
+    "from": "l1",
+    "to": "lp"
+   },
+   {
+    "from": "penv",
+    "to": "o1",
+    "port": "detune"
+   },
+   {
+    "from": "lfo_p",
+    "to": "o1",
+    "port": "detune"
    },
    {
     "from": "o2",
-    "to": "mix"
+    "to": "l2"
    },
    {
-    "from": "mix",
+    "from": "l2",
     "to": "lp"
+   },
+   {
+    "from": "penv",
+    "to": "o2",
+    "port": "detune"
+   },
+   {
+    "from": "lfo_p",
+    "to": "o2",
+    "port": "detune"
+   },
+   {
+    "from": "o3",
+    "to": "l3"
+   },
+   {
+    "from": "l3",
+    "to": "lp"
+   },
+   {
+    "from": "penv",
+    "to": "o3",
+    "port": "detune"
+   },
+   {
+    "from": "lfo_p",
+    "to": "o3",
+    "port": "detune"
+   },
+   {
+    "from": "n",
+    "to": "ln"
+   },
+   {
+    "from": "ln",
+    "to": "lp"
+   },
+   {
+    "from": "lp",
+    "to": "bus"
    },
    {
     "from": "fenv",
@@ -77,13 +198,35 @@
     "port": "freq"
    },
    {
-    "from": "lp",
+    "from": "lfo_c",
+    "to": "lp",
+    "port": "freq"
+   },
+   {
+    "from": "bus",
     "to": "vca"
    },
    {
     "from": "aenv",
     "to": "vca",
     "port": "gain"
+   },
+   {
+    "from": "lfo_a",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "lfo",
+    "to": "lfo_p"
+   },
+   {
+    "from": "lfo",
+    "to": "lfo_c"
+   },
+   {
+    "from": "lfo",
+    "to": "lfo_a"
    },
    {
     "from": "vca",
