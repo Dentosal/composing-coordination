@@ -107,7 +107,9 @@ function select(label, obj, key, options, change) {
 const check = (label, get, set) =>
   h('label.check', h('input', { type: 'checkbox', checked: get(), onchange: (e) => set(e.target.checked) }), label);
 
-const module = (title, ...kids) => h('section.module', h('h4', title), ...kids);
+const module = (title, ...kids) => h('section.module', title ? h('h4', title) : null, ...kids);
+/** Tag an element with the routing-diagram node it corresponds to (see InstrumentPanel.linkHighlight). */
+const node = (key, el) => { el.dataset.node = key; return el; };
 
 export class InstrumentPanel {
   /**
@@ -119,6 +121,7 @@ export class InstrumentPanel {
     this.root = root;
     this.o = opts;
     this.pick = 'init'; // preset chosen in the overwrite selector
+    this.oscTab = 0; // which oscillator is shown in the Oscillators box
     this.nodesOpen = true; // node configuration section (collapse to make room for the pattern)
     this.routingOpen = false; // signal routing diagram, collapsed by default
     this.aud = new Auditioner({ bpm: opts.bpm ?? 120, seed: opts.seed ?? 1 });
@@ -160,7 +163,40 @@ export class InstrumentPanel {
       this.root.append(h('p.muted', 'No track selected.'));
       return;
     }
+    this.hlKey = null;
+    this.hlDiagramOnly = false;
     this.root.append(this.editor(inst));
+    this.linkHighlight();
+  }
+
+  /**
+   * Highlight every element tagged `data-node=key` (config boxes and diagram boxes alike); null clears.
+   * `diagramOnly` limits it to the routing diagram (used by the oscillator tabs: they point at the diagram box,
+   * not at the config box they are part of).
+   */
+  highlight(key, diagramOnly = false) {
+    this.hlKey = key;
+    this.hlDiagramOnly = diagramOnly;
+    for (const el of this.root.querySelectorAll('.hl')) el.classList.remove('hl');
+    if (!key) return;
+    for (const el of this.root.querySelectorAll(`[data-node="${key}"]`)) {
+      if (!diagramOnly || el instanceof SVGElement) el.classList.add('hl');
+    }
+  }
+
+  /** Two-way link: hovering or focusing either a node-config box or a routing-diagram box highlights both. */
+  linkHighlight() {
+    const over = (e) => {
+      const el = e.target instanceof Element ? e.target.closest('[data-node]') : null;
+      const key = el?.dataset.node ?? null;
+      const only = !!el?.classList.contains('osc-tab');
+      if (key !== this.hlKey || only !== this.hlDiagramOnly) this.highlight(key, only);
+    };
+    const out = (e) => { if (!e.relatedTarget || !this.root.contains(e.relatedTarget)) this.highlight(null); };
+    this.root.onmouseover = over;
+    this.root.onmouseleave = () => this.highlight(null);
+    this.root.onfocusin = over;
+    this.root.onfocusout = out;
   }
 
   /** Note picker, velocity, and three ways to play it: once, held while pressed, or looped at a BPM multiple. */
@@ -264,52 +300,94 @@ export class InstrumentPanel {
     const change = () => {
       this.orders.instruments[idx()] = buildInstrument(inst.id, patch, this.orders.instruments[idx()].name);
       routing.lastElementChild.replaceWith(routingDiagram(patch));
+      this.highlight(this.hlKey, this.hlDiagramOnly);
       this.o.onChange();
     };
-    const oscRow = (o, n) => h('div.osc',
-      h('div.osc-head', h('strong', `Osc ${n}`), select('', o, 'wave', WAVES, change)),
-      knob('level', o, 'level', { min: 0, max: 1 }, change),
-      o.fixed_hz == null
-        ? knob('pitch', o, 'semitones', { min: -48, max: 48, step: 1, unit: ' st' }, change)
-        : knob('pitch', o, 'fixed_hz', { min: 20, max: 2000, log: true, unit: ' Hz', def: 220 }, change),
-      knob('fine', o, 'detune', { min: -100, max: 100, step: 1, unit: ' ct' }, change),
-      h('div.osc-opts',
-        check('fixed pitch', () => o.fixed_hz != null, (on) => {
-          o.fixed_hz = on ? 220 : null;
-          change();
-          this.render();
-        }),
-        check('through filter', () => o.filtered, (on) => { o.filtered = on; change(); })));
+    const oscTabs = [];
+    const oscRow = (o, n) => {
+      const row = node(`osc${n}`, h('div.osc'));
+      const edit = () => { // silent oscillators are greyed out, and so is their tab
+        row.classList.toggle('off', !(o.level > 0));
+        oscTabs[n - 1]?.classList.toggle('off', !(o.level > 0));
+        change();
+      };
+      row.classList.toggle('off', !(o.level > 0));
+      row.append(
+        h('div.osc-head', h('strong', `Osc ${n}`), select('', o, 'wave', WAVES, change)),
+        knob('level', o, 'level', { min: 0, max: 1 }, edit),
+        o.fixed_hz == null
+          ? knob('pitch', o, 'semitones', { min: -48, max: 48, step: 1, unit: ' st' }, change)
+          : knob('pitch', o, 'fixed_hz', { min: 20, max: 2000, log: true, unit: ' Hz', def: 220 }, change),
+        knob('fine', o, 'detune', { min: -100, max: 100, step: 1, unit: ' ct' }, change),
+        h('div.osc-opts',
+          check('fixed pitch', () => o.fixed_hz != null, (on) => {
+            o.fixed_hz = on ? 220 : null;
+            change();
+            this.render();
+          }),
+          check('through filter', () => o.filtered, (on) => { o.filtered = on; change(); })));
+      return row;
+    };
     const noise = patch.noise;
-    const adsr = (title, e, amount) => module(title,
+    // An envelope with its sub-heading (and optional amount slider), for use inside a larger module.
+    const envelope = (key, title, e, amount) => node(key, h('div.env-sec',
+      h('h5.sub', title),
       adsrControl(e, change, { defaults: DEFAULTS.get(e) }),
-      amount ? knob(amount.label, e, 'amount', amount, change) : null);
+      amount ? knob(amount.label, e, 'amount', amount, change)
+        // No amount slider: an invisible copy of one keeps the sliders level with the other envelopes' (wide layout only).
+        : h('div.env-spacer', { 'aria-hidden': 'true' }, knob('amount', { v: 0 }, 'v', { min: 0, max: 1 }, () => {}))));
 
-    return h('div.patch', head, this.auditionBar(inst), this.section('nodes', 'Node configuration', 'nodesOpen', h('div.patch-grid',
-      module('Oscillators', patch.osc.map((o, i) => oscRow(o, i + 1))),
-      module('Noise',
-        select('color', noise, 'color', ['white', 'pink'], change),
-        knob('level', noise, 'level', { min: 0, max: 1 }, change),
-        check('through filter', () => noise.filtered, (on) => { noise.filtered = on; change(); })),
-      module('Filter',
-        select('type', patch.filter, 'mode', FILTER_MODES, change),
-        knob('cutoff', patch.filter, 'freq', { min: 20, max: 20000, log: true, unit: ' Hz' }, change),
-        knob('resonance', patch.filter, 'q', { min: 0.1, max: 20, log: true }, change),
-        knob('key track', patch.filter, 'key_track', { min: 0, max: 1 }, change),
-        knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change)),
-      adsr('Amp envelope', patch.aenv),
-      adsr('Filter envelope', patch.fenv, { label: 'amount', min: -8000, max: 8000, step: 10, unit: ' Hz' }),
-      adsr('Pitch envelope', patch.penv, { label: 'amount', min: -4800, max: 4800, step: 10, unit: ' ct' }),
-      module('LFO',
-        select('wave', patch.lfo, 'wave', WAVES, change),
-        knob('rate', patch.lfo, 'rate', { min: 0.1, max: 20, log: true, unit: ' Hz' }, change),
-        knob('→ pitch', patch.lfo, 'pitch', { min: 0, max: 200, step: 1, unit: ' ct' }, change),
-        knob('→ cutoff', patch.lfo, 'cutoff', { min: 0, max: 4000, step: 10, unit: ' Hz' }, change),
-        knob('→ volume', patch.lfo, 'amp', { min: 0, max: 1 }, change)),
-      module('Output',
-        knob('level', patch, 'gain', { min: 0, max: 1 }, change),
-        knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
-        knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change)))), routing);
+    // Per-column LFO depth: how much the LFO modulates that column's target. Tagged 'lfo' so it links to the LFO box.
+    // The "LFO →" label is hidden when the columns sit side by side (CSS draws a connector to the column instead).
+    const TARGETS = { pitch: 'pitch', cutoff: 'filter cutoff', amp: 'volume' };
+    const lfoAmount = (key, o) => h('div.lfo-amt', { title: `LFO depth → ${TARGETS[key]}` }, knob('LFO →', patch.lfo, key, o, change));
+    const target = (el) => { el.classList.add('lfo-target'); return el; }; // a column the LFO row modulates
+    // The LFO's own controls take the strip above the Misc column (nothing in Misc is modulated).
+    const oscRows = patch.osc.map((o, i) => oscRow(o, i + 1));
+    const showOsc = (i) => {
+      this.oscTab = i;
+      oscRows.forEach((r, k) => { r.hidden = k !== i; });
+      oscTabs.forEach((t, k) => { t.classList.toggle('on', k === i); t.setAttribute('aria-pressed', String(k === i)); });
+    };
+    patch.osc.forEach((o, i) => oscTabs.push(node(`osc${i + 1}`, h('button.osc-tab', {
+      type: 'button', title: `Oscillator ${i + 1}${o.level > 0 ? '' : ' (silent)'}`, onclick: () => showOsc(i),
+    }, String(i + 1)))));
+    patch.osc.forEach((o, i) => oscTabs[i].classList.toggle('off', !(o.level > 0)));
+    showOsc(Math.min(this.oscTab, patch.osc.length - 1));
+
+    const lfoRow = node('lfo', h('div.lfo-row',
+      h('div.lfo-ctl',
+        h('div.lfo-head', h('strong', 'LFO'), select('', patch.lfo, 'wave', WAVES, change)),
+        knob('rate', patch.lfo, 'rate', { min: 0.1, max: 20, log: true, unit: ' Hz' }, change)),
+      lfoAmount('pitch', { min: 0, max: 200, step: 1, unit: ' ct' }),
+      lfoAmount('cutoff', { min: 0, max: 4000, step: 10, unit: ' Hz' }),
+      lfoAmount('amp', { min: 0, max: 1 })));
+
+    return h('div.patch', head, this.auditionBar(inst), this.section('nodes', 'Node configuration', 'nodesOpen', h('div.nodes-body',
+      lfoRow,
+      h('div.patch-cols',
+        module(null,
+          node('noise', h('div.noise-sec',
+            h('h5.sub', 'Noise'),
+            select('color', noise, 'color', ['white', 'pink'], change),
+            knob('level', noise, 'level', { min: 0, max: 1 }, change),
+            check('through filter', () => noise.filtered, (on) => { noise.filtered = on; change(); })))),
+        target(module(null,
+          h('div.mod-head', h('h4', 'Oscillators'), h('div.osc-tabs', oscTabs)),
+          oscRows,
+          envelope('penv', 'Pitch envelope', patch.penv, { label: 'amount', min: -4800, max: 4800, step: 10, unit: ' ct' }))),
+        target(node('filter', module('Filter',
+            select('type', patch.filter, 'mode', FILTER_MODES, change),
+            knob('cutoff', patch.filter, 'freq', { min: 20, max: 20000, log: true, unit: ' Hz' }, change),
+            knob('resonance', patch.filter, 'q', { min: 0.1, max: 20, log: true }, change),
+            knob('key track', patch.filter, 'key_track', { min: 0, max: 1 }, change),
+            node('drive', knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change)),
+          envelope('fenv', 'Filter envelope', patch.fenv, { label: 'amount', min: -8000, max: 8000, step: 10, unit: ' Hz' })))),
+        target(node('amp', module('Amplifier + FX',
+          knob('level', patch, 'gain', { min: 0, max: 1 }, change),
+          knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
+          knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change),
+          envelope('aenv', 'Amp envelope', patch.aenv))))))), routing);
   }
 }
 

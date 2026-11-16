@@ -283,8 +283,8 @@ export class Game {
 
     this.root.append(r.top, r.errors, r.mix,
       h('div.workspace',
-        h('aside.panel', h('h3', 'Patch'), instRoot),
-        h('section.panel.pattern', h('h3', 'Pattern'), patRoot)));
+        h('aside.panel', instRoot),
+        h('section.panel.pattern', patRoot)));
   }
 
   updateTop() {

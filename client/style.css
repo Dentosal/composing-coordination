@@ -59,6 +59,40 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .audition button.hold { user-select: none; touch-action: none; }
 .loader { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .patch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; align-items: start; }
+.nodes-body { display: grid; gap: 12px; }
+.patch-cols, .lfo-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+/* The LFO row: one tinted band over all four columns (controls above Misc, then a depth slider per column). */
+.lfo-row { align-items: center; padding: 8px 0; border-radius: 8px; background: var(--panel2); }
+.lfo-ctl { display: grid; gap: 4px; padding: 0 12px; font-size: .85rem; }
+.lfo-head { display: flex; align-items: center; gap: 10px; }
+.lfo-head .knob { display: block; flex: 1; }
+.lfo-head select { width: 100%; }
+.lfo-ctl strong { font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.lfo-ctl .knob { grid-template-columns: 74px 1fr 62px; }
+@media (max-width: 1100px) {
+  .patch-cols, .lfo-row { grid-template-columns: 1fr; }
+}
+/* Side-by-side columns: no "LFO →" text. Instead a connector runs from each depth slider down into the
+   column it modulates, and that column gets an accent bar on top. */
+@media (min-width: 1101px) {
+  .lfo-row { align-items: stretch; }
+  .lfo-amt { position: relative; }
+  .lfo-amt .knob { grid-template-columns: 1fr var(--lfo-out-w); }
+  .lfo-amt .knob > span { display: none; }
+  .lfo-amt::after { content: ''; position: absolute; left: var(--lfo-arrow-x); top: calc(50% + 12px); bottom: -14px; width: 2px; margin-left: -1px; background: var(--accent); }
+  .lfo-amt::before { content: ''; position: absolute; left: var(--lfo-arrow-x); top: calc(100% + 14px); margin-left: -5px; border: 5px solid transparent; border-top: 6px solid var(--accent); border-bottom: 0; }
+  .lfo-target { box-shadow: inset 0 3px 0 var(--accent); }
+  /* Equal-height columns; each column's content stays on top and its envelope sinks to the bottom. */
+  .patch-cols { align-items: stretch; }
+  .patch-cols > .module { display: flex; flex-direction: column; gap: 4px; }
+  .patch-cols > .module .env-sec { margin-top: auto; }
+}
+/* The connector arrows sit at the centre of the (centred) value readout: its width and the cell padding are shared
+   variables, so the arrow position follows from the same numbers that size the readout. */
+.lfo-row { --lfo-pad: 12px; --lfo-out-w: 62px; --lfo-arrow-x: calc(100% - var(--lfo-pad) - var(--lfo-out-w) / 2); }
+.lfo-amt { display: flex; align-items: center; padding: 0 var(--lfo-pad); font-size: .85rem; }
+.lfo-amt .knob { flex: 1; }
+.noise-sec > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .module { background: var(--panel2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
 .module h4 { margin: 0 0 4px; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .knob { display: grid; grid-template-columns: 74px 1fr 62px; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
@@ -126,3 +160,27 @@ input[type=range] { accent-color: var(--accent); }
 .adsr-sliders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .adsr-col { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: .8rem; font-weight: 600; color: var(--muted); }
 .adsr-col input[type=range] { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 88px; padding: 0; margin: 0; }
+.module h5.sub { margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--line); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+
+.osc.off > :not(.osc-head), .osc.off .osc-head select { opacity: .4; }
+.osc.off .osc-head strong { opacity: .5; }
+.osc.off .knob:nth-of-type(1) { opacity: 1; } /* the level slider stays fully visible so it can be raised again */
+/* hover-link highlight: a thin, half-strength accent so it hints rather than shouts */
+:root { --hl: color-mix(in srgb, var(--accent) 50%, transparent); }
+.module.hl, .osc.hl, .env-sec.hl, .knob.hl, .lfo-row.hl, .noise-sec.hl { outline: 1px solid var(--hl); outline-offset: 2px; border-radius: 6px; }
+.rd-box.hl rect { stroke: var(--hl); stroke-width: 1.4; }
+
+.mod-head { display: flex; align-items: center; gap: 10px; }
+.mod-head h4 { margin: 0; }
+.osc-tabs { display: flex; gap: 4px; margin-left: auto; }
+.osc-tab { min-width: 28px; padding: 2px 8px; font-weight: 600; }
+.osc-tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.osc-tab.off:not(.on) { opacity: .4; }
+.osc-tab.off.on { opacity: .75; }
+.osc-tab.hl { outline: 1px solid var(--hl); outline-offset: 2px; }
+.osc[hidden] { display: none; }
+.osc { border-top: none; padding-top: 0; }
+
+.env-spacer { display: none; visibility: hidden; pointer-events: none; }
+@media (min-width: 1101px) { .env-spacer { display: block; } }
+.lfo-row .knob output { text-align: center; }

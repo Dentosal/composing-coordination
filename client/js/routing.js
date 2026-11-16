@@ -15,8 +15,8 @@ const num = (v) => String(Number(Number(v).toPrecision(3)));
 const signed = (v) => `${v > 0 ? '+' : ''}${num(v)}`;
 
 /** A labelled box. `on` false dims it. Returns the group; geometry is passed back via the caller. */
-function box(x, y, w, h, title, sub, { on = true, cls = '' } = {}) {
-  return s('g', { class: `rd-box ${cls} ${on ? '' : 'off'}` },
+function box(x, y, w, h, title, sub, { on = true, cls = '', node = null } = {}) {
+  return s('g', { class: `rd-box ${cls} ${on ? '' : 'off'}`, 'data-node': node },
     s('rect', { x, y, width: w, height: h, rx: 6 }),
     s('text', { x: x + 10, y: y + (sub ? 16 : h / 2 + 4), class: 'rd-title' }, title),
     sub ? s('text', { x: x + 10, y: y + 30, class: 'rd-sub' }, sub) : null);
@@ -48,13 +48,13 @@ export function routingDiagram(p) {
   const SRC_X = 22;
   const SRC_W = 150;
   const src = []; // {cy, filtered, on}
-  layers.boxes.push(box(SRC_X, 14, SRC_W, 38, 'Noise', `${p.noise.color} · level ${num(p.noise.level)}`, { on: p.noise.level > 0 }));
+  layers.boxes.push(box(SRC_X, 14, SRC_W, 38, 'Noise', `${p.noise.color} · level ${num(p.noise.level)}`, { on: p.noise.level > 0, node: 'noise' }));
   src.push({ cy: 33, filtered: p.noise.filtered, on: p.noise.level > 0 });
   layers.boxes.push(s('rect', { x: 12, y: 64, width: SRC_W + 20, height: 142, rx: 8, class: 'rd-group' }));
   p.osc.forEach((o, i) => {
     const y = 74 + i * 44;
     const pitch = o.fixed_hz != null ? `${num(o.fixed_hz)} Hz` : `${signed(o.semitones)} st`;
-    layers.boxes.push(box(SRC_X, y, SRC_W, 38, `Osc ${i + 1}`, `${o.wave} · ${pitch} · level ${num(o.level)}`, { on: o.level > 0 }));
+    layers.boxes.push(box(SRC_X, y, SRC_W, 38, `Osc ${i + 1}`, `${o.wave} · ${pitch} · level ${num(o.level)}`, { on: o.level > 0, node: `osc${i + 1}` }));
     src.push({ cy: y + 19, filtered: o.filtered, on: o.level > 0 });
   });
 
@@ -64,7 +64,7 @@ export function routingDiagram(p) {
   const BYPASS_CY = 54;
   const FILTER_CY = 128;
   layers.boxes.push(box(SINK_X, 34, SINK_W, 40, 'Bypass filter', null, { cls: 'bypass' }));
-  layers.boxes.push(box(SINK_X, 96, SINK_W, 64, 'Filter', `${p.filter.mode} · ${num(p.filter.freq)} Hz`));
+  layers.boxes.push(box(SINK_X, 96, SINK_W, 64, 'Filter', `${p.filter.mode} · ${num(p.filter.freq)} Hz`, { node: 'filter' }));
   for (const s_ of src) wireTo(SRC_X + SRC_W, s_.cy, SINK_X, s_.filtered ? FILTER_CY : BYPASS_CY, { on: s_.on });
 
   // ---- sum -> drive -> amp -> out
@@ -74,9 +74,9 @@ export function routingDiagram(p) {
   wireTo(SINK_X + SINK_W, BYPASS_CY, SUM[0] - 14, SUM[1]);
   wireTo(SINK_X + SINK_W, FILTER_CY, SUM[0] - 14, SUM[1]);
   const driveOn = p.drive > 0;
-  layers.boxes.push(box(550, 78, 100, 44, 'Drive', driveOn ? `amount ${num(p.drive)}` : 'off', { on: driveOn }));
-  layers.boxes.push(box(690, 78, 110, 44, 'Amp', 'volume', {}));
-  layers.boxes.push(box(830, 78, 62, 44, 'Out'));
+  layers.boxes.push(box(550, 78, 100, 44, 'Drive', driveOn ? `amount ${num(p.drive)}` : 'off', { on: driveOn, node: 'drive' }));
+  layers.boxes.push(box(690, 78, 110, 44, 'Amp', 'volume', { node: 'amp' }));
+  layers.boxes.push(box(830, 78, 90, 44, 'Output + FX', null, { node: 'amp' })); // level and the delay/reverb sends
   wireTo(SUM[0] + 14, SUM[1], 550, 100);
   wireTo(650, 100, 690, 100);
   wireTo(800, 100, 830, 100);
@@ -84,17 +84,17 @@ export function routingDiagram(p) {
   // ---- modulation row (bottom)
   const MY = 268;
   const MH = 46;
-  const modBox = (x, title, sub, on) => {
-    layers.boxes.push(box(x, MY, 160, MH, title, sub, { on, cls: 'mod' }));
+  const modBox = (x, title, sub, on, node) => {
+    layers.boxes.push(box(x, MY, 160, MH, title, sub, { on, cls: 'mod', node }));
     return x + 80;
   };
   const pe = p.penv.amount !== 0;
   const fe = p.fenv.amount !== 0;
-  const penvX = modBox(22, 'Pitch envelope', pe ? `${signed(p.penv.amount)} ct` : 'off', pe);
-  const fenvX = modBox(240, 'Filter envelope', fe ? `${signed(p.fenv.amount)} Hz` : 'off', fe);
+  const penvX = modBox(22, 'Pitch envelope', pe ? `${signed(p.penv.amount)} ct` : 'off', pe, 'penv');
+  const fenvX = modBox(240, 'Filter envelope', fe ? `${signed(p.fenv.amount)} Hz` : 'off', fe, 'fenv');
   const lfoOn = p.lfo.pitch > 0 || p.lfo.cutoff > 0 || p.lfo.amp > 0;
-  const lfoX = modBox(460, 'LFO', lfoOn ? `${p.lfo.wave} · ${num(p.lfo.rate)} Hz` : 'off', lfoOn);
-  const aenvX = modBox(700, 'Amp envelope', `A ${num(p.aenv.attack)} D ${num(p.aenv.decay)} S ${num(p.aenv.sustain)} R ${num(p.aenv.release)}`, true);
+  const lfoX = modBox(460, 'LFO', lfoOn ? `${p.lfo.wave} · ${num(p.lfo.rate)} Hz` : 'off', lfoOn, 'lfo');
+  const aenvX = modBox(700, 'Amp envelope', `A ${num(p.aenv.attack)} D ${num(p.aenv.decay)} S ${num(p.aenv.sustain)} R ${num(p.aenv.release)}`, true, 'aenv');
 
   const OSC_BOTTOM = 206;
   // `at` = how far along the wire from the source the label sits (0..1); staggered to avoid collisions.
@@ -117,7 +117,7 @@ export function routingDiagram(p) {
 
   const arrow = (id, cls) => s('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
     s('path', { d: 'M0,0 L10,5 L0,10 z', class: cls }));
-  return s('svg', { viewBox: '0 0 910 330', class: 'rd', role: 'img', 'aria-label': 'Signal routing of this instrument' },
+  return s('svg', { viewBox: '0 0 930 330', class: 'rd', role: 'img', 'aria-label': 'Signal routing of this instrument' },
     s('defs', null, arrow('rd-arrow-audio', 'rd-head audio'), arrow('rd-arrow-mod', 'rd-head mod')),
     layers.wires, layers.boxes, layers.labels,
     s('g', { class: 'rd-legend', transform: 'translate(600 18)' },

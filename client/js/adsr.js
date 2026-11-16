@@ -18,27 +18,30 @@ const fmtVal = (key, v) => (key === 'sustain' ? `${Math.round(v * 100)}%` : v < 
 const toSlider = (st, v) => (st.log ? Math.log(Math.max(v, T_MIN) / T_MIN) / Math.log(T_MAX / T_MIN) : v);
 const fromSlider = (st, x) => (st.log ? Number((T_MIN * (T_MAX / T_MIN) ** x).toPrecision(3)) : x);
 
-// Stage durations are drawn on a compressed (log-like) scale so a 5 ms attack and a 2 s release both stay visible.
+// The preview has a fixed time scale: attack, decay and release each get the same fixed-width slot, plus a
+// fixed-width sustain hold. A duration maps to a fraction of its slot on a compressed (log-like) scale, so 5 ms and
+// 2 s both stay visible, and changing one stage never changes the width of another.
 const W = 120;
 const H = 48;
 const PAD = 2;
-const squash = (t) => Math.log1p(t / 0.02) / Math.log1p(T_MAX / 0.02); // 0..1
+const HOLD_W = 14;
+const SLOT_W = (W - 2 * PAD - HOLD_W) / 3;
+const squash = (t) => Math.log1p(t / 0.002) / Math.log1p(T_MAX / 0.002); // 0..1
 
 /** SVG path data for the envelope: attack up, decay to sustain, a fixed-width hold, release to zero. */
 export function envelopePath({ attack, decay, sustain, release }) {
-  const hold = 0.22;
-  const parts = [squash(attack), squash(decay), hold, squash(release)];
-  const total = parts.reduce((a, b) => a + b, 0);
-  const sx = (W - 2 * PAD) / total;
   const y = (level) => PAD + (1 - level) * (H - 2 * PAD);
   let x = PAD;
   const pts = [[x, y(0)]];
-  x += parts[0] * sx; pts.push([x, y(1)]);
-  x += parts[1] * sx; pts.push([x, y(sustain)]);
-  x += parts[2] * sx; pts.push([x, y(sustain)]);
-  x += parts[3] * sx; pts.push([x, y(0)]);
+  x += squash(attack) * SLOT_W; pts.push([x, y(1)]);
+  // Decay and release start where their slot starts, so the hold sits at a fixed x regardless of the stages before it.
+  const decayStart = PAD + SLOT_W;
+  x = decayStart + squash(decay) * SLOT_W; pts.push([x, y(sustain)]);
+  const holdEnd = decayStart + SLOT_W + HOLD_W;
+  pts.push([holdEnd, y(sustain)]);
+  x = holdEnd + squash(release) * SLOT_W; pts.push([x, y(0)]);
   const line = pts.map(([px, py], i) => `${i ? 'L' : 'M'}${px.toFixed(1)},${py.toFixed(1)}`).join(' ');
-  return { line, area: `${line} L${pts[4][0].toFixed(1)},${y(0)} L${PAD},${y(0)} Z` };
+  return { line, area: `${line} L${pts[pts.length - 1][0].toFixed(1)},${y(0)} L${PAD},${y(0)} Z` };
 }
 
 /**
