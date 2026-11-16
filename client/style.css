@@ -82,14 +82,18 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
   .lfo-amt::after { content: ''; position: absolute; left: var(--lfo-arrow-x); top: calc(50% + 12px); bottom: -14px; width: 2px; margin-left: -1px; background: var(--accent); }
   .lfo-amt::before { content: ''; position: absolute; left: var(--lfo-arrow-x); top: calc(100% + 14px); margin-left: -5px; border: 5px solid transparent; border-top: 6px solid var(--accent); border-bottom: 0; }
   .lfo-target { box-shadow: inset 0 3px 0 var(--accent); }
+  /* LFO depth of 0: the connector and the column's top bar go grey. */
+  .lfo-amt.lfo-zero::after { background: var(--lfo-off); }
+  .lfo-amt.lfo-zero::before { border-top-color: var(--lfo-off); }
+  .lfo-target.lfo-zero { box-shadow: inset 0 3px 0 var(--lfo-off); }
   /* Equal-height columns; each column's content stays on top and its envelope sinks to the bottom. */
   .patch-cols { align-items: stretch; }
   .patch-cols > .module { display: flex; flex-direction: column; gap: 4px; }
   .patch-cols > .module .env-sec { margin-top: auto; }
 }
-/* The connector arrows sit at the centre of the (centred) value readout: its width and the cell padding are shared
-   variables, so the arrow position follows from the same numbers that size the readout. */
-.lfo-row { --lfo-pad: 12px; --lfo-out-w: 76px; --lfo-arrow-x: calc(100% - var(--lfo-pad) - var(--lfo-out-w) / 2); }
+/* The connector arrows sit at the horizontal centre of their cell, which is the centre of the box below it. */
+.nodes-body { --lfo-off: color-mix(in srgb, var(--muted) 45%, transparent); }
+.lfo-row { --lfo-pad: 12px; --lfo-out-w: 76px; --lfo-arrow-x: 50%; } /* arrows point at the horizontal centre of the box below */
 .lfo-amt { display: flex; align-items: center; padding: 0 var(--lfo-pad); font-size: .85rem; }
 .lfo-amt .knob { flex: 1; }
 .noise-sec > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
@@ -191,7 +195,7 @@ input[type=range] { accent-color: var(--accent); }
 @media (min-width: 1101px) { .env-spacer { display: block; } }
 .lfo-row .knob output { text-align: center; }
 .lfo-row .val-wrap { justify-content: center; }
-.lfo-row .knob .val { flex: none; width: 4.2ch; }
+.lfo-row .knob .val { flex: none; width: calc(5ch + 10px); } /* fits four digits (e.g. 4000) plus padding */
 
 .loader { position: relative; }
 .preset-dialog { position: absolute; top: calc(100% + 6px); right: 0; left: auto; margin: 0; z-index: 20; min-width: 170px; padding: 6px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }

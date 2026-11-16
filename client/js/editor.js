@@ -377,8 +377,17 @@ export class InstrumentPanel {
     // Per-column LFO depth: how much the LFO modulates that column's target. Tagged 'lfo' so it links to the LFO box.
     // The "LFO →" label is hidden when the columns sit side by side (CSS draws a connector to the column instead).
     const TARGETS = { pitch: 'pitch', cutoff: 'filter cutoff', amp: 'volume' };
-    const lfoAmount = (key, o) => h('div.lfo-amt', { title: `LFO depth → ${TARGETS[key]}` }, knob('LFO →', patch.lfo, key, o, change));
-    const target = (el) => { el.classList.add('lfo-target'); return el; }; // a column the LFO row modulates
+    // A depth of 0 means the LFO does nothing to that column: its connector and the column's top bar are greyed out.
+    let patchEl = null;
+    const syncLfo = () => {
+      for (const key of Object.keys(TARGETS)) {
+        patchEl?.querySelectorAll(`[data-lfo="${key}"]`).forEach((el) => el.classList.toggle('lfo-zero', !(patch.lfo[key] > 0)));
+      }
+    };
+    const lfoChange = () => { syncLfo(); change(); };
+    const lfoAmount = (key, o) => h('div.lfo-amt', { title: `LFO depth → ${TARGETS[key]}`, 'data-lfo': key },
+      knob('LFO →', patch.lfo, key, o, lfoChange));
+    const target = (el, key) => { el.classList.add('lfo-target'); el.dataset.lfo = key; return el; }; // a column the LFO row modulates
     // The LFO's own controls take the strip above the Misc column (nothing in Misc is modulated).
     const oscRows = patch.osc.map((o, i) => oscRow(o, i + 1));
     const showOsc = (i) => {
@@ -400,7 +409,7 @@ export class InstrumentPanel {
       lfoAmount('cutoff', { min: 0, max: 4000, step: 10, unit: ' Hz' }),
       lfoAmount('amp', { min: 0, max: 1 })));
 
-    return h('div.patch', head, this.auditionBar(inst), this.section('nodes', 'Node configuration', 'nodesOpen', h('div.nodes-body',
+    patchEl = h('div.patch', head, this.auditionBar(inst), this.section('nodes', 'Node configuration', 'nodesOpen', h('div.nodes-body',
       lfoRow,
       h('div.patch-cols',
         module(null,
@@ -412,19 +421,21 @@ export class InstrumentPanel {
         target(module(null,
           h('div.mod-head', h('h4', 'Oscillators'), h('div.osc-tabs', oscTabs)),
           oscRows,
-          envelope('penv', 'Pitch envelope', patch.penv, { label: 'amount', min: -4800, max: 4800, step: 10, unit: ' ct' }))),
+          envelope('penv', 'Pitch envelope', patch.penv, { label: 'amount', min: -4800, max: 4800, step: 10, unit: ' ct' })), 'pitch'),
         target(node('filter', module('Filter',
             select('type', patch.filter, 'mode', FILTER_MODES, change),
             knob('cutoff', patch.filter, 'freq', { min: 20, max: 20000, log: true, unit: ' Hz' }, change),
             knob('resonance', patch.filter, 'q', { min: 0.1, max: 20, log: true }, change),
             knob('key track', patch.filter, 'key_track', { min: 0, max: 1 }, change),
             node('drive', knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change)),
-          envelope('fenv', 'Filter envelope', patch.fenv, { label: 'amount', min: -8000, max: 8000, step: 10, unit: ' Hz' })))),
+          envelope('fenv', 'Filter envelope', patch.fenv, { label: 'amount', min: -8000, max: 8000, step: 10, unit: ' Hz' }))), 'cutoff'),
         target(node('amp', module('Amplifier + FX',
           knob('level', patch, 'gain', { min: 0, max: 1 }, change),
           knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
           knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change),
-          envelope('aenv', 'Amp envelope', patch.aenv))))))), routing);
+          envelope('aenv', 'Amp envelope', patch.aenv))), 'amp')))), routing);
+    syncLfo();
+    return patchEl;
   }
 }
 
