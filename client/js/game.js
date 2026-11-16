@@ -1,9 +1,9 @@
 // Game screen controller: lobby wait, round play, end screen.
 import * as api from './api.js';
-import { LoopPlayer, decode, unlock } from './audio.js';
+import { LoopPlayer, decode, getCtx, unlock } from './audio.js';
 import { h, clear } from './dom.js';
 import { InstrumentPanel, ensureTracks, loadPresets } from './editor.js';
-import { renderPreviewLocal } from './render.js';
+import { LiveSequencer } from './live.js';
 import { PatternEditor } from './pattern.js';
 
 const fmtTime = (ms) => {
@@ -27,10 +27,15 @@ export class Game {
     this.errors = [];
     this.view = null;
     this.player = new LoopPlayer();
-    // Local preview of this seat's uncommitted part, rendered by the server and looped over the mix.
-    this.previewPlayer = new LoopPlayer();
+    // Preview of this seat's uncommitted part, played over the mix. Two engines: a live sequencer in the browser
+    // (instant, the default) and the server's canonical render looped like the mix (see previewPlayer).
+    this.serverPlayer = new LoopPlayer();
+    this.livePlayer = new LiveSequencer({
+      config: () => this.st.config,
+      seat: () => this.st.you?.seat_index ?? 0,
+      part: () => ({ instruments: this.orders.instruments, lanes: this.orders.lanes.filter((l) => this.isAudible(l.instrument)) }),
+    });
     this.previewOn = false;
-    // Preview renders in the browser by default (instant); the checkbox switches to the server's canonical render.
     this.serverPreview = false;
     try { this.serverPreview = localStorage.getItem('serverPreview') === '1'; } catch {}
     this.previewT = null;
@@ -75,7 +80,8 @@ export class Game {
     clearTimeout(this.saveT);
     clearTimeout(this.previewT);
     this.player.stop();
-    this.previewPlayer.stop();
+    this.serverPlayer.stop();
+    this.livePlayer.stop();
     this.panel?.destroy();
     this.pattern?.destroy();
   }
@@ -155,9 +161,9 @@ export class Game {
       this.updateCommit();
     }
     this.scheduleSave(800);
-    if (this.previewOn) {
+    if (this.previewOn && this.serverPreview) { // the live sequencer reads the orders as it plays
       this.editAt ??= performance.now(); // first edit not yet heard; used for latency logging
-      this.schedulePreview(this.serverPreview ? 600 : 120);
+      this.schedulePreview(600);
     }
   }
 
@@ -276,7 +282,7 @@ export class Game {
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play mix');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
     r.serverChk = h('input', { type: 'checkbox', checked: this.serverPreview, onchange: (e) => this.setServerPreview(e.target.checked) });
-    r.serverLbl = h('label.muted', { title: 'Render the preview on the server, exactly like the final band mix (slower). Off: render in your browser for instant feedback.' }, r.serverChk, ' Server render');
+    r.serverLbl = h('label.muted', { title: 'Render the preview on the server, exactly like the final band mix (slower, edits are heard after a short delay). Off: play it live in your browser.' }, r.serverChk, ' Server render');
     r.mixInfo = h('span.muted');
     r.mix = h('section.mix', r.playBtn, r.previewBtn, r.serverLbl, r.mixInfo);
 
@@ -459,10 +465,16 @@ export class Game {
     this.updateMix();
   }
 
+  get previewPlayer() {
+    return this.serverPreview ? this.serverPlayer : this.livePlayer;
+  }
+
   setServerPreview(on) {
+    this.serverPlayer.stop();
+    this.livePlayer.stop();
     this.serverPreview = on;
     try { localStorage.setItem('serverPreview', on ? '1' : '0'); } catch {}
-    if (this.previewOn) this.schedulePreview(0);
+    if (this.previewOn) this.renderPreview(); // live: joins the running transport at once; server: render first
   }
 
   schedulePreview(ms) {
@@ -470,8 +482,20 @@ export class Game {
     this.previewT = setTimeout(() => this.renderPreview(), ms);
   }
 
-  /** Render the current draft on the server and swap it into the preview loop at the next boundary. */
+  /** The live preview needs no render: start it (or the play command that was waiting for it). */
+  async previewReady() {
+    this.previewMsg = '';
+    const pending = this.pendingPlay;
+    this.pendingPlay = null;
+    if (pending?.kind === 'full') await this.togglePlay();
+    else if (pending) await this.playPattern(pending.kind, pending.a, pending.b);
+    else await this.startPreviewInSync();
+    this.updateMix();
+  }
+
+  /** Server mode: render the current draft on the server and swap it into the preview loop at the playhead. */
   async renderPreview() {
+    if (!this.serverPreview) return this.previewReady();
     if (this.previewBusy) {
       this.previewStale = true;
       return;
@@ -486,24 +510,17 @@ export class Game {
     try {
       const snapshot = JSON.parse(JSON.stringify(this.orders));
       for (const lane of snapshot.lanes) if (!this.isAudible(lane.instrument)) lane.steps = []; // muted / not soloed
-      const local = !this.serverPreview;
-      let buf, size = 0, t1;
-      if (local) {
-        buf = await renderPreviewLocal(snapshot, this.st.config, this.st.you?.seat_index ?? 0);
-        t1 = performance.now();
-      } else {
-        const wav = await api.fetchPreview(this.sid, this.token, snapshot);
-        t1 = performance.now();
-        size = wav.byteLength;
-        buf = await decode(wav);
-      }
+      const wav = await api.fetchPreview(this.sid, this.token, snapshot);
+      const t1 = performance.now();
+      const size = wav.byteLength;
+      const buf = await decode(wav);
       const t2 = performance.now();
-      if (this.previewOn && !this.dead) {
+      if (this.previewOn && this.serverPreview && !this.dead) {
         this.previewMsg = '';
-        this.previewPlayer.setBuffer(buf, true); // swap in at the current playhead, don't wait for the loop boundary
+        this.serverPlayer.setBuffer(buf, true); // swap in at the current playhead, don't wait for the loop boundary
         const f = (x) => Math.round(x);
         console.log(
-          `[preview] edit→audible ${f(t2 - editAt)}ms = wait-before-render ${f(t0 - editAt)} + ${local ? 'local render' : 'server'} ${f(t1 - t0)}${local ? '' : ` (${(size / 1024) | 0} KiB)`} + decode ${f(t2 - t1)} (loop ${buf.duration.toFixed(2)}s)`,
+          `[preview] edit→audible ${f(t2 - editAt)}ms = wait-before-render ${f(t0 - editAt)} + server ${f(t1 - t0)} (${(size / 1024) | 0} KiB) + decode ${f(t2 - t1)} (loop ${buf.duration.toFixed(2)}s)`,
         );
         const pending = this.pendingPlay;
         this.pendingPlay = null;
@@ -518,16 +535,26 @@ export class Game {
     } finally {
       this.previewBusy = false;
     }
-    if (this.previewMsg && !this.previewPlayer.buffer) this.pendingPlay = null; // the render failed: don't play later by surprise
-    if (this.previewOn && (this.previewStale || retry)) this.schedulePreview(retry || 100);
+    if (this.previewMsg && !this.serverPlayer.buffer) this.pendingPlay = null; // the render failed: don't play later by surprise
+    if (this.previewOn && this.serverPreview && (this.previewStale || retry)) this.schedulePreview(retry || 100);
     this.updateMix();
   }
 
   /** If the transport is running but the preview is not yet (first render finished late), join on the mix's next loop boundary. */
   async startPreviewInSync() {
     if (!this.playing || this.previewPlayer.playing || !this.previewPlayer.buffer) return;
-    const when = this.player.playing ? this.player.nextBoundary() : undefined;
-    await this.previewPlayer.play(when, this.player.playing ? this.player.loopRegion() : undefined);
+    const reg = this.player.playing ? this.player.loopRegion() : undefined;
+    let when = this.player.playing ? this.player.nextBoundary() : undefined;
+    let region = reg;
+    const pos = reg && this.previewPlayer === this.livePlayer ? this.player.position() : null;
+    if (pos != null) { // live: join at the next row of the running mix instead of waiting for the loop boundary
+      const rowSecs = 60 / (this.st.config.bpm * (this.st.config.rows_per_bar / 4));
+      let next = Math.ceil(pos / rowSecs - 1e-6) * rowSecs;
+      when = getCtx().currentTime + 0.02 + (next - pos);
+      if (next >= reg.loopEnd - 1e-6) next = reg.loopStart;
+      region = { ...reg, offset: next };
+    }
+    await this.previewPlayer.play(when, region);
   }
 
   updatePlayhead() {

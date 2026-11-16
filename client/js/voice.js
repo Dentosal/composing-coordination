@@ -75,14 +75,14 @@ function shaperCurve(drive) {
 
 /** Shared sends and limiter. Everything ends up in `dry`; `delayIn` and `reverbIn` are the send inputs. */
 export class Master {
-  constructor(ctx, { bpm, seed }) {
+  constructor(ctx, { bpm, seed }, dest = ctx.destination) {
     this.dry = gain(ctx, 1);
     this.delayIn = gain(ctx, 1);
     this.reverbIn = gain(ctx, 1);
 
     const limiter = ctx.createWaveShaper();
     limiter.curve = limiterCurve();
-    limiter.connect(gain(ctx, OUTPUT_TRIM)).connect(ctx.destination);
+    limiter.connect(gain(ctx, OUTPUT_TRIM)).connect(dest);
     this.dry.connect(limiter);
 
     const delay = ctx.createDelay(4);
