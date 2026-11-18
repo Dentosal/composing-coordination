@@ -809,16 +809,20 @@ export class PatternEditor {
       d.active = true;
       this.main.classList.add('reordering');
     }
-    const items = [...this.roll.querySelectorAll('.roll-row:not(.head)')];
+    const items = [...this.roll.querySelectorAll('.roll-row:not(.head):not(.auto)')];
     let k = items.findIndex((el) => { const r = el.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
     if (k < 0) k = items.length;
     d.ins = k < items.length ? Number(items[k].dataset.lane) : Number(items[items.length - 1].dataset.lane) + 1;
     items.forEach((el, i) => {
-      for (const m of [el, this.rollLabels.querySelector(`.roll-label[data-lane="${el.dataset.lane}"]`)]) { // the row and its label
-        m?.classList.toggle('dragging', Number(el.dataset.lane) === d.from);
-        m?.classList.toggle('drop-before', i === k);
-        m?.classList.toggle('drop-after', k === items.length && i === items.length - 1);
-      }
+      const lane = el.dataset.lane;
+      const q = (root, sel) => root.querySelector(`${sel}[data-lane="${lane}"]`);
+      // A track is four elements: its automation row and label above, its note row and label. The drop marker sits above
+      // the automation lane (before) or below the note row (after).
+      const top = [q(this.roll, '.roll-row.auto'), q(this.rollLabels, '.roll-auto-label')];
+      const bottom = [el, q(this.rollLabels, '.roll-label')];
+      for (const m of [...top, ...bottom]) m?.classList.toggle('dragging', Number(lane) === d.from);
+      for (const m of top) m?.classList.toggle('drop-before', i === k);
+      for (const m of bottom) m?.classList.toggle('drop-after', k === items.length && i === items.length - 1);
     });
   }
 
@@ -901,7 +905,19 @@ export class PatternEditor {
         } },
         h('strong', String(li + 1)), h('span.roll-name', this.nameOf(lane)), h('span.roll-btns', this.muteSoloBtns(id)));
       label.dataset.lane = String(li);
-      this.rollLabels.append(label);
+      // An automation / effect lane above each track: cells like the note cells, half as high and dimmer (no data yet).
+      const autoLabel = h('div.roll-auto-label', { title: 'Automation lane' }, 'auto');
+      autoLabel.dataset.lane = String(li);
+      this.rollLabels.append(autoLabel, label);
+      const autoRow = h('div', { class: `roll-row auto${state}` });
+      autoRow.dataset.lane = String(li);
+      stepsOf(autoRow, (group, r, _b, _bb, groupEnd, barEnd) => {
+        const cell = h('div', { class: `roll-acell${groupEnd ? ' gend' : ''}${barEnd ? ' bend' : ''}` });
+        cell.dataset.row = String(r);
+        this.rollCols[r].push(cell);
+        group.append(cell);
+      });
+      this.rollScroll.append(autoRow);
       const row = h('div', { class: `roll-row${state}` });
       row.dataset.lane = String(li);
       stepsOf(row, (group, r, _beatStart, _barStart, groupEnd, barEnd) => {
