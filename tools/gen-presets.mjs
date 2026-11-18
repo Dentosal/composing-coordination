@@ -45,7 +45,7 @@ const presets = {
   }],
   kick: ['Kick', 'Drums', {
     gain: 1, send_reverb: 0, drive: 4, // drive flattens the sine's peaks: more body at the same peak level
-    osc: [{ wave: 'sine', fixed_hz: 52, level: 1, filtered: false }, OFF, OFF],
+    osc: [{ wave: 'sine', fixed_hz: 52, level: 1, route: 0 }, OFF, OFF],
     noise: { level: 0.3 }, // the click: noise through a lowpass that the filter envelope opens for ~15 ms
     filter: { freq: 120, q: 0.7, key_track: 0 },
     fenv: { attack: 0.001, decay: 0.015, sustain: 0, release: 0.02, amount: 6000 },
@@ -54,7 +54,7 @@ const presets = {
   }],
   snare: ['Snare', 'Drums', {
     gain: 0.8, send_reverb: 0.2,
-    osc: [{ wave: 'triangle', fixed_hz: 190, level: 0.6, filtered: false }, OFF, OFF],
+    osc: [{ wave: 'triangle', fixed_hz: 190, level: 0.6, route: 0 }, OFF, OFF],
     noise: { level: 0.9 },
     filter: { mode: 'highpass', freq: 1500, q: 0.7, key_track: 0 },
     aenv: { attack: 0.001, decay: 0.15, sustain: 0, release: 0.05 },
@@ -82,7 +82,7 @@ const presets = {
   }],
   tom: ['Tom', 'Drums', { // follows the note: play it low (C2-C3); the pitch sweeps up from the note
     gain: 1, send_reverb: 0.1, drive: 1.5,
-    osc: [{ wave: 'sine', level: 1, filtered: false }, OFF, OFF],
+    osc: [{ wave: 'sine', level: 1, route: 0 }, OFF, OFF],
     penv: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.05, amount: 1200 },
     aenv: { attack: 0.001, decay: 0.35, sustain: 0, release: 0.08 },
   }],
@@ -95,7 +95,7 @@ const presets = {
   }],
   sub: ['Sub bass', 'Bass', { // a bare sine whistles; drive and a darkened saw add harmonics so it also reads on small speakers
     gain: 0.6, send_reverb: 0, drive: 2.5,
-    osc: [{ wave: 'sine', level: 0.8, filtered: false }, { level: 0.25 }, OFF],
+    osc: [{ wave: 'sine', level: 0.8, route: 0 }, { level: 0.25 }, OFF],
     filter: { freq: 250, q: 0.7, key_track: 0.6 },
     aenv: { attack: 0.01, decay: 0.1, sustain: 1, release: 0.15 },
   }],

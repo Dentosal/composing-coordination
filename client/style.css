@@ -114,6 +114,9 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .lfo-amt { display: flex; align-items: center; padding: 0 var(--lfo-pad); font-size: .85rem; }
 .lfo-amt .knob { flex: 1; }
 .noise-sec > h5.sub:first-child, .fm-sec > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.filt { display: flex; flex-direction: column; gap: 4px; flex: 1; } /* one filter's controls; its envelope sits at the bottom, level with the other columns' */
+.filt[hidden] { display: none; }
+.filt .env-sec { margin-top: auto; }
 .col-stack { display: grid; gap: 12px; align-content: start; } /* two modules sharing one column */
 .fm-sec { display: grid; gap: 4px; }
 .fm-sec.off .knob { opacity: .5; }
@@ -196,6 +199,8 @@ input[type=range] { accent-color: var(--accent); }
 .osc-tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .osc-tab.off:not(.on) { opacity: .4; }
 .osc-tab.off.on { opacity: .75; }
+.seg { display: flex; gap: 2px; margin-left: 8px; }
+.seg-btn { min-width: 0; padding: 2px 7px; font-size: .72rem; font-weight: 500; }
 .osc-tab.hl { outline: 1px solid var(--hl); outline-offset: 2px; }
 .osc[hidden] { display: none; }
 .osc { border-top: none; padding-top: 0; }

@@ -6,7 +6,7 @@ import { icon } from './icons.js';
 import { helpButton } from './help.js';
 import { downloadText } from './download.js';
 import { routingDiagram } from './routing.js';
-import { FILTER_MODES, WAVES, buildInstrument, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
+import { FILTER_MODES, FILTER_ROUTINGS, WAVES, buildInstrument, usesFilter2, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
 
 let presetCache = null;
 
@@ -154,6 +154,12 @@ function select(label, obj, key, options, change) {
 const check = (label, get, set) =>
   h('label.check', h('input', { type: 'checkbox', checked: get(), onchange: (e) => set(e.target.checked) }), label);
 
+/** Which filter a sound source goes through: `obj.route` is 1, 2, or 0 for none. (In series, filter 1 runs on into filter 2.) */
+const ROUTES = [[1, 'filter 1'], [2, 'filter 2'], [0, 'no filter']];
+const routeSelect = (obj, change) => h('label.check', h('span', 'filter'),
+  h('select', { title: 'Which filter this source goes through', onchange: (e) => { obj.route = Number(e.target.value); change(); } },
+    ROUTES.map(([v, text]) => h('option', { value: String(v), selected: v === obj.route }, text))));
+
 const module = (title, ...kids) => h('section.module', title ? h('h4', title) : null, ...kids);
 /** Tag an element with the routing-diagram node it corresponds to (see InstrumentPanel.linkHighlight). */
 const node = (key, el) => { el.dataset.node = key; return el; };
@@ -168,6 +174,7 @@ export class InstrumentPanel {
     this.root = root;
     this.o = opts;
     this.oscTab = 0; // which oscillator is shown in the Oscillators box
+    this.filterTab = 0; // and which filter in the Filter box
     this.nodesOpen = true; // node configuration section (collapse to make room for the pattern)
     this.routingOpen = false; // signal routing diagram, collapsed by default
     this.aud = new Auditioner({ bpm: opts.bpm ?? 120, seed: opts.seed ?? 1 });
@@ -414,8 +421,10 @@ export class InstrumentPanel {
     pairDefaults(patch, defaultPatch());
     const routing = this.section('routing', 'Signal routing', 'routingOpen', routingDiagram(patch));
     let syncFm = () => {}; // refreshes the FM box (ratio helper, dimming) after any patch edit; set below
+    let syncFilterTabs = () => {}; // dims the filter tab nothing is routed to; set below
     const change = () => {
       syncFm();
+      syncFilterTabs();
       const prev = this.orders.instruments[idx()];
       this.orders.instruments[idx()] = buildInstrument(inst.id, patch, prev.name, prev.piano_roll === true);
       hintLoad();
@@ -447,7 +456,7 @@ export class InstrumentPanel {
             change();
             this.render();
           }),
-          check('through filter', () => o.filtered, (on) => { o.filtered = on; change(); })));
+          routeSelect(o, change)));
       return row;
     };
     const noise = patch.noise;
@@ -525,6 +534,44 @@ export class InstrumentPanel {
     };
     syncFm();
 
+    // Two filters in tabs, each with its own envelope. Sources choose which one they go through (or none).
+    const filterRow = (fk, ek, n) => node(n === 1 ? 'filter' : 'filter2', h('div.filt',
+      select('type', patch[fk], 'mode', FILTER_MODES, change),
+      knob('cutoff', patch[fk], 'freq', { min: 20, max: 20000, log: true, unit: ' Hz' }, change),
+      knob('resonance', patch[fk], 'q', { min: 0.1, max: 20, log: true }, change),
+      knob('key track', patch[fk], 'key_track', { min: 0, max: 1 }, change),
+      envelope(ek, 'Filter envelope', patch[ek], { label: 'amount', min: -8000, max: 8000, step: 10, unit: ' Hz' })));
+    const filterRows = [filterRow('filter', 'fenv', 1), filterRow('filter2', 'fenv2', 2)];
+    const filterTabs = [];
+    const showFilter = (i) => {
+      this.filterTab = i;
+      filterRows.forEach((r, k) => { r.hidden = k !== i; });
+      filterTabs.forEach((t, k) => { t.classList.toggle('on', k === i); t.setAttribute('aria-pressed', String(k === i)); });
+    };
+    [1, 2].forEach((n, i) => filterTabs.push(node(n === 1 ? 'filter' : 'filter2', h('button.osc-tab', {
+      type: 'button', onclick: () => showFilter(i),
+    }, String(n)))));
+    // Parallel: the filters work side by side. Serial: whatever goes through filter 1 then goes through filter 2.
+    const routingBtns = FILTER_ROUTINGS.map((v) => h('button.osc-tab.seg-btn', {
+      type: 'button', 'aria-pressed': 'false',
+      title: v === 'serial' ? 'Filter 1 feeds filter 2' : 'The two filters work side by side',
+      onclick: () => { patch.filterMode = v; change(); },
+    }, v));
+    syncFilterTabs = () => {
+      const sources = [...patch.osc, patch.noise];
+      [1, 2].forEach((n, i) => {
+        const used = n === 1 ? sources.some((src) => src.route === 1) : usesFilter2(patch);
+        filterTabs[i].classList.toggle('off', !used);
+        filterTabs[i].title = `Filter ${n}${used ? '' : ' (nothing goes through it)'}`;
+      });
+      FILTER_ROUTINGS.forEach((v, i) => {
+        routingBtns[i].classList.toggle('on', patch.filterMode === v);
+        routingBtns[i].setAttribute('aria-pressed', String(patch.filterMode === v));
+      });
+    };
+    syncFilterTabs();
+    showFilter(Math.min(this.filterTab, filterRows.length - 1));
+
     const nodes = this.section('nodes', 'Node configuration', 'nodesOpen', h('div.nodes-body',
       lfoRow,
       h('div.patch-cols',
@@ -534,23 +581,20 @@ export class InstrumentPanel {
               h('h5.sub', 'Noise'),
               select('color', noise, 'color', ['white', 'pink'], change),
               knob('level', noise, 'level', { min: 0, max: 1 }, change),
-              check('through filter', () => noise.filtered, (on) => { noise.filtered = on; change(); })))),
+              routeSelect(noise, change)))),
           module(null, fmBox)),
         target(module(null,
           h('div.mod-head', h('h4', 'Oscillators'), h('div.osc-tabs', oscTabs)),
           oscRows,
           envelope('penv', 'Pitch envelope', patch.penv, { label: 'amount', min: -4800, max: 4800, step: 10, unit: ' ct' })), 'pitch'),
-        target(node('filter', module('Filter',
-            select('type', patch.filter, 'mode', FILTER_MODES, change),
-            knob('cutoff', patch.filter, 'freq', { min: 20, max: 20000, log: true, unit: ' Hz' }, change),
-            knob('resonance', patch.filter, 'q', { min: 0.1, max: 20, log: true }, change),
-            knob('key track', patch.filter, 'key_track', { min: 0, max: 1 }, change),
-            node('drive', knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change)),
-          envelope('fenv', 'Filter envelope', patch.fenv, { label: 'amount', min: -8000, max: 8000, step: 10, unit: ' Hz' }))), 'cutoff'),
+        target(module(null,
+          h('div.mod-head', h('h4', 'Filter'), h('div.seg', routingBtns), h('div.osc-tabs', filterTabs)),
+          filterRows), 'cutoff'),
         target(node('amp', module('Amplifier + FX',
           knob('level', patch, 'gain', { min: 0, max: 1 }, change),
           knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
           knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change),
+          node('drive', knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change)),
           envelope('aenv', 'Amp envelope', patch.aenv))), 'amp'))));
     patchEl = h('div.patch', head, this.auditionBar(inst, [this.detailsToggle(nodes, 'Patch'), this.detailsToggle(routing, 'Signal routing')]), nodes, routing);
     syncLfo();
@@ -572,19 +616,19 @@ function categories(presets) {
 /** Contents of the patch editor's help dialog. */
 function patchHelp() {
   return [
-    'A patch is a small synthesizer. Sound sources go through a filter and an amplifier, and envelopes shape how the sound changes over the length of each note. The sound of the track you have selected is what you edit here.',
+    'A patch is a small synthesizer. Sound sources go through a filter (or two) and an amplifier, and envelopes shape how the sound changes over the length of each note. The sound of the track you have selected is what you edit here.',
     h('h3', 'Sound sources'),
     h('ul',
       h('li', h('strong', 'Oscillators'), ': up to three tone generators. Pick a wave shape, set the pitch (in semitones from the note) and a fine detune; stack them, or use unison (several detuned copies of one oscillator, spread across the given cents) for a thicker sound.'),
-      h('li', h('strong', 'Noise'), ': white or pink noise, good for drums and breath. "Through filter" decides whether a source passes the filter.')),
+      h('li', h('strong', 'Noise'), ': white or pink noise, good for drums and breath. Each source has a filter menu: it goes through filter 1, filter 2 or no filter.')),
     h('h3', 'Filter and drive'),
     h('ul',
-      h('li', h('strong', 'Filter'), ': removes frequencies. Cutoff sets where, resonance emphasises that spot, and key track makes higher notes open the filter more.'),
-      h('li', h('strong', 'Drive'), ': distortion that makes the sound thicker and louder.')),
+      h('li', h('strong', 'Filter'), ': removes frequencies. Cutoff sets where, resonance emphasises that spot, and key track makes higher notes open the filter more. There are two filters (tabs 1 and 2), each with its own envelope; a source goes through one of them, so they work side by side (parallel), or filter 1 feeds filter 2 (serial: "filter 1" then runs on through filter 2, and "filter 2" enters at the second filter). The LFO cutoff depth moves both. The second filter is only active while a source is routed to it.'),
+      h('li', h('strong', 'Drive'), ': distortion after the filters (in the Amplifier box) that makes the sound thicker and louder.')),
     h('h3', 'Envelopes'),
     h('ul',
       h('li', 'Each envelope has Attack, Decay, Sustain and Release: how fast the sound rises, falls to its held level, and fades when the note ends.'),
-      h('li', h('strong', 'Amp'), ' shapes the volume, ', h('strong', 'filter'), ' moves the cutoff, and ', h('strong', 'pitch'), ' bends the pitch at the start of a note (kicks and toms). "Amount" sets how far.')),
+      h('li', h('strong', 'Amp'), ' shapes the volume, ', h('strong', 'filter'), ' moves that filter\'s cutoff, and ', h('strong', 'pitch'), ' bends the pitch at the start of a note (kicks and toms). "Amount" sets how far.')),
     h('h3', 'LFO'),
     h('ul', h('li', 'A slow repeating wobble you can send to pitch (vibrato), cutoff (wah) or volume (tremolo). The three sliders set how much goes where.')),
     h('h3', 'Output'),

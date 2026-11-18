@@ -21,7 +21,7 @@ test('patch survives build/parse, including drive and fixed pitch', () => {
   const p = defaultPatch();
   p.drive = 6;
   p.osc[1].fixed_hz = 220;
-  p.osc[2].filtered = false;
+  p.osc[2].route = 0;
   p.lfo.cutoff = 1500;
   assert.deepEqual(parseInstrument(buildInstrument('x', p)), p);
   assert.equal(buildInstrument('x', { ...p, drive: 0 }).nodes.some((n) => n.type === 'shaper'), false);
@@ -176,4 +176,96 @@ test('FM gain is a 32-bit float value, as the server stores it, for any depth an
       assert.deepEqual(parseInstrument(stored), p, `depth ${depth}, ${semitones} st`);
     }
   }
+});
+
+test('filter 2: its nodes exist only while a source is routed to it; routes and settings round-trip', () => {
+  const p = defaultPatch();
+  const plain = buildInstrument('x', p);
+  assert.equal(plain.nodes.some((n) => n.id === 'lp2' || n.id === 'fenv2'), false);
+
+  p.osc[1].level = 0.4;
+  p.osc[1].route = 2;
+  p.noise.level = 0.2;
+  p.noise.route = 0;
+  p.filter2 = { mode: 'highpass', freq: 900, q: 2.5, key_track: 0.25 };
+  p.fenv2 = { attack: 0.02, decay: 0.3, sustain: 0.1, release: 0.2, amount: -1500 };
+  const inst = buildInstrument('x', p);
+  assert.equal(inst.nodes.find((n) => n.id === 'lp2').mode, 'highpass');
+  const has = (from, to, port) => inst.edges.some((e) => e.from === from && e.to === to && e.port === port);
+  assert.ok(has('l2', 'lp2'));
+  assert.ok(has('l1', 'lp'));
+  assert.ok(has('ln', 'bus'));
+  assert.ok(has('lp2', 'bus'));
+  assert.ok(has('fenv2', 'lp2', 'freq'));
+  assert.ok(has('lfo_c', 'lp2', 'freq')); // the LFO's cutoff depth moves both filters
+  assert.deepEqual(parseInstrument(inst), p);
+
+  // Routing everything away from filter 2 keeps its (changed) settings in the graph, so a reload does not lose them...
+  p.osc[1].route = 1;
+  const unused = buildInstrument('x', p);
+  assert.ok(unused.nodes.some((n) => n.id === 'lp2'));
+  assert.deepEqual(parseInstrument(unused), p);
+  // ...but while they are still the defaults the graph is as it was before filter 2 existed.
+  const fresh = defaultPatch();
+  fresh.osc[1].route = 2;
+  fresh.osc[1].route = 1;
+  assert.deepEqual(buildInstrument('x', fresh).nodes.map((n) => n.id).sort(), plain.nodes.map((n) => n.id).sort());
+
+  // An edge into a filter 2 that is not there is a custom graph.
+  const broken = buildInstrument('x', { ...defaultPatch() });
+  broken.edges.find((e) => e.from === 'l2').to = 'lp2';
+  assert.equal(parseInstrument(broken), null);
+});
+
+test('validatePatch rejects an unknown route', async () => {
+  const { validatePatch } = await import('./synth.js');
+  const p = defaultPatch();
+  assert.equal(validatePatch(p), null);
+  p.osc[0].route = 3;
+  assert.match(validatePatch(p), /filter/);
+});
+
+test('filter routing: parallel by default; serial feeds filter 1 into filter 2 and round-trips', () => {
+  const p = defaultPatch();
+  assert.equal(p.filterMode, 'parallel');
+  const edgeIn = (inst, from, to, port) => inst.edges.some((e) => e.from === from && e.to === to && e.port === port);
+
+  // Serial with the default routing (everything through filter 1): filter 2 appears after it.
+  p.filterMode = 'serial';
+  const inst = buildInstrument('x', p);
+  assert.ok(edgeIn(inst, 'lp', 'lp2'));
+  assert.ok(edgeIn(inst, 'lp2', 'bus'));
+  assert.equal(edgeIn(inst, 'lp', 'bus'), false);
+  assert.deepEqual(parseInstrument(inst), p);
+
+  // A source entering at filter 2 and one that skips both still work.
+  p.osc[1].level = 0.3; p.osc[1].route = 2;
+  p.noise.level = 0.2; p.noise.route = 0;
+  const mixed = buildInstrument('x', p);
+  assert.ok(edgeIn(mixed, 'l2', 'lp2'));
+  assert.ok(edgeIn(mixed, 'ln', 'bus'));
+  assert.deepEqual(parseInstrument(mixed), p);
+
+  // The serial mode is kept even when nothing is routed through the filters.
+  const q = defaultPatch();
+  q.filterMode = 'serial';
+  for (const src of [...q.osc, q.noise]) src.route = 0;
+  assert.deepEqual(parseInstrument(buildInstrument('x', q)), q);
+
+  // Switching back to parallel gives the old graph.
+  p.filterMode = 'parallel';
+  assert.equal(edgeIn(buildInstrument('x', p), 'lp', 'bus'), true);
+});
+
+test('FM depth is kept while FM is off, but only once it differs from the default', () => {
+  const off = defaultPatch();
+  assert.equal(buildInstrument('x', off).nodes.some((n) => n.id === 'fm'), false);
+  off.fm = { on: false, depth: 3.5 };
+  off.osc[1].semitones = 7;
+  const inst = buildInstrument('x', off);
+  assert.ok(inst.nodes.some((n) => n.id === 'fm'));
+  assert.equal(inst.edges.some((e) => e.from === 'fm' || e.to === 'fm'), false); // not wired in: it does nothing
+  assert.deepEqual(parseInstrument(inst), off);
+  off.fm.on = true;
+  assert.deepEqual(parseInstrument(buildInstrument('x', off)), off);
 });
