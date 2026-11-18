@@ -236,6 +236,13 @@ input[type=range] { accent-color: var(--accent); }
 .lane-head.soloed { box-shadow: inset 0 -3px 0 var(--solo); }
 .lane-head.active.muted { box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 70%, transparent), inset 0 -3px 0 var(--bad); }
 .lane-head.active.soloed { box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 70%, transparent), inset 0 -3px 0 var(--solo); }
+/* Reordering tracks: the dragged header dims, a bar marks the drop position. */
+.lane-head { position: relative; }
+.grid.reordering, .grid.reordering * { cursor: grabbing; }
+.lane-head.dragging { opacity: .5; }
+.lane-head.drop-before::after, .lane-head.drop-after::after { content: ''; position: absolute; top: 0; bottom: 0; width: 4px; background: var(--accent); z-index: 3; }
+.lane-head.drop-before::after { left: -2px; }
+.lane-head.drop-after::after { right: -2px; }
 .lane-head.silent strong, .lane-head.silent .lane-name { opacity: .45; }
 .cell.silent { opacity: .35; }
 

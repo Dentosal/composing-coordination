@@ -42,6 +42,7 @@ export class PatternEditor {
     this.undoStack = [];
     this.redoStack = [];
     this.drag = null;
+    this.headDrag = null; // reordering a track by its header: {from, x, active, ins}
     this.paint = null; // pad-column painting in progress: {lane, last, mode, changed}
     this.lastNote = new Map(); // instrument id -> note most recently entered on its track (what a pad hit plays)
     this.rowEls = [];
@@ -62,6 +63,7 @@ export class PatternEditor {
 
   destroy() {
     window.removeEventListener('mouseup', this.onMouseUp);
+    window.removeEventListener('mousemove', this.onMouseMove);
   }
 
   // ------------------------------------------------------------ toolbar
@@ -182,13 +184,14 @@ export class PatternEditor {
 
   // ---- undo / redo (note data only; instruments have their own controls)
 
+  /** Keyed by instrument id, so undo/redo still lands on the right track after tracks were reordered. */
   snap() {
-    return JSON.stringify(this.orders.lanes.map((l) => l.steps));
+    return JSON.stringify(this.orders.lanes.map((l) => [l.instrument, l.steps]));
   }
 
   restore(snapshot) {
-    const steps = JSON.parse(snapshot);
-    this.orders.lanes.forEach((l, i) => { l.steps = steps[i] ?? []; });
+    const saved = new Map(JSON.parse(snapshot));
+    this.orders.lanes.forEach((l) => { l.steps = saved.get(l.instrument) ?? []; });
   }
 
   pushUndo() {
@@ -593,12 +596,58 @@ export class PatternEditor {
       this.render();
       if (moved) this.o.onSelect?.();
     });
+    this.onMouseMove = (e) => this.onHeadDrag(e);
+    window.addEventListener('mousemove', this.onMouseMove);
     this.onMouseUp = () => {
+      const d = this.headDrag;
+      this.headDrag = null;
+      if (d?.active) {
+        this.grid.classList.remove('reordering');
+        const to = d.ins > d.from ? d.ins - 1 : d.ins;
+        if (to !== d.from) this.moveTrack(d.from, to);
+        else this.render();
+      }
       if (this.paint && !this.paint.changed) this.undoStack.pop(); // a press that changed nothing is not an undo step
       this.paint = null;
       this.drag = null;
     };
     window.addEventListener('mouseup', this.onMouseUp);
+  }
+
+  /** Move track `from` to position `to` (lane and its instrument together); the numbers follow the new order. */
+  moveTrack(from, to) {
+    const o = this.orders;
+    const [lane] = o.lanes.splice(from, 1);
+    o.lanes.splice(to, 0, lane);
+    const byId = new Map(o.instruments.map((i) => [i.id, i]));
+    const ids = new Set(o.lanes.map((l) => l.instrument));
+    o.instruments.splice(0, o.instruments.length,
+      ...o.lanes.map((l) => byId.get(l.instrument)).filter(Boolean), ...o.instruments.filter((i) => !ids.has(i.id)));
+    this.cur = { lane: to, row: this.cur.row }; // the cursor stays with the track you moved
+    this.anchor = null;
+    this.flash(`Moved track ${from + 1} to position ${to + 1}`);
+    this.changed();
+    this.o.onSelect?.();
+  }
+
+  /** Header drag: mark where the track would land (before the head under the pointer's left half). */
+  onHeadDrag(e) {
+    const d = this.headDrag;
+    if (!d) return;
+    if (!d.active) {
+      if (Math.abs(e.clientX - d.x) < 6) return;
+      d.active = true;
+      this.grid.classList.add('reordering');
+    }
+    const heads = [...this.grid.querySelectorAll('.lane-head')];
+    let ins = heads.findIndex((el) => { const r = el.getBoundingClientRect(); return e.clientX < r.left + r.width / 2; });
+    if (ins < 0) ins = heads.length;
+    d.ins = ins;
+    heads.forEach((el, i) => {
+      el.classList.toggle('dragging', i === d.from);
+      el.classList.toggle('drop-before', i === ins);
+      el.classList.toggle('drop-after', ins === heads.length && i === heads.length - 1);
+    });
   }
 
   /** Highlight the playing row (null clears). */
@@ -617,7 +666,7 @@ export class PatternEditor {
     this.help.textContent =
       'keys: z s x d c v … piano, q 2 w 3 e … upper octave · ` or 1 note-off · ⌫ clear · [ ] octave · - = velocity · ' +
       'shift+arrows or drag select · ctrl+c/x/v copy/cut/paste · ctrl+z undo · ctrl+d duplicate · ctrl+e repeat to end · ' +
-      'pad tracks: click or drag to add/erase hits · alt+click accent · a toggle hit at cursor · ' +
+      'drag a track header to reorder · pad tracks: click or drag to add/erase hits · alt+click accent · a toggle hit at cursor · ' +
       'alt+↑↓ transpose (+shift: octave) · enter play from cursor · shift+enter loop selection · space play/stop';
   }
 
@@ -646,7 +695,11 @@ export class PatternEditor {
       };
       head.append(
         h('div', { class: `lane-head${li === this.cur.lane ? ' active' : ''}${muted ? ' muted' : ''}${solo ? ' soloed' : ''}${audible ? '' : ' silent'}`,
-          onmousedown: (e) => { e.preventDefault(); this.select(li); } },
+          onmousedown: (e) => {
+            e.preventDefault();
+            if (e.button === 0) this.headDrag = { from: li, x: e.clientX, active: false, ins: li };
+            this.select(li);
+          } },
           h('strong', `Track ${li + 1}`),
           h('div.lane-name', { title: this.nameOf(lane) }, this.nameOf(lane)),
           h('input.lane-vol', { type: 'range', min: '0', max: '1', step: '0.01', title: 'Track volume',
