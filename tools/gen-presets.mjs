@@ -44,11 +44,13 @@ const presets = {
     aenv: { attack: 0.002, decay: 0.4, sustain: 0, release: 0.1 },
   }],
   kick: ['Kick', {
-    gain: 1, send_reverb: 0,
-    osc: [{ wave: 'sine', fixed_hz: 45, level: 1, filtered: false }, OFF, OFF],
-    filter: { freq: 20000, q: 0.7, key_track: 0 },
-    penv: { attack: 0.001, decay: 0.09, sustain: 0, release: 0.05, amount: 3069 }, // 45 Hz up to ~265 Hz
-    aenv: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.05 },
+    gain: 1, send_reverb: 0, drive: 4, // drive flattens the sine's peaks: more body at the same peak level
+    osc: [{ wave: 'sine', fixed_hz: 52, level: 1, filtered: false }, OFF, OFF],
+    noise: { level: 0.3 }, // the click: noise through a lowpass that the filter envelope opens for ~15 ms
+    filter: { freq: 120, q: 0.7, key_track: 0 },
+    fenv: { attack: 0.001, decay: 0.015, sustain: 0, release: 0.02, amount: 6000 },
+    penv: { attack: 0.001, decay: 0.07, sustain: 0, release: 0.05, amount: 3000 }, // 52 Hz up to ~290 Hz
+    aenv: { attack: 0.001, decay: 0.45, sustain: 0, release: 0.05 },
   }],
   snare: ['Snare', {
     gain: 0.8, send_reverb: 0.2,

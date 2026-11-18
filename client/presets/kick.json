@@ -12,7 +12,7 @@
     "wave": "sine",
     "semitones": 0,
     "detune": 0,
-    "fixed_hz": 45
+    "fixed_hz": 52
    },
    {
     "id": "l1",
@@ -51,13 +51,13 @@
    {
     "id": "ln",
     "type": "gain",
-    "gain": 0
+    "gain": 0.3
    },
    {
     "id": "lp",
     "type": "filter",
     "mode": "lowpass",
-    "freq": 20000,
+    "freq": 120,
     "q": 0.7,
     "key_track": 0
    },
@@ -65,6 +65,11 @@
     "id": "bus",
     "type": "gain",
     "gain": 1
+   },
+   {
+    "id": "drv",
+    "type": "shaper",
+    "drive": 4
    },
    {
     "id": "vca",
@@ -75,7 +80,7 @@
     "id": "aenv",
     "type": "env",
     "attack": 0.001,
-    "decay": 0.3,
+    "decay": 0.45,
     "sustain": 0,
     "release": 0.05,
     "amount": 1
@@ -83,20 +88,20 @@
    {
     "id": "fenv",
     "type": "env",
-    "attack": 0.005,
-    "decay": 0.25,
-    "sustain": 0.3,
-    "release": 0.1,
-    "amount": 0
+    "attack": 0.001,
+    "decay": 0.015,
+    "sustain": 0,
+    "release": 0.02,
+    "amount": 6000
    },
    {
     "id": "penv",
     "type": "env",
     "attack": 0.001,
-    "decay": 0.09,
+    "decay": 0.07,
     "sustain": 0,
     "release": 0.05,
-    "amount": 3069
+    "amount": 3000
    },
    {
     "id": "lfo",
@@ -205,6 +210,10 @@
    },
    {
     "from": "bus",
+    "to": "drv"
+   },
+   {
+    "from": "drv",
     "to": "vca"
    },
    {
