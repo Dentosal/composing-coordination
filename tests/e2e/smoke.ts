@@ -48,9 +48,9 @@ await Promise.all([
 ]);
 log("both committed");
 await host.waitForSelector("text=Round 2", { timeout: 60000 });
-await host.waitForFunction(() => document.body.innerText.includes("round 1"), null, { timeout: 30000 });
+await host.waitForFunction(() => document.body.innerText.includes("band mix plays"), null, { timeout: 30000 });
 log("round 2 open, mix 1 loaded");
-await host.click("text=Play mix");
+await host.click(".bottombar button.primary");
 await host.waitForTimeout(1500);
 const row = await host.locator(".roll-cell.play").count(); // one lit cell per track in the playing column
 if (row < 1) fail("playhead not shown: " + row);

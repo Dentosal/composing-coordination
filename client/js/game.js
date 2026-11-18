@@ -35,7 +35,10 @@ export class Game {
       seat: () => this.st.you?.seat_index ?? 0,
       part: () => ({ instruments: this.orders.instruments, lanes: this.orders.lanes.filter((l) => this.isAudible(l.instrument)) }),
     });
-    this.previewOn = false;
+    this.previewOn = true; // your own draft plays along by default
+    // Whether the previous round's band mix plays in the background (when there is one).
+    this.playMix = true;
+    try { this.playMix = localStorage.getItem('playPrevRound') !== '0'; } catch {}
     this.serverPreview = false;
     try { this.serverPreview = localStorage.getItem('serverPreview') === '1'; } catch {}
     this.previewT = null;
@@ -280,12 +283,14 @@ export class Game {
     r.commitInfo = h('span.muted.commit-info');
     r.top = h('header.topbar', r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit);
 
-    r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play mix');
+    r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
+    r.prevChk = h('input', { type: 'checkbox', checked: this.playMix, onchange: (e) => this.setPlayMix(e.target.checked) });
+    r.prevLbl = h('label.muted', {}, r.prevChk, ' Previous round');
     r.serverChk = h('input', { type: 'checkbox', checked: this.serverPreview, onchange: (e) => this.setServerPreview(e.target.checked) });
     r.serverLbl = h('label.muted', { title: 'Render the preview on the server, exactly like the final band mix (slower, edits are heard after a short delay). Off: play it live in your browser.' }, r.serverChk, ' Server render');
     r.mixInfo = h('span.muted');
-    r.mix = h('section.mix', r.playBtn, r.previewBtn, r.serverLbl, r.mixInfo);
+    r.foot = h('footer.bottombar', r.playBtn, r.previewBtn, r.prevLbl, r.serverLbl, r.mixInfo);
 
     const instRoot = h('div');
     const patRoot = h('div');
@@ -314,10 +319,14 @@ export class Game {
       onRename: () => this.pattern.syncHeads(),
     });
 
-    this.root.append(r.top, r.errors, r.mix,
+    this.root.append(r.top, r.errors,
       h('div.workspace',
         h('aside.panel', instRoot),
-        h('section.panel.pattern', patRoot)));
+        h('section.panel.pattern', patRoot)),
+      r.foot);
+    this.applyMixMute();
+    if (this.previewOn && this.serverPreview) this.renderPreview(); // the live preview needs no render
+    this.updateMix();
   }
 
   updateTop() {
@@ -347,19 +356,24 @@ export class Game {
 
   updateMix() {
     const r = this.refs;
-    if (this.view !== 'game' || !r.mix) return;
-    const hasAudio = !!this.mixRound || (this.previewOn && !!this.previewPlayer.buffer);
+    if (this.view !== 'game' || !r.foot) return;
+    const hasAudio = (!!this.mixRound && this.playMix) || (this.previewOn && !!this.previewPlayer.buffer);
     r.playBtn.disabled = !hasAudio;
-    r.playBtn.textContent = this.playing ? '■ Stop' : this.mixRound ? '▶ Play mix' : '▶ Play';
+    r.playBtn.textContent = this.playing ? '■ Stop' : '▶ Play';
+    r.prevChk.checked = this.playMix && !!this.mixRound;
+    r.prevChk.disabled = !this.mixRound;
+    r.prevLbl.title = this.mixRound
+      ? `Play the band mix of round ${this.mixRound} in the background while you listen to your draft.`
+      : 'There is no previous round to play yet.';
     r.previewBtn.classList.toggle('active', this.previewOn);
     r.previewBtn.textContent = this.previewOn ? '🎧 Previewing my part' : '🎧 Preview my part';
     const mixText = this.mixRound
-      ? `Looping the band mix from round ${this.mixRound}.`
+      ? (this.playMix ? `Round ${this.mixRound}'s band mix plays in the background.` : '')
       : this.previewOn ? '' : 'No mix yet: round 1 is written blind. Use Preview to hear your part.';
     let previewText = '';
     if (this.previewOn) {
       previewText = this.previewMsg || (this.previewBusy || !this.previewPlayer.buffer ? 'Rendering preview…' : 'Preview is on.');
-      if (this.mixRound) previewText += ' (The mix already contains your last committed part.)';
+      if (this.mixRound && this.playMix) previewText += ' (The mix already contains your last committed part.)';
     }
     let listenText = '';
     if (this.solo.size) listenText = 'Solo: the band mix is silenced; you hear only the soloed track(s) of your draft.';
@@ -393,10 +407,22 @@ export class Game {
   }
 
   /** Update what is heard after a mute/solo change. Only affects local playback, never the orders. */
+  /** The band mix is silenced while a track is soloed (it can't be split per track) or when "Previous round" is off. */
+  applyMixMute() {
+    this.player.setMuted(this.solo.size > 0 || !this.playMix);
+  }
+
+  setPlayMix(on) {
+    this.playMix = on;
+    try { localStorage.setItem('playPrevRound', on ? '1' : '0'); } catch {}
+    this.applyMixMute();
+    this.updateMix();
+  }
+
   applyListening() {
     this.pattern.render();
     // Solo means "hear only this": silence the band mix (it can't be split per track) and make sure the draft preview is on.
-    this.player.setMuted(this.solo.size > 0);
+    this.applyMixMute();
     if (this.solo.size && !this.previewOn) this.togglePreview();
     else if (this.previewOn) this.schedulePreview(150);
     this.updateMix();
@@ -404,7 +430,7 @@ export class Game {
 
   /** True when there is nothing to play yet: no band mix (round 1) and no rendered preview. */
   needsPreview() {
-    return !this.mixRound && !(this.previewOn && this.previewPlayer.buffer);
+    return !(this.mixRound && this.playMix) && !(this.previewOn && this.previewPlayer.buffer);
   }
 
   /** Nothing to hear yet: turn the preview on and start `what` as soon as it has rendered. */
