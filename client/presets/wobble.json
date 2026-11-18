@@ -12,8 +12,8 @@
     "id": "o1",
     "type": "osc",
     "wave": "sawtooth",
-    "semitones": 0,
-    "detune": -8
+    "semitones": -0.08,
+    "detune": 0
    },
    {
     "id": "l1",
@@ -24,8 +24,8 @@
     "id": "o2",
     "type": "osc",
     "wave": "sawtooth",
-    "semitones": 0,
-    "detune": 8
+    "semitones": 0.08,
+    "detune": 0
    },
    {
     "id": "l2",

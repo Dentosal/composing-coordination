@@ -93,15 +93,20 @@ function knob(label, obj, key, o, change) {
     const c = Math.min(max, Math.max(min, v));
     return log ? Number(c.toPrecision(3)) : Number((Math.round(c / step) * step).toFixed(6));
   };
-  const text = (v) => fmt(v); // the unit is shown beside the field, not inside it
+  const text = (v) => (o.fixed != null ? String(Number(Number(v).toFixed(o.fixed))) : fmt(v)); // the unit is shown beside the field, not inside it; `fixed`: decimals to keep
   const field = h('input.val', { type: 'text', inputmode: 'decimal', value: text(obj[key]), spellcheck: 'false',
     title: 'Type a value, or use ↑ ↓ (Shift: ×10)', 'aria-label': label });
   const slider = h('input', {
-    title: 'Double-click to reset',
+    title: o.snap ? `Double-click to reset. Hold Shift while dragging to snap to multiples of ${o.snap}` : 'Double-click to reset',
     type: 'range', min: log ? '0' : String(min), max: log ? '1' : String(max), step: log ? '0.001' : String(step),
     value: String(toSlider(obj[key])),
     oninput: (e) => {
-      obj[key] = fromSlider(parseFloat(e.target.value));
+      let v = fromSlider(parseFloat(e.target.value));
+      if (o.snap && shift) { // Shift held during the drag: land on a multiple of `snap` (the thumb follows)
+        v = normalize(Math.round(v / o.snap) * o.snap);
+        slider.value = String(toSlider(v));
+      }
+      obj[key] = v;
       field.value = text(obj[key]);
       change();
     },
@@ -119,6 +124,48 @@ function knob(label, obj, key, o, change) {
     slider.value = String(toSlider(v));
     change();
   };
+  // Shift during a mouse drag snaps to multiples of `o.snap` (if given). The slider's own events carry no modifier state,
+  // so follow it from the pointer (on the window: a drag often leaves the slider) and from the Shift key itself. The state
+  // is kept for a moment after the release, because some browsers commit one last value just after it.
+  let shift = false;
+  if (o.snap) {
+    let release = null;
+    const snapNow = () => {
+      const v = normalize(Math.round(obj[key] / o.snap) * o.snap);
+      if (v !== obj[key]) { apply(v); field.value = text(v); }
+    };
+    const onKey = (e) => {
+      if (e.key !== 'Shift') return;
+      shift = e.type === 'keydown';
+      if (shift) snapNow();
+    };
+    const onMove = (e) => { shift = e.shiftKey; };
+    const stop = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', end);
+      window.removeEventListener('pointercancel', end);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKey);
+      shift = false;
+      release = null;
+    };
+    function end() {
+      if (release) return;
+      if (shift) snapNow(); // the value the drag ended on
+      window.removeEventListener('pointermove', onMove);
+      release = setTimeout(stop, 150); // a late final input event is still snapped
+    }
+    slider.addEventListener('pointerdown', (e) => {
+      if (release) { clearTimeout(release); stop(); }
+      shift = e.shiftKey;
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', end);
+      window.addEventListener('pointercancel', end);
+      window.addEventListener('keydown', onKey);
+      window.addEventListener('keyup', onKey);
+      if (shift) snapNow();
+    });
+  }
   // Typing applies as soon as the text is a number, without rewriting what the user is typing.
   field.addEventListener('input', () => {
     const v = parseFloat(field.value.replace(',', '.'));
@@ -476,9 +523,8 @@ export class InstrumentPanel {
           })),
         knob('level', o, 'level', { min: 0, max: 1 }, edit),
         o.fixed_hz == null
-          ? knob('pitch', o, 'semitones', { min: -48, max: 48, step: 1, unit: ' st' }, change)
+          ? knob('pitch', o, 'semitones', { min: -48, max: 48, step: 0.01, fixed: 2, snap: 1, unit: ' st' }, change)
           : knob('pitch', o, 'fixed_hz', { min: 20, max: 2000, log: true, unit: ' Hz', def: 220 }, change),
-        knob('fine', o, 'detune', { min: -100, max: 100, step: 1, unit: ' ct' }, change),
         knob('unison', o, 'unison', { min: 1, max: 7, step: 1, unit: ' voices' }, change),
         knob('spread', o, 'spread', { min: 0, max: 100, step: 1, unit: ' ct' }, change),
         h('div.osc-opts', routeSelect(o, change)));
@@ -541,7 +587,7 @@ export class InstrumentPanel {
       },
     });
     const fmBox = node('fm', h('div.fm-sec',
-      h('div.fm-head', h('h5.sub', 'FM'), check('osc 2 → osc 1', () => fm.on, (on) => { fm.on = on; change(); })),
+      h('div.sec-head', h('h5.sub', 'FM'), check('osc 2 → osc 1', () => fm.on, (on) => { fm.on = on; change(); })),
       knob('depth', fm, 'depth', { min: 0, max: 10, step: 0.05 }, change),
       h('label.knob', h('span', 'ratio'), ratioSelect)));
     syncFm = () => {
@@ -569,7 +615,7 @@ export class InstrumentPanel {
     syncShape = () => plot.update(patch);
     syncShape();
     // The shape menu sits in the module's header row, beside the title.
-    const shapeSelect = h('select.shape-select', {
+    const shapeSelect = h('select.head-select', {
       title: 'The distortion curve', 'aria-label': 'Waveshaper shape',
       onchange: (e) => {
         patch.shape = e.target.value;
@@ -627,8 +673,11 @@ export class InstrumentPanel {
         h('div.col-stack',
           module(null,
             node('noise', h('div.noise-sec',
-              h('h5.sub', 'Noise'),
-              select('color', noise, 'color', ['white', 'pink'], change),
+              h('div.sec-head', h('h5.sub', 'Noise'),
+                h('select.head-select', {
+                  title: 'White or pink noise', 'aria-label': 'Noise color',
+                  onchange: (e) => { noise.color = e.target.value; change(); },
+                }, ['white', 'pink'].map((v) => h('option', { value: v, selected: v === noise.color }, v)))),
               knob('level', noise, 'level', { min: 0, max: 1 }, change),
               routeSelect(noise, change)))),
           module(null, fmBox),
@@ -671,7 +720,7 @@ function patchHelp() {
     'A patch is a small synthesizer. Sound sources go through a filter (or two) and an amplifier, and envelopes shape how the sound changes over the length of each note. The sound of the track you have selected is what you edit here.',
     h('h3', 'Sound sources'),
     h('ul',
-      h('li', h('strong', 'Oscillators'), ': up to three tone generators. Pick a wave shape, set the pitch (in semitones from the note) and a fine detune; stack them, or use unison (several detuned copies of one oscillator, spread across the given cents) for a thicker sound.'),
+      h('li', h('strong', 'Oscillators'), ': up to three tone generators. Pick a wave shape, set the pitch (in semitones from the note, down to hundredths of a semitone for detuning; hold Shift while dragging the slider to snap to whole semitones); stack them, or use unison (several detuned copies of one oscillator, spread across the given cents) for a thicker sound.'),
       h('li', h('strong', 'Noise'), ': white or pink noise, good for drums and breath. Each source has a filter menu: it goes through filter 1, filter 2 or no filter.')),
     h('h3', 'Filter and drive'),
     h('ul',

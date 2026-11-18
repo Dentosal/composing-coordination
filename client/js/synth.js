@@ -30,7 +30,7 @@ export const FILTER_ROUTINGS = ['parallel', 'serial'];
 export const MIN_DRIVE = 0.1; // server minimum for a shaper node
 
 const oscPatch = (level = 0) => ({
-  wave: 'sawtooth', semitones: 0, detune: 0, fixed_hz: null, unison: 1, spread: 0, level, route: 1, // route: 1 = filter 1, 2 = filter 2, 0 = no filter
+  wave: 'sawtooth', semitones: 0, fixed_hz: null, unison: 1, spread: 0, level, route: 1, // route: 1 = filter 1, 2 = filter 2, 0 = no filter
 });
 
 export function defaultPatch() {
@@ -81,7 +81,7 @@ export function buildInstrument(id, p, name, pianoRoll = false) {
   const edge = (from, to, port) => edges.push(port ? { from, to, port } : { from, to });
 
   p.osc.forEach((o, i) => {
-    const n = { id: `o${i + 1}`, type: 'osc', wave: o.wave, semitones: o.semitones, detune: o.detune };
+    const n = { id: `o${i + 1}`, type: 'osc', wave: o.wave, semitones: o.semitones, detune: 0 }; // fine tuning is part of `semitones` (to 0.01)
     if (o.unison > 1) n.unison = o.unison; // omitted at the defaults, so plain patches keep their old graph
     if (o.spread !== 0) n.spread = o.spread;
     if (o.fixed_hz != null) n.fixed_hz = o.fixed_hz;
@@ -163,9 +163,16 @@ function canonical(inst) {
       c.detune ??= 0;
       c.unison ??= 1;
       c.spread ??= 0;
-      if (c.fixed_hz == null) delete c.fixed_hz;
+      if (c.fixed_hz == null) {
+        delete c.fixed_hz;
+        // The template has no separate fine tuning: cents are part of the pitch (older graphs and presets used `detune`).
+        c.semitones = Number((c.semitones + c.detune / 100).toFixed(4));
+        c.detune = 0;
+      }
     }
     if (c.type === 'filter' || c.type === 'gain') c.key_track ??= 0;
+    // The server stores 32-bit floats: compare numbers the way it returns them.
+    for (const k of Object.keys(c)) if (typeof c[k] === 'number') c[k] = Math.fround(c[k]);
     return sortKeys(c);
   }).sort((a, b) => (a.id < b.id ? -1 : 1));
   const edges = inst.edges.map((e) => sortKeys({ from: e.from, to: e.to, ...(e.port ? { port: e.port } : {}) }))
@@ -195,7 +202,7 @@ export function parseInstrument(inst) {
     for (let i = 0; i < OSC_COUNT; i++) {
       const o = need(`o${i + 1}`, 'osc');
       p.osc[i] = {
-        wave: o.wave, semitones: o.semitones ?? 0, detune: o.detune ?? 0, fixed_hz: o.fixed_hz ?? null, unison: o.unison ?? 1, spread: o.spread ?? 0,
+        wave: o.wave, semitones: Number(((o.semitones ?? 0) + (o.fixed_hz == null ? (o.detune ?? 0) / 100 : 0)).toFixed(4)), fixed_hz: o.fixed_hz ?? null, unison: o.unison ?? 1, spread: o.spread ?? 0,
         level: need(`l${i + 1}`, 'gain').gain, route: routeOf(`l${i + 1}`),
       };
     }
@@ -259,7 +266,7 @@ export function validatePatch(p) {
   if (typeof p.fm?.on !== 'boolean' || !isNum(p.fm.depth)) return 'invalid FM settings';
   for (const o of p.osc) {
     if (!WAVES.includes(o.wave)) return `unknown oscillator wave "${o.wave}"`;
-    if (!allNum(o, ['semitones', 'detune', 'level', 'unison', 'spread', 'route']) || (o.fixed_hz != null && !isNum(o.fixed_hz))) return 'oscillator values must be numbers';
+    if (!allNum(o, ['semitones', 'level', 'unison', 'spread', 'route']) || (o.fixed_hz != null && !isNum(o.fixed_hz))) return 'oscillator values must be numbers';
   }
   if (!['white', 'pink'].includes(p.noise.color) || !allNum(p.noise, ['level', 'route'])) return 'invalid noise settings';
   if ([...p.osc, p.noise].some((s) => ![0, 1, 2].includes(s.route))) return 'a source is routed to an unknown filter';

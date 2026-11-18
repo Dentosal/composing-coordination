@@ -26,8 +26,8 @@
     "id": "o2",
     "type": "osc",
     "wave": "sawtooth",
-    "semitones": 0,
-    "detune": 7,
+    "semitones": 0.07,
+    "detune": 0,
     "unison": 3,
     "spread": 8
    },

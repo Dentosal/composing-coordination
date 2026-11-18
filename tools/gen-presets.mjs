@@ -31,14 +31,14 @@ const presets = {
   }],
   lead: ['Lead', 'Lead & Keys', {
     gain: 0.7, send_delay: 0.25, send_reverb: 0.2,
-    osc: [{ wave: 'square', unison: 3, spread: 8, level: 0.35 }, { detune: 7, unison: 3, spread: 8, level: 0.35 }, OFF],
+    osc: [{ wave: 'square', unison: 3, spread: 8, level: 0.35 }, { semitones: 0.07, unison: 3, spread: 8, level: 0.35 }, OFF],
     filter: { freq: 2600, q: 1.5, key_track: 0.5 },
     aenv: { attack: 0.01, decay: 0.15, sustain: 0.7, release: 0.2 },
     lfo: { rate: 5.5, pitch: 12 },
   }],
   pluck: ['Pluck', 'Lead & Keys', {
     gain: 0.8, send_delay: 0.25, send_reverb: 0.2,
-    osc: [{ level: 0.4 }, { wave: 'square', detune: 6, level: 0.4 }, OFF],
+    osc: [{ level: 0.4 }, { wave: 'square', semitones: 0.06, level: 0.4 }, OFF],
     filter: { freq: 500, q: 2, key_track: 0.4 },
     fenv: { attack: 0.002, decay: 0.18, sustain: 0, release: 0.1, amount: 4500 },
     aenv: { attack: 0.002, decay: 0.4, sustain: 0, release: 0.1 },
@@ -101,14 +101,14 @@ const presets = {
   }],
   wobble: ['Wobble bass', 'Bass', {
     gain: 0.6, send_reverb: 0.05, drive: 1.5,
-    osc: [{ detune: -8, level: 0.4 }, { detune: 8, level: 0.4 }, { wave: 'square', semitones: -12, level: 0.4 }],
+    osc: [{ semitones: -0.08, level: 0.4 }, { semitones: 0.08, level: 0.4 }, { wave: 'square', semitones: -12, level: 0.4 }],
     filter: { freq: 900, q: 6, key_track: 0.2 }, // the LFO swings the cutoff 900 ± 700 Hz; keep it above 0
     aenv: { attack: 0.005, decay: 0.2, sustain: 0.9, release: 0.1 },
     lfo: { rate: 2, cutoff: 700 },
   }],
   stab: ['Stab', 'Lead & Keys', {
     gain: 0.7, send_delay: 0.3, send_reverb: 0.2,
-    osc: [{ level: 0.35 }, { detune: 12, level: 0.35 }, { semitones: 7, level: 0.25 }],
+    osc: [{ level: 0.35 }, { semitones: 0.12, level: 0.35 }, { semitones: 7, level: 0.25 }],
     filter: { freq: 800, q: 2, key_track: 0.5 },
     fenv: { attack: 0.002, decay: 0.2, sustain: 0, release: 0.1, amount: 3500 },
     aenv: { attack: 0.003, decay: 0.25, sustain: 0, release: 0.1 },
@@ -129,7 +129,7 @@ const presets = {
   }],
   bell: ['Bell', 'Lead & Keys', {
     gain: 0.9, send_delay: 0.2, send_reverb: 0.4,
-    osc: [{ wave: 'sine', level: 0.35 }, { wave: 'sine', semitones: 12, detune: 8, level: 0.25 }, { wave: 'triangle', semitones: 28, level: 0.12 }],
+    osc: [{ wave: 'sine', level: 0.35 }, { wave: 'sine', semitones: 12.08, level: 0.25 }, { wave: 'triangle', semitones: 28, level: 0.12 }],
     filter: { freq: 3000, q: 0.7, key_track: 0.6 },
     aenv: { attack: 0.002, decay: 1.5, sustain: 0, release: 1 },
   }],

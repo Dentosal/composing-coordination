@@ -128,8 +128,8 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .vslider { writing-mode: vertical-lr; direction: rtl; width: 22px; padding: 0; margin: 0; }
 .vslot > .vslider { position: absolute; top: 0; bottom: 0; left: 50%; height: 100%; transform: translateX(-50%); }
 .fm-sec.off .knob { opacity: .5; }
-.fm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.module .fm-head > h5.sub { margin: 0; border-top: 0; }
+.sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.module .sec-head > h5.sub { margin: 0; border-top: 0; }
 /* The waveshaper's transfer-curve plot (see shapeplot.js). */
 .shape-plot { width: 100%; max-width: 100px; aspect-ratio: 1 / 1; height: auto; justify-self: center; }
 .shape-plot .sp-frame { fill: var(--panel); stroke: var(--line); stroke-width: .02; }
@@ -210,7 +210,7 @@ input[type=range] { accent-color: var(--accent); }
 
 .mod-head { display: flex; align-items: center; gap: 10px; }
 .mod-head h4 { margin: 0; }
-.shape-select { margin-left: auto; min-width: 0; max-width: 60%; font-size: .85rem; }
+.head-select { margin-left: auto; min-width: 0; max-width: 60%; font-size: .85rem; } /* a dropdown in a module's header row */
 .osc-tabs { display: flex; gap: 4px; margin-left: auto; }
 .osc-tab { min-width: 28px; padding: 2px 8px; font-weight: 600; }
 .osc-tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

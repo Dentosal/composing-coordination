@@ -24,8 +24,8 @@
     "id": "o2",
     "type": "osc",
     "wave": "square",
-    "semitones": 0,
-    "detune": 6
+    "semitones": 0.06,
+    "detune": 0
    },
    {
     "id": "l2",

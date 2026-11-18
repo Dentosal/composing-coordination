@@ -324,3 +324,33 @@ test('waveshaper curves: soft is unchanged; the shapes have their defining prope
   assert.deepEqual([...levels].sort((a, b) => a - b), [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1]);
   assert.equal(shaperCurve(4, 'crush', 3).length, 2048);
 });
+
+test('pitch has hundredth-of-a-semitone precision and there is no separate fine tuning', () => {
+  const p = defaultPatch();
+  assert.equal('detune' in p.osc[0], false);
+  p.osc[1].level = 0.3;
+  p.osc[1].semitones = 12.07;
+  p.osc[2].semitones = -0.03;
+  const inst = buildInstrument('x', p);
+  assert.equal(inst.nodes.find((n) => n.id === 'o2').detune, 0);
+  assert.deepEqual(parseInstrument(inst), p);
+  // after the server's 32-bit storage the graph is still recognised and gives the same patch
+  const stored = { ...inst, nodes: inst.nodes.map((n) => (n.type === 'osc' ? { ...n, semitones: Math.fround(n.semitones) } : n)) };
+  assert.deepEqual(parseInstrument(stored), p);
+});
+
+test('an older graph with a cents detune opens with the cents folded into the pitch', () => {
+  const p = defaultPatch();
+  p.osc[1].level = 0.3;
+  const inst = JSON.parse(JSON.stringify(buildInstrument('x', p)));
+  const o2 = inst.nodes.find((n) => n.id === 'o2');
+  o2.semitones = 12;
+  o2.detune = 8; // the old "fine" setting
+  const parsed = parseInstrument(inst);
+  assert.ok(parsed, 'still a template instrument');
+  assert.equal(parsed.osc[1].semitones, 12.08);
+  // a fixed-pitch oscillator cannot carry it: that stays a custom graph
+  const fixed = JSON.parse(JSON.stringify(buildInstrument('x', { ...p, osc: p.osc.map((o, i) => (i === 1 ? { ...o, fixed_hz: 220 } : o)) })));
+  fixed.nodes.find((n) => n.id === 'o2').detune = 5;
+  assert.equal(parseInstrument(fixed), null);
+});
