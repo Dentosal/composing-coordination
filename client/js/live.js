@@ -2,7 +2,7 @@
 // on the shared AudioContext, in step with the band mix. Nothing is rendered ahead of time, so edits to notes and
 // to the patch are heard within one look-ahead window. Has the same transport surface as LoopPlayer
 // (play / stop / position / loopRegion / playing) so game.js can drive either.
-import { getCtx, unlock } from './audio.js';
+import { getBus, getCtx, unlock } from './audio.js';
 import { Master, noiseBuffer, startVoice } from './voice.js';
 
 const LOOK_AHEAD = 0.1; // seconds scheduled ahead
@@ -38,7 +38,7 @@ export class LiveSequencer {
     const leRow = Math.min(Math.max(toRow(region?.loopEnd ?? total * rowSecs), lsRow + 1), total);
     const offRow = Math.min(Math.max(toRow(region?.offset ?? 0), lsRow), leRow - 1);
     const out = ctx.createGain();
-    out.connect(ctx.destination);
+    out.connect(getBus());
     const run = {
       start: when ?? ctx.currentTime + 0.05, rowSecs, lsRow, leRow, offRow, n: 0, total, out,
       master: new Master(ctx, cfg, out), timer: null,

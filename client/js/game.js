@@ -7,6 +7,7 @@ import { LiveSequencer } from './live.js';
 import { PatternEditor } from './pattern.js';
 import { helpButton } from './help.js';
 import { icon } from './icons.js';
+import { Spectrum } from './spectrum.js';
 
 const fmtTime = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -81,6 +82,7 @@ export class Game {
 
   destroy() {
     this.dead = true;
+    this.spectrum?.destroy();
     if (this.onFullscreen) document.removeEventListener('fullscreenchange', this.onFullscreen);
     this.es?.close();
     clearInterval(this.tickT);
@@ -312,7 +314,9 @@ export class Game {
     r.serverChk = h('input', { type: 'checkbox', checked: this.serverPreview, onchange: (e) => this.setServerPreview(e.target.checked) });
     r.serverLbl = h('label.muted', { title: 'Render the preview on the server, exactly like the final band mix (slower, edits are heard after a short delay). Off: play it live in your browser.' }, r.serverChk, ' Server render');
     r.mixInfo = h('span.muted');
-    r.foot = h('footer.bottombar', r.playBtn, r.previewBtn, r.prevLbl, r.serverLbl, r.mixInfo);
+    this.spectrum?.destroy();
+    this.spectrum = new Spectrum();
+    r.foot = h('footer.bottombar', r.playBtn, r.previewBtn, r.prevLbl, r.serverLbl, r.mixInfo, this.spectrum.el);
 
     const instRoot = h('div');
     const patRoot = h('div');

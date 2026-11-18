@@ -19,6 +19,32 @@ export async function unlock() {
   return c;
 }
 
+/**
+ * The shared output: everything audible (band mix, preview, audition) plays into this bus, which feeds an analyser
+ * (for the footer's spectrum display) and then the speakers.
+ */
+let bus = null;
+let analyser = null;
+export function getBus() {
+  const c = getCtx();
+  if (!bus) {
+    bus = c.createGain();
+    analyser = c.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.minDecibels = -90;
+    analyser.maxDecibels = -25;
+    analyser.smoothingTimeConstant = 0.75;
+    bus.connect(analyser);
+    analyser.connect(c.destination);
+  }
+  return bus;
+}
+
+/** The output analyser, or null before any audio has been set up (nothing has played yet). */
+export function peekAnalyser() {
+  return analyser;
+}
+
 export function decode(arrayBuffer) {
   return getCtx().decodeAudioData(arrayBuffer);
 }
@@ -45,7 +71,7 @@ export class LoopPlayer {
     if (!this.out) {
       this.out = c.createGain();
       this.out.gain.value = this.muted ? 0 : 1;
-      this.out.connect(c.destination);
+      this.out.connect(getBus());
     }
     return this.out;
   }

@@ -1,6 +1,6 @@
 // Plays notes of one instrument on demand: once, held while a button is down, or repeated at a
 // multiple of the session BPM. Uses the live voices in voice.js.
-import { getCtx, unlock } from './audio.js';
+import { getBus, getCtx, unlock } from './audio.js';
 import { Master, noiseBuffer, startVoice } from './voice.js';
 
 const LOOK_AHEAD = 0.12; // seconds scheduled ahead while looping
@@ -20,7 +20,7 @@ export class Auditioner {
 
   async ready() {
     const ctx = await unlock();
-    this.master ??= new Master(ctx, this.cfg);
+    this.master ??= new Master(ctx, this.cfg, getBus());
     return ctx;
   }
 
