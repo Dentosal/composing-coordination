@@ -3,7 +3,7 @@ import * as api from './api.js';
 import { unlock } from './audio.js';
 import { h, clear } from './dom.js';
 import { Game } from './game.js';
-
+import { readSceneFile } from './scene.js';
 const root = document.getElementById('app');
 let game = null;
 
@@ -113,7 +113,37 @@ function showHome() {
 
   const msg = h('p.error');
   const submit = h('button.primary', { type: 'submit' }, 'Create session');
-  form.append(submit, msg);
+  // Open an exported scene file (the header's download button) in a fresh freeform session.
+  const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true,
+    onchange: (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onImport(f); } });
+  const importRow = h('div.import-row', h('span.muted', 'or'),
+    h('button', { type: 'button', onclick: () => fileIn.click(),
+      title: 'Open a file saved with the download button in the header, as a new freeform session' }, 'Import a scene file…'), fileIn);
+  form.append(submit, importRow, msg);
+
+  async function onImport(file) {
+    msg.textContent = '';
+    try {
+      const scene = readSceneFile(await file.text());
+      await unlock();
+      const cfg = { freeform: true, bpm: scene.config.bpm, bars: scene.config.bars, rows_per_bar: scene.config.rows_per_bar };
+      if (scene.config.seed != null) cfg.seed = scene.config.seed;
+      const { session_id, host_token } = await api.createSession(cfg);
+      const { seat_token } = await api.join(session_id);
+      await api.start(session_id, host_token);
+      const r = await api.putOrders(session_id, seat_token, scene.orders);
+      if (!r.ok) {
+        const e = r.errors[0];
+        throw new Error(`The scene cannot be opened: ${e.path ? `${e.path}: ` : ''}${e.message}`);
+      }
+      const t = { seat: seat_token, host: host_token };
+      saveTokens(session_id, t);
+      setHash(session_id, t);
+      route();
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  }
 
   async function onCreate(e) {
     e.preventDefault();

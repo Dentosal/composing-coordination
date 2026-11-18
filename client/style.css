@@ -344,3 +344,6 @@ input[type=range] { accent-color: var(--accent); }
 .roll-len { display: flex; align-items: center; gap: 4px; }
 .roll-len-btn { width: 28px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center; line-height: 1; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
 .roll-len-btn:disabled { opacity: .35; cursor: default; }
+
+/* Importing a scene on the start page */
+.config .import-row { display: flex; align-items: center; gap: 10px; margin-top: 2px; }

@@ -7,6 +7,7 @@ import { LiveSequencer } from './live.js';
 import { PatternEditor } from './pattern.js';
 import { helpButton } from './help.js';
 import { downloadText } from './download.js';
+import { sceneFile } from './scene.js';
 import { icon } from './icons.js';
 import { Spectrum } from './spectrum.js';
 
@@ -465,14 +466,7 @@ export class Game {
    * the orders format holds them, plus the loop's tempo and size for context.
    */
   exportAll() {
-    const cfg = this.st.config;
-    const file = {
-      format: 'band-game-tracks',
-      version: 1,
-      exported: new Date().toISOString(),
-      config: { bpm: cfg.bpm, bars: cfg.bars, rows_per_bar: cfg.rows_per_bar },
-      orders: { instruments: this.orders.instruments, lanes: this.orders.lanes },
-    };
+    const file = sceneFile(this.st.config, this.orders);
     const stamp = file.exported.slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
     downloadText(`band-game-tracks-${stamp}.json`, JSON.stringify(file, null, 1) + '\n');
   }
