@@ -6,6 +6,7 @@ import { InstrumentPanel, ensureTracks, loadPresets } from './editor.js';
 import { LiveSequencer } from './live.js';
 import { PatternEditor } from './pattern.js';
 import { helpButton } from './help.js';
+import { icon } from './icons.js';
 
 const fmtTime = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -80,6 +81,7 @@ export class Game {
 
   destroy() {
     this.dead = true;
+    if (this.onFullscreen) document.removeEventListener('fullscreenchange', this.onFullscreen);
     this.es?.close();
     clearInterval(this.tickT);
     clearTimeout(this.saveT);
@@ -292,7 +294,16 @@ export class Game {
           h('li', 'Commit & ready sends your part. The round ends when everyone is ready.')),
       ],
     });
-    r.top = h('header.topbar', r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.help);
+    // Fullscreen toggle (hidden where the browser has no fullscreen API, e.g. iPhones).
+    r.fsBtn = h('button.icon-btn', { type: 'button', onclick: () => {
+      if (document.fullscreenElement) document.exitFullscreen?.();
+      else document.documentElement.requestFullscreen?.().catch(() => {});
+    } });
+    r.fsBtn.hidden = !document.fullscreenEnabled;
+    this.onFullscreen = () => this.updateFullscreenBtn();
+    document.addEventListener('fullscreenchange', this.onFullscreen);
+    this.updateFullscreenBtn();
+    r.top = h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
@@ -338,6 +349,16 @@ export class Game {
     this.applyMixMute();
     if (this.previewOn && this.serverPreview) this.renderPreview(); // the live preview needs no render
     this.updateMix();
+  }
+
+  updateFullscreenBtn() {
+    const b = this.refs.fsBtn;
+    if (!b) return;
+    const on = !!document.fullscreenElement;
+    const label = on ? 'Exit fullscreen' : 'Fullscreen';
+    b.title = label;
+    b.setAttribute('aria-label', label);
+    b.replaceChildren(icon(on ? 'collapse' : 'expand'));
   }
 
   updateTop() {
