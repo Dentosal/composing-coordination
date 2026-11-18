@@ -120,13 +120,18 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .col-stack { display: grid; gap: 12px; align-content: start; } /* modules sharing one column */
 .col-stack.sink { display: flex; flex-direction: column; } /* the last module sinks to the bottom, level with the other columns' envelopes */
 .col-stack.sink > :last-child { margin-top: auto; }
-.fm-sec, .shaper-sec { display: grid; gap: 4px; }
-.shape-param:empty { display: none; }
+.fm-sec { display: grid; gap: 4px; }
+/* Waveshaper: [second setting | plot | drive], the same whether or not the shape has a second setting. */
+.shaper-sec { display: grid; grid-template-columns: 24px minmax(0, 1fr) 24px; gap: 8px; align-items: stretch; margin-top: 2px; }
+/* A slot holds a vertical slider laid over its whole height, so that the plot alone sets the row's height. */
+.vslot { position: relative; }
+.vslider { writing-mode: vertical-lr; direction: rtl; width: 22px; padding: 0; margin: 0; }
+.vslot > .vslider { position: absolute; top: 0; bottom: 0; left: 50%; height: 100%; transform: translateX(-50%); }
 .fm-sec.off .knob { opacity: .5; }
 .fm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .module .fm-head > h5.sub { margin: 0; border-top: 0; }
 /* The waveshaper's transfer-curve plot (see shapeplot.js). */
-.shape-plot { width: 92px; height: 92px; justify-self: center; margin-top: 6px; }
+.shape-plot { width: 100%; max-width: 100px; aspect-ratio: 1 / 1; height: auto; justify-self: center; }
 .shape-plot .sp-frame { fill: var(--panel); stroke: var(--line); stroke-width: .02; }
 .shape-plot .sp-axis { stroke: var(--line); stroke-width: .015; }
 .shape-plot .sp-identity { stroke: var(--muted); stroke-width: .015; stroke-dasharray: .06 .06; opacity: .6; }
@@ -205,6 +210,7 @@ input[type=range] { accent-color: var(--accent); }
 
 .mod-head { display: flex; align-items: center; gap: 10px; }
 .mod-head h4 { margin: 0; }
+.shape-select { margin-left: auto; min-width: 0; max-width: 60%; font-size: .85rem; }
 .osc-tabs { display: flex; gap: 4px; margin-left: auto; }
 .osc-tab { min-width: 28px; padding: 2px 8px; font-weight: 600; }
 .osc-tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }

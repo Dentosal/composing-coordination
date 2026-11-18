@@ -155,6 +155,29 @@ function select(label, obj, key, options, change) {
 const check = (label, get, set) =>
   h('label.check', h('input', { type: 'checkbox', checked: get(), onchange: (e) => set(e.target.checked) }), label);
 
+/**
+ * A bare vertical slider (no label or value field; hover for the name and exact value, double-click to reset), for
+ * tight spots like the waveshaper. Writes `obj[key]` and calls `change` on every input. `o`: {label, min, max, step, unit, def}.
+ */
+function vslider(obj, key, o, change) {
+  const { label, min, max, step = 0.01, unit = '' } = o;
+  const describe = () => `${label}: ${fmt(obj[key])}${unit} (double-click to reset)`;
+  const input = h('input.vslider', {
+    type: 'range', min: String(min), max: String(max), step: String(step), value: String(obj[key]),
+    title: describe(), 'aria-label': label,
+    oninput: (e) => { obj[key] = parseFloat(e.target.value); input.title = describe(); change(); },
+    ondblclick: () => {
+      const def = o.def ?? DEFAULTS.get(obj)?.[key];
+      if (def == null) return;
+      obj[key] = def;
+      input.value = String(def);
+      input.title = describe();
+      change();
+    },
+  });
+  return input;
+}
+
 /** Which filter a sound source goes through: `obj.route` is 1, 2, or 0 for none. (In series, filter 1 runs on into filter 2.) */
 const ROUTES = [[1, 'filter 1'], [2, 'filter 2'], [0, 'no filter']];
 const routeSelect = (obj, change) => h('label.check', h('span', 'filter'),
@@ -536,29 +559,30 @@ export class InstrumentPanel {
     syncFm();
 
     // Waveshaper: drive (0 = off), the curve, and the curve's own second setting (shown only for shapes that have one).
-    const shapeParam = h('div.shape-param');
+    const shapeParam = h('div.vslot'); // the slot beside the plot for the shape's second setting (empty for shapes without one)
     const renderShapeParam = () => {
       const def = SHAPES.find((sh) => sh.id === patch.shape)?.param;
-      shapeParam.replaceChildren(...(def ? [knob(def.label, patch, 'shapeParam', def, change)] : []));
+      shapeParam.replaceChildren(...(def ? [vslider(patch, 'shapeParam', def, change)] : []));
     };
     renderShapeParam();
     const plot = shapePlot();
     syncShape = () => plot.update(patch);
     syncShape();
+    // The shape menu sits in the module's header row, beside the title.
+    const shapeSelect = h('select.shape-select', {
+      title: 'The distortion curve', 'aria-label': 'Waveshaper shape',
+      onchange: (e) => {
+        patch.shape = e.target.value;
+        patch.shapeParam = SHAPES.find((sh) => sh.id === patch.shape).param?.def ?? patch.shapeParam;
+        renderShapeParam();
+        change();
+      },
+    }, SHAPES.map((sh) => h('option', { value: sh.id, selected: sh.id === patch.shape }, sh.label)));
+    // Fixed layout whatever the shape: the second setting's slider (its slot stays empty for shapes without one), the plot, drive.
     const shaperBox = node('drive', h('div.shaper-sec',
-      knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change),
-      h('label.knob', h('span', 'shape'),
-        h('select', {
-          title: 'The distortion curve',
-          onchange: (e) => {
-            patch.shape = e.target.value;
-            patch.shapeParam = SHAPES.find((sh) => sh.id === patch.shape).param?.def ?? patch.shapeParam;
-            renderShapeParam();
-            change();
-          },
-        }, SHAPES.map((sh) => h('option', { value: sh.id, selected: sh.id === patch.shape }, sh.label)))),
       shapeParam,
-      plot.el));
+      plot.el,
+      h('div.vslot', vslider(patch, 'drive', { label: 'Drive', min: 0, max: 20, step: 0.5 }, change))));
 
     // Two filters in tabs, each with its own envelope. Sources choose which one they go through (or none).
     const filterRow = (fk, ek, n) => node(n === 1 ? 'filter' : 'filter2', h('div.filt',
@@ -608,7 +632,7 @@ export class InstrumentPanel {
               knob('level', noise, 'level', { min: 0, max: 1 }, change),
               routeSelect(noise, change)))),
           module(null, fmBox),
-          module('Waveshaper', shaperBox)),
+          module(null, h('div.mod-head', h('h4', 'Waveshaper'), shapeSelect), shaperBox)),
         target(module(null,
           h('div.mod-head', h('h4', 'Oscillators'), h('div.osc-tabs', oscTabs)),
           oscRows,
