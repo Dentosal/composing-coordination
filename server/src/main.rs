@@ -1,4 +1,4 @@
-use axum::{http::{header, HeaderValue}, middleware, response::Response};
+use axum::{http::{header, HeaderValue}, middleware, response::Response, routing::get, Json, Router};
 use band_game::{api, state::Shared};
 use std::sync::Arc;
 use tower_http::services::ServeDir;
@@ -11,7 +11,14 @@ async fn main() {
 
     // Static client files are revalidated on every load (cheap 304s), so edits show up without a hard refresh.
     // Responses that set their own Cache-Control (the immutable mix WAVs) keep it.
+    // Which code produced a scene file or a bug report: the server binary's commit and the client files' commit.
+    let version_dir = std::path::PathBuf::from(&client_dir);
+    let version = Router::new().route("/api/version", get(move || {
+        let dir = version_dir.clone();
+        async move { Json(band_game::version::current(dir).await) }
+    }));
     let app = api::router(shared)
+        .merge(version)
         .fallback_service(ServeDir::new(&client_dir).append_index_html_on_directories(true))
         .layer(middleware::map_response(|mut r: Response| async move {
             r.headers_mut().entry(header::CACHE_CONTROL).or_insert(HeaderValue::from_static("no-cache"));

@@ -465,8 +465,8 @@ export class Game {
    * Save the whole draft as one file: every patch (with its piano-roll setting), all notes and all effects, exactly as
    * the orders format holds them, plus the loop's tempo and size for context.
    */
-  exportAll() {
-    const file = sceneFile(this.st.config, this.orders);
+  async exportAll() {
+    const file = sceneFile(this.st.config, this.orders, await api.version());
     const stamp = file.exported.slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
     downloadText(`band-game-tracks-${stamp}.json`, JSON.stringify(file, null, 1) + '\n');
   }

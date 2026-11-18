@@ -37,3 +37,11 @@ test('files that are not scenes are refused with a reason', () => {
   bad(JSON.stringify({ ...f, orders: { instruments: [], lanes: [] } }), /no tracks/);
   bad(JSON.stringify({ ...f, orders: {} }), /no tracks/);
 });
+
+test('the file says which code wrote it', () => {
+  const build = { server: { label: '8b7ca71f3a2c' }, client: { label: '8b7ca71f3a2c+1a2b3c4d' } };
+  assert.deepEqual(sceneFile(cfg, orders, build).build, { server: '8b7ca71f3a2c', client: '8b7ca71f3a2c+1a2b3c4d' });
+  assert.deepEqual(sceneFile(cfg, orders, null).build, { server: 'unknown', client: 'unknown' });
+  // and a file with a build stamp (or without, from before) reads the same
+  assert.equal(readSceneFile(JSON.stringify(sceneFile(cfg, orders, build))).config.bars, 3);
+});

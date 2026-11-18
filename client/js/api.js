@@ -70,3 +70,16 @@ export const songUrl = (sid, token, download = false) =>
   `/api/sessions/${sid}/song.wav?token=${token}${download ? '&download=1' : ''}`;
 
 export const eventsUrl = (sid, token) => `/api/sessions/${sid}/events?token=${token}`;
+
+/**
+ * Which code is this: `{server:{label,commit,dirty,fingerprint}, client:{...}}` from GET /api/version, or null when it
+ * cannot be had (an old server, or no answer within a couple of seconds). Never throws.
+ */
+export async function version() {
+  try {
+    const r = await fetch('/api/version', { signal: AbortSignal.timeout(2500) });
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  }
+}

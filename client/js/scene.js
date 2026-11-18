@@ -5,12 +5,17 @@ export const SCENE_FORMAT = 'band-game-tracks';
 const MAX_BYTES = 1024 * 1024; // the server takes bodies up to 1 MiB
 const MAX_BARS = 64; // the longest freeform song
 
-/** The file's content for a session config and its (draft) orders. */
-export function sceneFile(cfg, orders, now = new Date()) {
+/**
+ * The file's content for a session config and its (draft) orders. `build` is what GET /api/version said (the git
+ * commits of the server and of the client files, with a "+fingerprint" when there were uncommitted changes), so a file
+ * that misbehaves can be traced to the code that wrote it.
+ */
+export function sceneFile(cfg, orders, build = null, now = new Date()) {
   return {
     format: SCENE_FORMAT,
-    version: 1,
+    version: 1, // the file layout
     exported: now.toISOString(),
+    build: { server: build?.server?.label ?? 'unknown', client: build?.client?.label ?? 'unknown' },
     // The seed (as text, it can exceed what a JSON number holds exactly) decides the noise and the reverb.
     config: { bpm: cfg.bpm, bars: cfg.bars, rows_per_bar: cfg.rows_per_bar, seed: String(cfg.seed) },
     orders: { instruments: orders.instruments, lanes: orders.lanes },
