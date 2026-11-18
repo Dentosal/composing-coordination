@@ -362,15 +362,21 @@ input[type=range] { accent-color: var(--accent); }
 /* Help buttons and their dialogs */
 .help-btn { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-weight: 700; line-height: 1; color: var(--muted); background: var(--panel2); border: 1px solid var(--line); }
 .help-btn:hover { color: var(--text); border-color: var(--muted); }
-.help-dialog { max-width: min(720px, calc(100vw - 32px)); padding: 20px 24px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, .55); }
+.help-dialog { max-width: min(720px, calc(100vw - 32px)); padding: 0; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, .55); }
 .help-dialog::backdrop { background: rgba(0, 0, 0, .55); }
-.help-dialog h2 { font-size: 1.1rem; margin: 0 0 .6em; }
+.help-dialog h2 { font-size: 1.1rem; margin: 0; }
+/* The header stays put; only the body scrolls. */
+.help-dialog[open] { display: flex; flex-direction: column; }
+.help-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 12px 24px; border-bottom: 1px solid var(--line); }
+.help-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 12px 24px 20px; }
+.help-close { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-size: 1.3rem; line-height: 1; color: var(--muted); background: transparent; border: 1px solid transparent; }
+.help-close:hover { color: var(--text); border-color: var(--line); }
 .help-dialog p, .help-dialog li { line-height: 1.5; }
 .help-dialog ul { padding-left: 1.2em; margin: .6em 0; }
 .help-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 .help-dialog h3 { margin: 1em 0 .3em; }
 .help-dialog kbd { padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--panel2); font: .8rem var(--mono); }
-.help-dialog { max-height: calc(100vh - 48px); overflow-y: auto; }
+.help-dialog { max-height: calc(100vh - 48px); overflow: hidden; }
 
 /* Unlimited tracks: the + beside the roll's "Tracks" title */
 .roll-title { display: flex; align-items: center; justify-content: space-between; padding-right: 8px; }

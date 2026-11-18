@@ -87,7 +87,7 @@ const rollHelp = () => [
     h('li', key('Ctrl'), ' + ', key('C'), ' / ', key('X'), ' / ', key('V'), ' copy, cut, paste (copy one cell, select several and paste to fill them all). ', key('Ctrl'), ' + ', key('Z'), ' undoes, ', key('Ctrl'), ' + ', key('Shift'), ' + ', key('Z'), ' redoes.'),
     h('li', key('Ctrl'), ' + ', key('D'), ' duplicates the selection (or this bar) after itself; ', key('Ctrl'), ' + ', key('E'), ' repeats it to the end of the song.'),
     h('li', key('Alt'), ' + ', key('↑'), ' / ', key('↓'), ' transposes a semitone (add ', key('Shift'), ' for an octave).'),
-    h('li', 'All of this works on the layer you selected: note cells, or effect cells. Copied effects can only be pasted onto effect cells, and transposing is for notes only.')),
+    h('li', 'All of this works on the layer you selected: note cells, effect cells, or both (hold Alt). Copied effects can only be pasted onto effect cells or a combined selection, and transposing is for notes only.')),
   h('h3', 'Looping and playing'),
   h('ul',
     h('li', 'Drag across the bar numbers to loop a region. Click the loop to clear it, drag it to move it, or double-click a bar number to loop that whole bar. Playback loops the region while one is set.'),
