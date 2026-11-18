@@ -73,9 +73,9 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .audition button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .audition button.hold { user-select: none; touch-action: none; }
 .loader { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.patch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; align-items: start; }
-.nodes-body { display: grid; gap: 12px; }
-.patch-cols, .lfo-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.patch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 5px; align-items: start; }
+.nodes-body { display: grid; gap: 5px; }
+.patch-cols, .lfo-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-items: start; }
 /* The LFO row: one tinted band under all four columns (controls under Noise/FM, then a depth slider per column). */
 .lfo-row { align-items: center; padding: 8px 0; border-radius: 8px; background: var(--panel2); }
 .lfo-ctl { display: grid; gap: 4px; padding: 0 12px; font-size: .85rem; }
@@ -180,7 +180,17 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .rd-head.audio { fill: var(--muted); }
 .rd-head.mod { fill: var(--accent); }
 .rd .off { opacity: .3; }
-.osc-opts { display: flex; gap: 14px; flex-wrap: wrap; }
+.route-row.off { opacity: .55; } /* a silent source */
+/* The oscillators' routing: a row of tri-state buttons (bypass / filter 1 / filter 2). */
+.tri-group { grid-column: 2 / 4; display: flex; gap: 3px; }
+.tri { flex: 1; min-width: 0; padding: 2px 0; font-size: .72rem; font-weight: 600; white-space: nowrap; background: transparent; color: var(--muted); }
+.tri[data-state="1"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tri[data-state="2"] { color: var(--accent); border-color: var(--accent); }
+.tri.off { opacity: .45; }
+/* Noise header: the colour menu and the noise's tri-state button side by side, at the right. */
+.head-group { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.head-group .head-select { margin-left: 0; max-width: none; }
+.head-group .tri { flex: none; min-width: 58px; padding: 2px 6px; }
 
 .pattern { overflow-x: auto; }
 /* Cursor and selection only lighten the cell: colours are never inverted, so a note or pad hit keeps its own colour. */
@@ -205,20 +215,22 @@ input[type=range] { accent-color: var(--accent); }
 .osc.off .knob:nth-of-type(1) { opacity: 1; } /* the level slider stays fully visible so it can be raised again */
 /* hover-link highlight: a thin, half-strength accent so it hints rather than shouts */
 :root { --hl: color-mix(in srgb, var(--accent) 50%, transparent); }
-.module.hl, .osc.hl, .env-sec.hl, .knob.hl, .lfo-row.hl, .noise-sec.hl, .fm-sec.hl { outline: 1px solid var(--hl); outline-offset: 2px; border-radius: 6px; }
-.rd-box.hl rect { stroke: var(--hl); stroke-width: 1.4; }
+.module.hl, .osc.hl, .env-sec.hl, .knob.hl, .lfo-row.hl, .noise-sec.hl, .fm-sec.hl, .filt.hl { outline: 1px solid var(--hl); outline-offset: 2px; border-radius: 6px; }
+.rd-box.hl rect, .rd-box.hl circle { stroke: var(--hl); stroke-width: 1.4; }
 
 .mod-head { display: flex; align-items: center; gap: 10px; }
 .mod-head h4 { margin: 0; }
 .head-select { margin-left: auto; min-width: 0; max-width: 60%; font-size: .85rem; } /* a dropdown in a module's header row */
+.tog-group { margin-left: auto; display: flex; gap: 4px; }
+/* A two-state toggle button showing its current state; the accent marks the less usual one (serial, one). */
+.tog { min-width: 0; padding: 2px 8px; font-size: .72rem; font-weight: 600; white-space: nowrap; background: transparent; color: var(--muted); }
+.tog[data-on="1"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .osc-tabs { display: flex; gap: 4px; margin-left: auto; }
 .osc-tab { min-width: 28px; padding: 2px 8px; font-weight: 600; }
 .osc-tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .osc-tab.off:not(.on) { opacity: .4; }
 .osc-tab.off.on { opacity: .75; }
-.seg { display: flex; gap: 2px; margin-left: 8px; }
-.seg-btn { min-width: 0; padding: 2px 7px; font-size: .72rem; font-weight: 500; }
-.osc-tab.hl { outline: 1px solid var(--hl); outline-offset: 2px; }
+.osc-tab.hl, .tri.hl { outline: 1px solid var(--hl); outline-offset: 2px; }
 .osc[hidden] { display: none; }
 .osc { border-top: none; padding-top: 0; }
 

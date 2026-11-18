@@ -7,7 +7,7 @@ import { helpButton } from './help.js';
 import { downloadText } from './download.js';
 import { routingDiagram } from './routing.js';
 import { shapePlot } from './shapeplot.js';
-import { FILTER_MODES, FILTER_ROUTINGS, SHAPES, WAVES, buildInstrument, usesFilter2, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
+import { FILTER_MODES, SHAPES, WAVES, buildInstrument, usesFilter2, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
 
 let presetCache = null;
 
@@ -225,11 +225,8 @@ function vslider(obj, key, o, change) {
   return input;
 }
 
-/** Which filter a sound source goes through: `obj.route` is 1, 2, or 0 for none. (In series, filter 1 runs on into filter 2.) */
-const ROUTES = [[1, 'filter 1'], [2, 'filter 2'], [0, 'no filter']];
-const routeSelect = (obj, change) => h('label.check', h('span', 'filter'),
-  h('select', { title: 'Which filter this source goes through', onchange: (e) => { obj.route = Number(e.target.value); change(); } },
-    ROUTES.map(([v, text]) => h('option', { value: String(v), selected: v === obj.route }, text))));
+/** The filters a sound source can go through: its `route` is 1, 2, or 0 for none. (In series, filter 1 runs on into filter 2.) */
+const ROUTES = [[1, 'filter 1'], [2, 'filter 2'], [0, 'bypass']];
 
 const module = (title, ...kids) => h('section.module', title ? h('h4', title) : null, ...kids);
 /** Tag an element with the routing-diagram node it corresponds to (see InstrumentPanel.linkHighlight). */
@@ -336,7 +333,7 @@ export class InstrumentPanel {
     const over = (e) => {
       const el = e.target instanceof Element ? e.target.closest('[data-node]') : null;
       const key = el?.dataset.node ?? null;
-      const only = !!el?.classList.contains('osc-tab');
+      const only = !!el && (el.classList.contains('osc-tab') || el.hasAttribute('data-diagram-only'));
       if (key !== this.hlKey || only !== this.hlDiagramOnly) this.highlight(key, only);
     };
     const out = (e) => { if (!e.relatedTarget || !this.root.contains(e.relatedTarget)) this.highlight(null); };
@@ -526,8 +523,7 @@ export class InstrumentPanel {
           ? knob('pitch', o, 'semitones', { min: -48, max: 48, step: 0.01, fixed: 2, snap: 1, unit: ' st' }, change)
           : knob('pitch', o, 'fixed_hz', { min: 20, max: 2000, log: true, unit: ' Hz', def: 220 }, change),
         knob('unison', o, 'unison', { min: 1, max: 7, step: 1, unit: ' voices' }, change),
-        knob('spread', o, 'spread', { min: 0, max: 100, step: 1, unit: ' ct' }, change),
-        h('div.osc-opts', routeSelect(o, change)));
+        knob('spread', o, 'spread', { min: 0, max: 100, step: 1, unit: ' ct' }, change));
       return row;
     };
     const noise = patch.noise;
@@ -625,10 +621,72 @@ export class InstrumentPanel {
       },
     }, SHAPES.map((sh) => h('option', { value: sh.id, selected: sh.id === patch.shape }, sh.label)));
     // Fixed layout whatever the shape: the second setting's slider (its slot stays empty for shapes without one), the plot, drive.
-    const shaperBox = node('drive', h('div.shaper-sec',
+    const shaperBox = h('div.shaper-sec',
       shapeParam,
       plot.el,
-      h('div.vslot', vslider(patch, 'drive', { label: 'Drive', min: 0, max: 20, step: 0.5 }, change))));
+      h('div.vslot', vslider(patch, 'drive', { label: 'Drive', min: 0, max: 20, step: 0.5 }, change)));
+
+    // Which filter each sound source goes through: a tri-state button per source (the oscillators' share a row in the Routing box,
+    // noise has its own in its header). A silent source's button is dimmed.
+    const routeRows = [];
+    // Each click moves the source on to the next of filter 1 -> filter 2 -> bypass.
+    const ROUTE_TEXT = Object.fromEntries(ROUTES);
+    const routeButton = (src, name, key = null) => {
+      const btn = h('button.tri', { type: 'button' });
+      if (key) { btn.dataset.node = key; btn.dataset.diagramOnly = ''; } // hovering it lights that oscillator's diagram box, like its tab
+      const show = () => {
+        btn.textContent = ROUTE_TEXT[src.route];
+        btn.dataset.state = String(src.route);
+        btn.title = `${name}: ${ROUTE_TEXT[src.route]} (click for ${ROUTE_TEXT[ROUTES[(ROUTES.findIndex(([v]) => v === src.route) + 1) % ROUTES.length][0]]})`;
+        btn.setAttribute('aria-label', btn.title);
+      };
+      btn.onclick = () => {
+        src.route = ROUTES[(ROUTES.findIndex(([v]) => v === src.route) + 1) % ROUTES.length][0];
+        show();
+        change();
+      };
+      show();
+      routeRows.push([btn, src]);
+      return btn;
+    };
+    const oscRoutes = h('div.knob.route-osc', h('span', 'oscillators'),
+      h('div.tri-group', patch.osc.map((o, i) => routeButton(o, `Oscillator ${i + 1}`, `osc${i + 1}`))));
+
+    // Two toggle buttons in the Routing box's header, each showing its current state and flipping on click.
+    //  serial / parallel: filter 1 feeds filter 2, or the two filters work side by side.
+    //  one / both: the waveshaper acts after filter 1 only (right after it in parallel, between the filters in serial)
+    //  or after both filters (after the two are summed in parallel, after filter 2 in serial).
+    const modeBtn = h('button.tog', {
+      type: 'button',
+      onclick: () => { patch.filterMode = patch.filterMode === 'serial' ? 'parallel' : 'serial'; change(); },
+    });
+    const posBtn = h('button.tog', {
+      type: 'button',
+      onclick: () => { patch.shaperPos = patch.shaperPos === 'mid' ? 'post' : 'mid'; change(); },
+    });
+    const syncLayout = () => {
+      const serialMode = patch.filterMode === 'serial';
+      const one = patch.shaperPos === 'mid';
+      modeBtn.textContent = patch.filterMode;
+      modeBtn.dataset.on = serialMode ? '1' : '0';
+      modeBtn.title = serialMode
+        ? 'Serial: filter 1 feeds filter 2 (click for parallel, side by side)'
+        : 'Parallel: the two filters work side by side (click for serial, filter 1 feeding filter 2)';
+      posBtn.textContent = one ? 'one' : 'both';
+      posBtn.dataset.on = one ? '1' : '0';
+      posBtn.title = one
+        ? `Waveshaper after filter 1 only (${serialMode ? 'between the filters' : 'right after it'}); click for after both filters`
+        : `Waveshaper after both filters (${serialMode ? 'after filter 2' : 'after they are summed'}); click for after filter 1 only`;
+      for (const b of [modeBtn, posBtn]) {
+        b.setAttribute('aria-pressed', b.dataset.on === '1' ? 'true' : 'false');
+        b.setAttribute('aria-label', b.title);
+      }
+    };
+    syncLayout();
+    // Linked to the diagram's sum node (Σ), where the signal paths the Routing box sets up come together.
+    const routingBox = node('sum', module(null,
+      h('div.mod-head', h('h4', 'Routing'), h('div.tog-group', modeBtn, posBtn)),
+      oscRoutes));
 
     // Two filters in tabs, each with its own envelope. Sources choose which one they go through (or none).
     const filterRow = (fk, ek, n) => node(n === 1 ? 'filter' : 'filter2', h('div.filt',
@@ -647,12 +705,6 @@ export class InstrumentPanel {
     [1, 2].forEach((n, i) => filterTabs.push(node(n === 1 ? 'filter' : 'filter2', h('button.osc-tab', {
       type: 'button', onclick: () => showFilter(i),
     }, String(n)))));
-    // Parallel: the filters work side by side. Serial: whatever goes through filter 1 then goes through filter 2.
-    const routingBtns = FILTER_ROUTINGS.map((v) => h('button.osc-tab.seg-btn', {
-      type: 'button', 'aria-pressed': 'false',
-      title: v === 'serial' ? 'Filter 1 feeds filter 2' : 'The two filters work side by side',
-      onclick: () => { patch.filterMode = v; change(); },
-    }, v));
     syncFilterTabs = () => {
       const sources = [...patch.osc, patch.noise];
       [1, 2].forEach((n, i) => {
@@ -660,10 +712,8 @@ export class InstrumentPanel {
         filterTabs[i].classList.toggle('off', !used);
         filterTabs[i].title = `Filter ${n}${used ? '' : ' (nothing goes through it)'}`;
       });
-      FILTER_ROUTINGS.forEach((v, i) => {
-        routingBtns[i].classList.toggle('on', patch.filterMode === v);
-        routingBtns[i].setAttribute('aria-pressed', String(patch.filterMode === v));
-      });
+      for (const [row, src] of routeRows) row.classList.toggle('off', !(src.level > 0));
+      syncLayout();
     };
     syncFilterTabs();
     showFilter(Math.min(this.filterTab, filterRows.length - 1));
@@ -674,23 +724,25 @@ export class InstrumentPanel {
           module(null,
             node('noise', h('div.noise-sec',
               h('div.sec-head', h('h5.sub', 'Noise'),
-                h('select.head-select', {
-                  title: 'White or pink noise', 'aria-label': 'Noise color',
-                  onchange: (e) => { noise.color = e.target.value; change(); },
-                }, ['white', 'pink'].map((v) => h('option', { value: v, selected: v === noise.color }, v)))),
-              knob('level', noise, 'level', { min: 0, max: 1 }, change),
-              routeSelect(noise, change)))),
+                h('div.head-group',
+                  h('select.head-select', {
+                    title: 'White or pink noise', 'aria-label': 'Noise color',
+                    onchange: (e) => { noise.color = e.target.value; change(); },
+                  }, ['white', 'pink'].map((v) => h('option', { value: v, selected: v === noise.color }, v))),
+                  routeButton(noise, 'Noise'))),
+              knob('level', noise, 'level', { min: 0, max: 1 }, change)))),
           module(null, fmBox),
-          module(null, h('div.mod-head', h('h4', 'Waveshaper'), shapeSelect), shaperBox)),
+          node('drive', module(null, h('div.mod-head', h('h4', 'Waveshaper'), shapeSelect), shaperBox))),
         target(module(null,
           h('div.mod-head', h('h4', 'Oscillators'), h('div.osc-tabs', oscTabs)),
           oscRows,
           envelope('penv', 'Pitch envelope (shared)', patch.penv, { label: 'amount', min: -4800, max: 4800, step: 10, unit: ' ct' })), 'pitch'),
         target(module(null,
-          h('div.mod-head', h('h4', 'Filter'), h('div.seg', routingBtns), h('div.osc-tabs', filterTabs)),
+          h('div.mod-head', h('h4', 'Filter'), h('div.osc-tabs', filterTabs)),
           filterRows), 'cutoff'),
-        // Right-hand column: effect sends, then the amplifier (the part the LFO's volume depth modulates) at the bottom.
+        // Right-hand column: routing, effect sends, then the amplifier (the part the LFO's volume depth modulates) at the bottom.
         h('div.col-stack.sink',
+          routingBox,
           node('amp', module('Effects',
             knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
             knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change))),
@@ -721,11 +773,11 @@ function patchHelp() {
     h('h3', 'Sound sources'),
     h('ul',
       h('li', h('strong', 'Oscillators'), ': up to three tone generators. Pick a wave shape, set the pitch (in semitones from the note, down to hundredths of a semitone for detuning; hold Shift while dragging the slider to snap to whole semitones); stack them, or use unison (several detuned copies of one oscillator, spread across the given cents) for a thicker sound.'),
-      h('li', h('strong', 'Noise'), ': white or pink noise, good for drums and breath. Each source has a filter menu: it goes through filter 1, filter 2 or no filter.')),
+      h('li', h('strong', 'Noise'), ': white or pink noise, good for drums and breath. The Routing box sets, for each source, whether it goes through filter 1, filter 2 or no filter.')),
     h('h3', 'Filter and drive'),
     h('ul',
-      h('li', h('strong', 'Filter'), ': removes frequencies. Cutoff sets where, resonance emphasises that spot, and key track makes higher notes open the filter more. There are two filters (tabs 1 and 2), each with its own envelope; a source goes through one of them, so they work side by side (parallel), or filter 1 feeds filter 2 (serial: "filter 1" then runs on through filter 2, and "filter 2" enters at the second filter). The LFO cutoff depth moves both. The second filter is only active while a source is routed to it.'),
-      h('li', h('strong', 'Drive'), ': distortion after the filters (in the Amplifier box) that makes the sound thicker and louder. 0 switches it off. Shape picks the kind: soft clip (smooth), hard clip (harsh), foldback (the peaks bounce back: metallic), asymmetric (even harmonics: warm) and bitcrush (few amplitude steps; "bits" sets how many). Quiet sounds are crushed harder, so raise the drive to bring the level into the crusher.')),
+      h('li', h('strong', 'Filter'), ': removes frequencies. Cutoff sets where, resonance emphasises that spot, and key track makes higher notes open the filter more. There are two filters (tabs 1 and 2), each with its own envelope. The Routing box sends each source to filter 1, filter 2 or past them (bypass). Its "parallel / serial" button sets how the filters are connected: side by side, or filter 1 feeding filter 2 (serial: a source on filter 1 runs on through filter 2, and one on filter 2 enters at the second filter). The LFO cutoff depth moves both. The second filter is only active while something goes through it.'),
+      h('li', h('strong', 'Drive'), ': distortion that makes the sound thicker and louder. By default it comes after both filters; the "one / both" button in the Routing box can put it after filter 1 only instead (right after it in parallel, between the two filters in serial). 0 switches it off. Shape picks the kind: soft clip (smooth), hard clip (harsh), foldback (the peaks bounce back: metallic), asymmetric (even harmonics: warm) and bitcrush (few amplitude steps; "bits" sets how many). Quiet sounds are crushed harder, so raise the drive to bring the level into the crusher.')),
     h('h3', 'Envelopes'),
     h('ul',
       h('li', 'Each envelope has Attack, Decay, Sustain and Release: how fast the sound rises, falls to its held level, and fades when the note ends.'),

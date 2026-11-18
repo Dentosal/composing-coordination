@@ -354,3 +354,46 @@ test('an older graph with a cents detune opens with the cents folded into the pi
   fixed.nodes.find((n) => n.id === 'o2').detune = 5;
   assert.equal(parseInstrument(fixed), null);
 });
+
+test('waveshaper position: after the filters by default; in the middle it sits between the filters (serial) or after filter 1 (parallel)', () => {
+  const has = (inst, from, to) => inst.edges.some((e) => e.from === from && e.to === to && !e.port);
+  const shapers = (inst) => inst.nodes.filter((n) => n.type === 'shaper').map((n) => n.id);
+  const f32 = (inst) => ({ ...inst, nodes: inst.nodes.map((n) => (n.type === 'shaper' ? { ...n, drive: Math.fround(n.drive), ...(n.param !== undefined ? { param: Math.fround(n.param) } : {}) } : n)) });
+
+  const p = defaultPatch();
+  assert.equal(p.shaperPos, 'post');
+  p.drive = 3;
+  const post = buildInstrument('x', p);
+  assert.deepEqual(shapers(post), ['drv']);
+  assert.ok(has(post, 'bus', 'drv') && has(post, 'lp', 'bus'));
+
+  // parallel, in the middle: filter 1 -> shaper -> mix; nothing else goes through it
+  p.shaperPos = 'mid';
+  p.osc[1].route = 2; p.osc[1].level = 0.3;
+  const par = buildInstrument('x', p);
+  assert.deepEqual(shapers(par), ['drvm']);
+  assert.ok(has(par, 'lp', 'drvm') && has(par, 'drvm', 'bus') && has(par, 'lp2', 'bus'));
+  assert.equal(has(par, 'lp', 'bus'), false);
+  assert.equal(has(par, 'bus', 'drv'), false);
+  assert.deepEqual(parseInstrument(f32(par)), p);
+
+  // serial, in the middle: filter 1 -> shaper -> filter 2
+  p.filterMode = 'serial';
+  const ser = buildInstrument('x', p);
+  assert.ok(has(ser, 'lp', 'drvm') && has(ser, 'drvm', 'lp2') && has(ser, 'lp2', 'bus'));
+  assert.equal(has(ser, 'lp', 'lp2'), false);
+  assert.deepEqual(parseInstrument(f32(ser)), p);
+
+  // switched off, the position (and the serial mode, and the shape) is remembered by an unwired shaper
+  p.drive = 0;
+  p.shape = 'fold';
+  const off = buildInstrument('x', p);
+  assert.deepEqual(shapers(off), ['drvm']);
+  assert.equal(off.edges.some((e) => e.from === 'drvm' || e.to === 'drvm'), false);
+  assert.ok(has(off, 'lp', 'lp2'));
+  assert.deepEqual(parseInstrument(f32(off)), p);
+
+  // back after the filters: the plain graph
+  const plain = defaultPatch();
+  assert.equal(buildInstrument('x', plain).nodes.some((n) => n.type === 'shaper'), false);
+});
