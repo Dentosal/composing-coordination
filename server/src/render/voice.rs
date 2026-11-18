@@ -140,57 +140,101 @@ pub fn schedule_part(
         };
         for (note, vel, row, end_row) in lane_notes(lane, total_rows) {
             let t0 = loop_start + row as f64 * row_secs;
-            let tg = loop_start + end_row as f64 * row_secs;
-            let plan = fx_plan(&lane.fx, row, end_row, row_secs);
-            build_voice(ctx, cfg, part.seat_index, inst, &bus.input, &noise, note, vel, t0, tg, &plan);
+            for seg in fx_plan(&lane.fx, row, end_row, row_secs) {
+                build_voice(ctx, cfg, part.seat_index, inst, &bus.input, &noise, note, vel, t0 + seg.start, t0 + seg.end, &seg);
+            }
         }
     }
 }
 
-/// Parameter automation for one note, from its lane's effect cells. Times are seconds after the note's start.
-/// Must stay identical to `notePlan` in client/js/fx.js (both are checked against server/tests/fixtures/fx_plan.json).
+/// One voice of a note: a note is split into several voices by retriggers, and ended early by a cut.
+/// Times are seconds after the note's start; the automation times are seconds after the voice's own start.
 #[derive(Debug, Default, PartialEq)]
-pub struct FxPlan {
-    /// (time, volume multiplier) whenever the volume changes; the voice starts at 1.
+pub struct FxSegment {
+    pub start: f64,
+    pub end: f64,
+    /// (time, volume multiplier) whenever the volume changes; the voice starts at 1. A voice that ends early (cut or
+    /// retrigger) gets a final 0 at its end, so it is silent from that instant.
     pub volumes: Vec<(f64, f32)>,
-    /// (time, semitone offset) for the oscillators, set at each arpeggio tick and back to 0 after an arpeggio row.
-    pub pitches: Vec<(f64, i32)>,
+    /// (time, semitone offset) of the oscillators (slide + arpeggio), whenever it changes; the voice starts at 0.
+    pub pitches: Vec<(f64, f64)>,
 }
 
-/// Each effect cell applies during its own row only: volume multiplies the notes' level (rows without one are at 1),
-/// an arpeggio cycles the pitch through its offsets, once per tick, restarting at the start of the row.
-pub fn fx_plan(fx: &[FxStep], start_row: u32, end_row: u32, row_secs: f64) -> FxPlan {
-    let mut plan = FxPlan::default();
+/// The voices of one note, from its lane's effect cells. Everything is quantised to ticks (`ARP_TICKS_PER_ROW` per row):
+///   volume   multiplies the level during its row (rows without one are at 1)
+///   arp      the pitch steps through the offsets, one per tick, restarting at the start of the row
+///   slide    the pitch moves by N semitones over the row (reaching it at the row's last tick) and stays there
+///   cut      the note ends (and is silenced) at that tick of the row
+///   retrig   the note restarts every N ticks within the row (a new voice; the old one is silenced)
+/// Must stay identical to `notePlan` in client/js/fx.js (both are checked against server/tests/fixtures/fx_plan.json).
+pub fn fx_plan(fx: &[FxStep], start_row: u32, end_row: u32, row_secs: f64) -> Vec<FxSegment> {
+    let tpr = ARP_TICKS_PER_ROW as usize;
+    let tick = row_secs / tpr as f64;
+    let n_ticks = (end_row - start_row) as usize * tpr;
+    let natural_end = (end_row - start_row) as f64 * row_secs;
     if fx.is_empty() {
-        return plan;
+        return vec![FxSegment { start: 0.0, end: natural_end, ..Default::default() }];
     }
     let by_row: HashMap<u32, &FxStep> = fx.iter().map(|f| (f.row, f)).collect();
-    let mut last_vol = 1.0f32;
-    let mut arp_on = false;
+    let mut vol: Vec<f32> = Vec::with_capacity(n_ticks);
+    let mut pitch: Vec<f64> = Vec::with_capacity(n_ticks);
+    let mut accum = 0.0f64;
+    let mut cut: Option<usize> = None;
+    let mut retrig: Vec<usize> = Vec::new();
     for r in start_row..end_row {
-        let t = (r - start_row) as f64 * row_secs;
         let f = by_row.get(&r);
-        let vol = f.and_then(|f| f.volume).unwrap_or(1.0);
-        if vol != last_vol {
-            plan.volumes.push((t, vol));
-            last_vol = vol;
+        let slide = f.and_then(|f| f.slide).unwrap_or(0) as f64;
+        let arp = f.and_then(|f| f.arp.as_ref()).filter(|a| !a.offsets.is_empty());
+        for k in 0..tpr {
+            vol.push(f.and_then(|f| f.volume).unwrap_or(1.0));
+            let off = arp.map_or(0.0, |a| a.offsets[k % a.offsets.len()] as f64);
+            pitch.push(accum + (slide * (k + 1) as f64) / tpr as f64 + off);
         }
-        match f.and_then(|f| f.arp.as_ref()) {
-            Some(a) if !a.offsets.is_empty() => {
-                for k in 0..ARP_TICKS_PER_ROW {
-                    plan.pitches.push((t + k as f64 * row_secs / ARP_TICKS_PER_ROW as f64, a.offsets[k as usize % a.offsets.len()]));
-                }
-                arp_on = true;
+        accum += slide;
+        let base = (r - start_row) as usize * tpr;
+        if cut.is_none() {
+            if let Some(c) = f.and_then(|f| f.cut) {
+                cut = Some(base + c as usize);
             }
-            _ => {
-                if arp_on {
-                    plan.pitches.push((t, 0));
-                    arp_on = false;
-                }
+        }
+        if let Some(n) = f.and_then(|f| f.retrig) {
+            let mut k = n as usize;
+            while k < tpr {
+                retrig.push(base + k);
+                k += n as usize;
             }
         }
     }
-    plan
+    let end = cut.map_or(n_ticks, |c| c.min(n_ticks));
+    retrig.sort_unstable();
+    let mut bounds = vec![0usize];
+    bounds.extend(retrig.into_iter().filter(|&t| t > 0 && t < end));
+    let mut segs = Vec::new();
+    for (j, &s) in bounds.iter().enumerate() {
+        let e = bounds.get(j + 1).copied().unwrap_or(end);
+        if e <= s {
+            continue;
+        }
+        let (mut vl, mut pl) = (1.0f32, 0.0f64);
+        let (mut vs, mut ps) = (Vec::new(), Vec::new());
+        for i in s..e {
+            let t = (i - s) as f64 * tick;
+            if vol[i] != vl {
+                vs.push((t, vol[i]));
+                vl = vol[i];
+            }
+            if pitch[i] != pl {
+                ps.push((t, pitch[i]));
+                pl = pitch[i];
+            }
+        }
+        let natural = e == n_ticks;
+        if !natural {
+            vs.push(((e - s) as f64 * tick, 0.0));
+        }
+        segs.push(FxSegment { start: s as f64 * tick, end: if natural { natural_end } else { e as f64 * tick }, volumes: vs, pitches: ps });
+    }
+    segs
 }
 
 /// (note, vel, start_row, end_row) for each note-on, in row order.
@@ -221,7 +265,7 @@ fn build_voice(
     vel: u8,
     t0: f64,
     tg: f64,
-    plan: &FxPlan,
+    plan: &FxSegment,
 ) {
     let hz = midi_hz(note);
     let max_release = inst
@@ -254,7 +298,7 @@ fn build_voice(
                 if fixed_hz.is_none() {
                     // Arpeggio ticks: the detune param carries the semitone offset (in cents) on top of the oscillator's own detune.
                     for (t, semis) in &plan.pitches {
-                        o.detune().set_value_at_time(*detune + *semis as f32 * 100.0, t0 + t);
+                        o.detune().set_value_at_time(*detune + (*semis * 100.0) as f32, t0 + t);
                     }
                 }
                 o.start_at(t0);

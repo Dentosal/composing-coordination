@@ -163,6 +163,16 @@ pub struct FxStep {
     /// row, restarting at the start of the row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arp: Option<Arp>,
+    /// Pitch slide: the pitch moves by this many semitones (negative: down) over the row, in ticks, and stays there
+    /// for the rest of the note; consecutive slide rows add up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slide: Option<i32>,
+    /// Note cut: the note sounding in this row is cut (silenced) at this tick of the row, 0..ARP_TICKS_PER_ROW.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cut: Option<u32>,
+    /// Retrigger: the note restarts every this many ticks within the row (not at tick 0), 1..ARP_TICKS_PER_ROW.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retrig: Option<u32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -171,8 +181,9 @@ pub struct Arp {
     pub offsets: Vec<i32>,
 }
 
-/// Every row is split into this many ticks (the classic tracker speed).
+/// Every row is split into this many ticks (the classic tracker speed): arpeggio steps, slide steps, cut and retrigger times.
 pub const ARP_TICKS_PER_ROW: u32 = 6;
+pub const MAX_SLIDE: i32 = 24;
 
 /// One pattern event. `note: Some(midi)` starts a note (replacing any note still playing in
 /// the lane); `note: None` is a note-off. A note lasts until the next step in its lane or the
@@ -308,6 +319,21 @@ impl Orders {
                 }
                 if let Some(v) = f.volume {
                     range(v, 0.0, 1.0, &format!("{fp}.volume"), &mut err);
+                }
+                if let Some(s) = f.slide {
+                    if !(-MAX_SLIDE..=MAX_SLIDE).contains(&s) {
+                        err(format!("{fp}.slide"), format!("slide must be within -{MAX_SLIDE}..={MAX_SLIDE} semitones per row"));
+                    }
+                }
+                if let Some(c) = f.cut {
+                    if c >= ARP_TICKS_PER_ROW {
+                        err(format!("{fp}.cut"), format!("cut tick must be 0..{ARP_TICKS_PER_ROW}"));
+                    }
+                }
+                if let Some(r) = f.retrig {
+                    if r == 0 || r >= ARP_TICKS_PER_ROW {
+                        err(format!("{fp}.retrig"), format!("retrigger interval must be 1..{ARP_TICKS_PER_ROW} ticks"));
+                    }
                 }
                 if let Some(a) = &f.arp {
                     if a.offsets.is_empty() || a.offsets.len() > MAX_ARP_OFFSETS {
@@ -493,24 +519,29 @@ mod tests {
     fn effect_cells_are_validated() {
         let mut o: Orders = serde_json::from_str(GOOD).unwrap();
         o.lanes[0].fx = vec![
-            FxStep { row: 3, volume: Some(0.5), arp: None },
-            FxStep { row: 4, volume: None, arp: Some(Arp { offsets: vec![0, 4, 7] }) },
+            FxStep { row: 3, volume: Some(0.5), arp: None, slide: Some(-3), cut: Some(2), retrig: Some(2) },
+            FxStep { row: 4, volume: None, arp: Some(Arp { offsets: vec![0, 4, 7] }), slide: None, cut: None, retrig: None },
         ];
         assert!(o.validate(&limits()).is_empty());
         let again: Orders = serde_json::from_str(&serde_json::to_string(&o).unwrap()).unwrap();
         assert_eq!(again.lanes[0].fx.len(), 2);
+        let fx = |row: u32| FxStep { row, volume: None, arp: None, slide: None, cut: None, retrig: None };
         let bad = |f: FxStep| {
             let mut o: Orders = serde_json::from_str(GOOD).unwrap();
             o.lanes[0].fx = vec![f];
             o.validate(&limits())
         };
-        assert!(!bad(FxStep { row: 9999, volume: Some(0.5), arp: None }).is_empty(), "row outside the loop");
-        assert!(!bad(FxStep { row: 1, volume: Some(1.5), arp: None }).is_empty(), "volume above 1");
-        assert!(!bad(FxStep { row: 1, volume: None, arp: Some(Arp { offsets: vec![] }) }).is_empty(), "no offsets");
-        assert!(!bad(FxStep { row: 1, volume: None, arp: Some(Arp { offsets: vec![0; 5] }) }).is_empty(), "too many offsets");
-        assert!(!bad(FxStep { row: 1, volume: None, arp: Some(Arp { offsets: vec![60] }) }).is_empty(), "offset out of range");
+        assert!(!bad(FxStep { row: 9999, ..fx(0) }).is_empty(), "row outside the loop");
+        assert!(!bad(FxStep { slide: Some(30), ..fx(1) }).is_empty(), "slide too large");
+        assert!(!bad(FxStep { cut: Some(6), ..fx(1) }).is_empty(), "cut after the row's last tick");
+        assert!(!bad(FxStep { retrig: Some(0), ..fx(1) }).is_empty(), "retrigger every 0 ticks");
+        assert!(!bad(FxStep { retrig: Some(6), ..fx(1) }).is_empty(), "retrigger interval as long as the row");
+        assert!(!bad(FxStep { volume: Some(1.5), ..fx(1) }).is_empty(), "volume above 1");
+        assert!(!bad(FxStep { arp: Some(Arp { offsets: vec![] }), ..fx(1) }).is_empty(), "no offsets");
+        assert!(!bad(FxStep { arp: Some(Arp { offsets: vec![0; 5] }), ..fx(1) }).is_empty(), "too many offsets");
+        assert!(!bad(FxStep { arp: Some(Arp { offsets: vec![60] }), ..fx(1) }).is_empty(), "offset out of range");
         assert!(serde_json::from_str::<Arp>(r#"{"offsets":[0],"ticks":4}"#).is_err(), "the tick count is fixed, not a setting");
-        o.lanes[0].fx.push(FxStep { row: 3, volume: Some(0.2), arp: None });
+        o.lanes[0].fx.push(FxStep { volume: Some(0.2), ..fx(3) });
         assert!(o.validate(&limits()).iter().any(|e| e.message.contains("duplicate effect cell")));
     }
 

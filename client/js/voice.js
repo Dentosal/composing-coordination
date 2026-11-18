@@ -147,8 +147,9 @@ function envRelease(p, e, t0, tg) {
 
 /**
  * Start one voice of `inst` at `t0`. Returns `{ release(tg) }`: call it with the gate-end time (now or in the
- * future) to let the note go. `noise` maps node id -> AudioBuffer. `plan` (optional, from fx.js `notePlan`) automates the
- * voice: its volumes multiply the output level and its pitches offset the (non-fixed) oscillators, in semitones.
+ * future) to let the note go. `noise` maps node id -> AudioBuffer. `plan` (optional: one segment of fx.js `notePlan`)
+ * automates the voice: its volumes multiply the output level and its pitches offset the (non-fixed) oscillators, in
+ * semitones (a slide gives fractions). Times in the plan are seconds after `t0`.
  */
 export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
   const hz = midiHz(note);

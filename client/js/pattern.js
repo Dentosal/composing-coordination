@@ -3,7 +3,7 @@ import { h, clear } from './dom.js';
 import { icon } from './icons.js';
 import { helpButton } from './help.js';
 import { dragByHandle } from './draggable.js';
-import { ARP_MAX_OFFSETS, DEFAULT_ARP, clearFx, fxAt, fxLabel, fxTitle, setFxField } from './fx.js';
+import { ARP_MAX_OFFSETS, ARP_TICKS_PER_ROW, DEFAULT_ARP, MAX_SLIDE, clearFx, fxAt, fxLabel, fxTitle, setFxField } from './fx.js';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
 export const noteName = (m) => `${NOTE_NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
@@ -644,10 +644,28 @@ export class PatternEditor {
     ui.arpOffsets = h('input.fx-offsets', { type: 'text', value: DEFAULT_ARP.offsets.join(' '), spellcheck: 'false', 'aria-label': 'Arpeggio offsets in semitones',
       title: `Semitones above the note, up to ${ARP_MAX_OFFSETS}, for example "0 4 7" for a major chord. The pitch steps through them six times per row.`,
       oninput: () => { if (this.parseArpOffsets()) ui.arpChk.checked = true; this.applyArp(); } });
+    const signed = (n) => (n > 0 ? `+${n}` : String(n));
+    ui.slideChk = h('input', { type: 'checkbox', onchange: () => this.applySlide() });
+    ui.slideRange = h('input', { type: 'range', min: String(-Math.min(12, MAX_SLIDE)), max: String(Math.min(12, MAX_SLIDE)), step: '1', value: '2', 'aria-label': 'Slide in semitones per row',
+      title: 'Semitones the pitch moves over the row (negative: down). It stays there afterwards, and consecutive rows add up.',
+      oninput: () => { ui.slideOut.textContent = `${signed(Number(ui.slideRange.value))} st`; ui.slideChk.checked = true; this.applySlide(); } });
+    ui.slideOut = h('output', '+2 st');
+    const ticks = (n) => Array.from({ length: n }, (_, i) => i);
+    ui.cutChk = h('input', { type: 'checkbox', onchange: () => this.applyCut() });
+    ui.cutTick = h('select', { 'aria-label': 'Cut at tick', title: `The note is cut at this tick of the row (${ARP_TICKS_PER_ROW} ticks per row)`,
+      onchange: () => { ui.cutChk.checked = true; this.applyCut(); } },
+      ticks(ARP_TICKS_PER_ROW).map((n) => h('option', { value: String(n), selected: n === 3 }, `at tick ${n}`)));
+    ui.retrigChk = h('input', { type: 'checkbox', onchange: () => this.applyRetrig() });
+    ui.retrigN = h('select', { 'aria-label': 'Retrigger every', title: 'The note restarts every N ticks within the row',
+      onchange: () => { ui.retrigChk.checked = true; this.applyRetrig(); } },
+      ticks(ARP_TICKS_PER_ROW - 1).map((i) => h('option', { value: String(i + 1), selected: i + 1 === 2 }, `every ${i + 1} tick${i ? 's' : ''}`)));
     ui.clear = h('button.small', { type: 'button', onclick: () => this.clearEffects() }, 'Clear effects');
     const wrap = h('div.fx-controls',
       field('Volume', ui.volChk, ui.volRange, ui.volOut),
       field('Arpeggio', ui.arpChk, ui.arpOffsets),
+      field('Slide', ui.slideChk, ui.slideRange, ui.slideOut),
+      field('Note cut', ui.cutChk, ui.cutTick),
+      field('Retrigger', ui.retrigChk, ui.retrigN),
       h('div.fx-actions', ui.clear));
     // One gesture = one undo step: the first change pushes the undo snapshot, the end of the gesture re-arms it.
     for (const ev of ['change', 'focusout']) wrap.addEventListener(ev, () => { this.fxGesture = false; });
@@ -685,6 +703,21 @@ export class PatternEditor {
     if (offsets) this.applyFxField('arp', { offsets });
   }
 
+  applySlide() {
+    const ui = this.fxUi;
+    this.applyFxField('slide', ui.slideChk.checked ? Number(ui.slideRange.value) : null);
+  }
+
+  applyCut() {
+    const ui = this.fxUi;
+    this.applyFxField('cut', ui.cutChk.checked ? Number(ui.cutTick.value) : null);
+  }
+
+  applyRetrig() {
+    const ui = this.fxUi;
+    this.applyFxField('retrig', ui.retrigChk.checked ? Number(ui.retrigN.value) : null);
+  }
+
   clearEffects() {
     this.pushUndo();
     this.fxGesture = false;
@@ -705,6 +738,13 @@ export class PatternEditor {
     ui.arpChk.checked = !!cell?.arp;
     ui.arpOffsets.value = (cell?.arp?.offsets ?? DEFAULT_ARP.offsets).join(' ');
     ui.arpOffsets.classList.remove('bad');
+    ui.slideChk.checked = cell?.slide !== undefined;
+    ui.slideRange.value = String(cell?.slide ?? 2);
+    ui.slideOut.textContent = `${Number(ui.slideRange.value) > 0 ? '+' : ''}${ui.slideRange.value} st`;
+    ui.cutChk.checked = cell?.cut !== undefined;
+    ui.cutTick.value = String(cell?.cut ?? 3);
+    ui.retrigChk.checked = cell?.retrig !== undefined;
+    ui.retrigN.value = String(cell?.retrig ?? 2);
   }
 
   /** Switch the layer the cursor lives in. Leaving the effect layer closes its dialog. */
@@ -1169,7 +1209,7 @@ export class PatternEditor {
         if (this.domain === 'auto' && li === this.cur.lane && r === this.cur.row) acls += ' cur';
         if (this.inSel(li, r, 'auto')) acls += ' sel';
         const fxCell = fxByRow.get(r);
-        if (fxCell) acls += ' has';
+        if (fxCell) acls += ` has${fxLabel(fxCell).length > 3 ? ' many' : ''}`;
         const cell = h('div', { class: acls });
         cell.dataset.lane = String(li);
         cell.dataset.row = String(r);

@@ -277,6 +277,8 @@ input[type=range] { accent-color: var(--accent); }
 .fx-head { grid-column: 1; }
 .fx-field input[type=range] { grid-column: 2; width: 100%; padding: 0; }
 .fx-field output { font-family: var(--mono); min-width: 3.2ch; text-align: right; }
+.fx-field select { grid-column: 2 / 4; min-width: 0; }
+.roll-acell.has.many { font-size: 7px; }
 .fx-offsets { grid-column: 2 / 4; width: 100%; min-width: 0; font-family: var(--mono); }
 .fx-offsets.bad { outline: 2px solid var(--bad); }
 .fx-actions { display: flex; justify-content: flex-end; }

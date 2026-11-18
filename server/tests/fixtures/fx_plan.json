@@ -1,14 +1,18 @@
 [
  {
-  "name": "no effects",
+  "name": "no effects: one segment for the whole note",
   "fx": [],
   "start_row": 0,
   "end_row": 8,
   "row_secs": 0.1,
-  "expected": {
-   "volumes": [],
-   "pitches": []
-  }
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.8,
+    "volumes": [],
+    "pitches": []
+   }
+  ]
  },
  {
   "name": "volume rows: held rows do not repeat, plain rows go back to 1",
@@ -29,27 +33,31 @@
   "start_row": 0,
   "end_row": 8,
   "row_secs": 0.1,
-  "expected": {
-   "volumes": [
-    [
-     0.2,
-     0.5
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.8,
+    "volumes": [
+     [
+      0.2,
+      0.5
+     ],
+     [
+      0.4,
+      1.0
+     ],
+     [
+      0.5,
+      0.25
+     ],
+     [
+      0.6,
+      1.0
+     ]
     ],
-    [
-     0.4,
-     1.0
-    ],
-    [
-     0.5,
-     0.25
-    ],
-    [
-     0.6,
-     1.0
-    ]
-   ],
-   "pitches": []
-  }
+    "pitches": []
+   }
+  ]
  },
  {
   "name": "arpeggio on one row (6 ticks), then back to the base pitch",
@@ -68,39 +76,72 @@
   "start_row": 0,
   "end_row": 3,
   "row_secs": 0.12,
-  "expected": {
-   "volumes": [],
-   "pitches": [
-    [
-     0.12,
-     0
-    ],
-    [
-     0.14,
-     4
-    ],
-    [
-     0.16,
-     7
-    ],
-    [
-     0.18,
-     0
-    ],
-    [
-     0.2,
-     4
-    ],
-    [
-     0.22,
-     7
-    ],
-    [
-     0.24,
-     0
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.36,
+    "volumes": [],
+    "pitches": [
+     [
+      0.14,
+      4.0
+     ],
+     [
+      0.16,
+      7.0
+     ],
+     [
+      0.18,
+      0.0
+     ],
+     [
+      0.2,
+      4.0
+     ],
+     [
+      0.22,
+      7.0
+     ],
+     [
+      0.24,
+      0.0
+     ]
     ]
-   ]
-  }
+   }
+  ]
+ },
+ {
+  "name": "equal consecutive pitches make no event",
+  "fx": [
+   {
+    "row": 1,
+    "arp": {
+     "offsets": [
+      12
+     ]
+    }
+   }
+  ],
+  "start_row": 0,
+  "end_row": 3,
+  "row_secs": 0.12,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.36,
+    "volumes": [],
+    "pitches": [
+     [
+      0.12,
+      12.0
+     ],
+     [
+      0.24,
+      0.0
+     ]
+    ]
+   }
+  ]
  },
  {
   "name": "times are relative to the note start",
@@ -122,48 +163,48 @@
   "start_row": 3,
   "end_row": 7,
   "row_secs": 0.125,
-  "expected": {
-   "volumes": [
-    [
-     0.25,
-     0.5
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.5,
+    "volumes": [
+     [
+      0.25,
+      0.5
+     ],
+     [
+      0.375,
+      1.0
+     ]
     ],
-    [
-     0.375,
-     1.0
+    "pitches": [
+     [
+      0.145833333333,
+      12.0
+     ],
+     [
+      0.166666666667,
+      0.0
+     ],
+     [
+      0.1875,
+      12.0
+     ],
+     [
+      0.208333333333,
+      0.0
+     ],
+     [
+      0.229166666667,
+      12.0
+     ],
+     [
+      0.25,
+      0.0
+     ]
     ]
-   ],
-   "pitches": [
-    [
-     0.125,
-     0
-    ],
-    [
-     0.145833333333,
-     12
-    ],
-    [
-     0.166666666667,
-     0
-    ],
-    [
-     0.1875,
-     12
-    ],
-    [
-     0.208333333333,
-     0
-    ],
-    [
-     0.229166666667,
-     12
-    ],
-    [
-     0.25,
-     0
-    ]
-   ]
-  }
+   }
+  ]
  },
  {
   "name": "volume and a 4-offset arpeggio in the same cell; the cycle restarts each row",
@@ -196,72 +237,72 @@
   "start_row": 0,
   "end_row": 3,
   "row_secs": 0.1,
-  "expected": {
-   "volumes": [
-    [
-     0.0,
-     0.8
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.3,
+    "volumes": [
+     [
+      0.0,
+      0.8
+     ],
+     [
+      0.2,
+      1.0
+     ]
     ],
-    [
-     0.2,
-     1.0
+    "pitches": [
+     [
+      0.016666666667,
+      3.0
+     ],
+     [
+      0.033333333333,
+      7.0
+     ],
+     [
+      0.05,
+      12.0
+     ],
+     [
+      0.066666666667,
+      0.0
+     ],
+     [
+      0.083333333333,
+      3.0
+     ],
+     [
+      0.1,
+      0.0
+     ],
+     [
+      0.116666666667,
+      3.0
+     ],
+     [
+      0.133333333333,
+      7.0
+     ],
+     [
+      0.15,
+      12.0
+     ],
+     [
+      0.166666666667,
+      0.0
+     ],
+     [
+      0.183333333333,
+      3.0
+     ],
+     [
+      0.2,
+      0.0
+     ]
     ]
-   ],
-   "pitches": [
-    [
-     0.0,
-     0
-    ],
-    [
-     0.016666666667,
-     3
-    ],
-    [
-     0.033333333333,
-     7
-    ],
-    [
-     0.05,
-     12
-    ],
-    [
-     0.066666666667,
-     0
-    ],
-    [
-     0.083333333333,
-     3
-    ],
-    [
-     0.1,
-     0
-    ],
-    [
-     0.116666666667,
-     3
-    ],
-    [
-     0.133333333333,
-     7
-    ],
-    [
-     0.15,
-     12
-    ],
-    [
-     0.166666666667,
-     0
-    ],
-    [
-     0.183333333333,
-     3
-    ],
-    [
-     0.2,
-     0
-    ]
-   ]
-  }
+   }
+  ]
  },
  {
   "name": "cells outside the note do not matter",
@@ -282,10 +323,14 @@
   "start_row": 2,
   "end_row": 5,
   "row_secs": 0.2,
-  "expected": {
-   "volumes": [],
-   "pitches": []
-  }
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.6,
+    "volumes": [],
+    "pitches": []
+   }
+  ]
  },
  {
   "name": "a volume of 0 silences the row",
@@ -298,18 +343,443 @@
   "start_row": 0,
   "end_row": 3,
   "row_secs": 0.1,
-  "expected": {
-   "volumes": [
-    [
-     0.1,
-     0.0
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.3,
+    "volumes": [
+     [
+      0.1,
+      0.0
+     ],
+     [
+      0.2,
+      1.0
+     ]
     ],
-    [
-     0.2,
-     1.0
+    "pitches": []
+   }
+  ]
+ },
+ {
+  "name": "slide up: reaches the full amount at the end of the row and stays there",
+  "fx": [
+   {
+    "row": 1,
+    "slide": 6
+   }
+  ],
+  "start_row": 0,
+  "end_row": 4,
+  "row_secs": 0.12,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.48,
+    "volumes": [],
+    "pitches": [
+     [
+      0.12,
+      1.0
+     ],
+     [
+      0.14,
+      2.0
+     ],
+     [
+      0.16,
+      3.0
+     ],
+     [
+      0.18,
+      4.0
+     ],
+     [
+      0.2,
+      5.0
+     ],
+     [
+      0.22,
+      6.0
+     ]
     ]
-   ],
-   "pitches": []
-  }
+   }
+  ]
+ },
+ {
+  "name": "slides accumulate over rows; slide down",
+  "fx": [
+   {
+    "row": 0,
+    "slide": -2
+   },
+   {
+    "row": 1,
+    "slide": -2
+   },
+   {
+    "row": 2,
+    "slide": 3
+   }
+  ],
+  "start_row": 0,
+  "end_row": 5,
+  "row_secs": 0.1,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.5,
+    "volumes": [],
+    "pitches": [
+     [
+      0.0,
+      -0.3333333333333333
+     ],
+     [
+      0.016666666667,
+      -0.6666666666666666
+     ],
+     [
+      0.033333333333,
+      -1.0
+     ],
+     [
+      0.05,
+      -1.3333333333333333
+     ],
+     [
+      0.066666666667,
+      -1.6666666666666667
+     ],
+     [
+      0.083333333333,
+      -2.0
+     ],
+     [
+      0.1,
+      -2.3333333333333335
+     ],
+     [
+      0.116666666667,
+      -2.6666666666666665
+     ],
+     [
+      0.133333333333,
+      -3.0
+     ],
+     [
+      0.15,
+      -3.333333333333333
+     ],
+     [
+      0.166666666667,
+      -3.666666666666667
+     ],
+     [
+      0.183333333333,
+      -4.0
+     ],
+     [
+      0.2,
+      -3.5
+     ],
+     [
+      0.216666666667,
+      -3.0
+     ],
+     [
+      0.233333333333,
+      -2.5
+     ],
+     [
+      0.25,
+      -2.0
+     ],
+     [
+      0.266666666667,
+      -1.5
+     ],
+     [
+      0.283333333333,
+      -1.0
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "a slide and an arpeggio share a row",
+  "fx": [
+   {
+    "row": 0,
+    "slide": 6,
+    "arp": {
+     "offsets": [
+      0,
+      7
+     ]
+    }
+   }
+  ],
+  "start_row": 0,
+  "end_row": 2,
+  "row_secs": 0.12,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.24,
+    "volumes": [],
+    "pitches": [
+     [
+      0.0,
+      1.0
+     ],
+     [
+      0.02,
+      9.0
+     ],
+     [
+      0.04,
+      3.0
+     ],
+     [
+      0.06,
+      11.0
+     ],
+     [
+      0.08,
+      5.0
+     ],
+     [
+      0.1,
+      13.0
+     ],
+     [
+      0.12,
+      6.0
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "note cut at tick 2 of a row ends the note and silences it",
+  "fx": [
+   {
+    "row": 1,
+    "cut": 2
+   }
+  ],
+  "start_row": 0,
+  "end_row": 4,
+  "row_secs": 0.12,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.16,
+    "volumes": [
+     [
+      0.16,
+      0.0
+     ]
+    ],
+    "pitches": []
+   }
+  ]
+ },
+ {
+  "name": "a cut on the first tick of the first row leaves nothing",
+  "fx": [
+   {
+    "row": 0,
+    "cut": 0
+   }
+  ],
+  "start_row": 0,
+  "end_row": 3,
+  "row_secs": 0.1,
+  "expected": []
+ },
+ {
+  "name": "retrigger every 2 ticks splits the note into voices",
+  "fx": [
+   {
+    "row": 1,
+    "retrig": 2
+   }
+  ],
+  "start_row": 0,
+  "end_row": 3,
+  "row_secs": 0.12,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.16,
+    "volumes": [
+     [
+      0.16,
+      0.0
+     ]
+    ],
+    "pitches": []
+   },
+   {
+    "start": 0.16,
+    "end": 0.2,
+    "volumes": [
+     [
+      0.04,
+      0.0
+     ]
+    ],
+    "pitches": []
+   },
+   {
+    "start": 0.2,
+    "end": 0.36,
+    "volumes": [],
+    "pitches": []
+   }
+  ]
+ },
+ {
+  "name": "retrigger every 4 ticks, with a volume change and a slide carrying across the segments",
+  "fx": [
+   {
+    "row": 0,
+    "volume": 0.5,
+    "retrig": 4,
+    "slide": 3
+   }
+  ],
+  "start_row": 0,
+  "end_row": 2,
+  "row_secs": 0.12,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.08,
+    "volumes": [
+     [
+      0.0,
+      0.5
+     ],
+     [
+      0.08,
+      0.0
+     ]
+    ],
+    "pitches": [
+     [
+      0.0,
+      0.5
+     ],
+     [
+      0.02,
+      1.0
+     ],
+     [
+      0.04,
+      1.5
+     ],
+     [
+      0.06,
+      2.0
+     ]
+    ]
+   },
+   {
+    "start": 0.08,
+    "end": 0.24,
+    "volumes": [
+     [
+      0.0,
+      0.5
+     ],
+     [
+      0.04,
+      1.0
+     ]
+    ],
+    "pitches": [
+     [
+      0.0,
+      2.5
+     ],
+     [
+      0.02,
+      3.0
+     ]
+    ]
+   }
+  ]
+ },
+ {
+  "name": "retrigger and cut in the same row",
+  "fx": [
+   {
+    "row": 1,
+    "retrig": 2,
+    "cut": 5
+   }
+  ],
+  "start_row": 0,
+  "end_row": 3,
+  "row_secs": 0.12,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.16,
+    "volumes": [
+     [
+      0.16,
+      0.0
+     ]
+    ],
+    "pitches": []
+   },
+   {
+    "start": 0.16,
+    "end": 0.2,
+    "volumes": [
+     [
+      0.04,
+      0.0
+     ]
+    ],
+    "pitches": []
+   },
+   {
+    "start": 0.2,
+    "end": 0.22,
+    "volumes": [
+     [
+      0.02,
+      0.0
+     ]
+    ],
+    "pitches": []
+   }
+  ]
+ },
+ {
+  "name": "a cut beyond the note does nothing",
+  "fx": [
+   {
+    "row": 6,
+    "cut": 1
+   }
+  ],
+  "start_row": 0,
+  "end_row": 3,
+  "row_secs": 0.1,
+  "expected": [
+   {
+    "start": 0.0,
+    "end": 0.3,
+    "volumes": [],
+    "pitches": []
+   }
+  ]
  }
 ]

@@ -116,9 +116,12 @@ export class LiveSequencer {
       const inst = part.instruments.find((i) => i.id === lane.instrument);
       if (!inst) continue;
       const endRow = row < r.leRow ? Math.min(next, r.leRow) : next; // a looped slice cuts the note at its end
-      const plan = notePlan(lane.fx, row, endRow, r.rowSecs); // effect cells: volume and arpeggio for the rows the note spans
-      startVoice(ctx, r.master.bus(ctx, inst), inst, this.noiseFor(ctx, inst, seed), on.note, on.vel, t, plan)
-        .release(t + (endRow - row) * r.rowSecs);
+      // Effect cells can split the note into several voices (retrigger) and end it early (cut); each voice carries its
+      // own volume / pitch automation.
+      for (const seg of notePlan(lane.fx, row, endRow, r.rowSecs)) {
+        startVoice(ctx, r.master.bus(ctx, inst), inst, this.noiseFor(ctx, inst, seed), on.note, on.vel, t + seg.start, seg)
+          .release(t + seg.end);
+      }
     }
   }
 
