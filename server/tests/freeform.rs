@@ -32,3 +32,36 @@ fn only_freeform_sessions_can_change_their_length() {
     assert!(serde_json::from_str::<Config>(r#"{"freeform":true,"bars":40}"#).unwrap().validate().is_ok());
     assert!(serde_json::from_str::<Config>(r#"{"bars":40}"#).unwrap().validate().is_err());
 }
+
+#[test]
+fn the_seed_is_sent_as_text_so_big_seeds_survive_the_browser() {
+    // 9341554369522371407 is not exactly representable as a JSON number in a browser
+    let big = "9341554369522371407";
+    let from_number: Config = serde_json::from_str(&format!(r#"{{"seed":{big}}}"#)).unwrap();
+    let from_text: Config = serde_json::from_str(&format!(r#"{{"seed":"{big}"}}"#)).unwrap();
+    assert_eq!(from_number.seed, 9341554369522371407);
+    assert_eq!(from_text.seed, from_number.seed);
+    let out = serde_json::to_value(&from_text).unwrap();
+    assert_eq!(out["seed"], serde_json::json!(big), "written as a string, digits intact");
+    assert!(serde_json::from_str::<Config>(r#"{"seed":"abc"}"#).is_err());
+    assert!(serde_json::from_str::<Config>(r#"{"seed":-1}"#).is_err());
+    // what the browser reads back is what it sends back
+    let again: Config = serde_json::from_value(out).unwrap();
+    assert_eq!(again.seed, from_number.seed);
+}
+
+#[test]
+fn noise_keys_with_a_big_seed_match_the_browser() {
+    // The browser builds "<seed>:<seat>:<instrument>:<node>" from the seed text; the values are checked against client/js/prng.js.
+    use band_game::prng::Mulberry32;
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/prng_big_seed.json")).unwrap();
+    let cases: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap();
+    assert!(cases.len() >= 4);
+    for c in cases {
+        let mut rng = Mulberry32::from_key(c["key"].as_str().unwrap());
+        for want in c["values"].as_array().unwrap() {
+            let got = rng.next_bipolar();
+            assert!((got - want.as_f64().unwrap()).abs() < 1e-12, "{}: {got} vs {want}", c["key"]);
+        }
+    }
+}

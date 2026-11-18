@@ -21,7 +21,7 @@
 /**
  * @typedef {{bpm:number,bars:number,rows_per_bar:number,max_lanes:number,
  *  max_instruments:number,rounds:number|null,round_timer_secs:number|null,
- *  timeout_policy:'Wait'|'RepeatLast',seed:number}} SessionConfig
+ *  timeout_policy:'Wait'|'RepeatLast',seed:string}} SessionConfig
  */
 
 export {};

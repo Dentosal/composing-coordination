@@ -152,12 +152,16 @@ function showHome() {
       if (inputs[name].disabled) continue; // "Tracks per player" while unlimited tracks is on
       const v = inputs[name].value.trim();
       if (v === '') continue;
-      cfg[name] = Number(v);
+      cfg[name] = name === 'seed' ? v : Number(v); // the seed goes as typed: it can be bigger than a number holds exactly
     }
     if (cfg.max_tracks != null) cfg.max_lanes = cfg.max_instruments = cfg.max_tracks;
     delete cfg.max_tracks;
     cfg.timeout_policy = inputs.timeout_policy.value;
     if (inputs.unlimited_tracks.checked) cfg.unlimited_tracks = true;
+    if (cfg.seed !== undefined && !(/^\d{1,20}$/.test(cfg.seed) && BigInt(cfg.seed) <= 18446744073709551615n)) {
+      msg.textContent = 'The seed must be a whole number (digits only, up to 18446744073709551615), or blank for a random one.';
+      return;
+    }
     const freeform = inputs.freeform.checked;
     if (freeform) { // only the loop's settings count; the game settings are not sent
       for (const k of Object.keys(cfg)) if (!['bpm', 'bars', 'rows_per_bar', 'seed'].includes(k)) delete cfg[k];

@@ -56,7 +56,31 @@ pub struct Config {
     pub rounds: Option<u32>,
     pub round_timer_secs: Option<u32>,
     pub timeout_policy: TimeoutPolicy,
+    /// Drives the seeded noise and reverb. Random seeds exceed what a JSON number holds exactly in a browser (2^53), so
+    /// it is sent as a string; a number is still accepted when creating a session.
+    #[serde(with = "seed_json")]
     pub seed: u64,
+}
+
+mod seed_json {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &u64, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&v.to_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Seed {
+            Number(u64),
+            Text(String),
+        }
+        match Seed::deserialize(d)? {
+            Seed::Number(n) => Ok(n),
+            Seed::Text(t) => t.trim().parse().map_err(|_| serde::de::Error::custom("seed must be a whole number (0 to 18446744073709551615)")),
+        }
+    }
 }
 
 impl Default for Config {

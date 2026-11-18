@@ -20,7 +20,7 @@ export function sceneFile(cfg, orders, now = new Date()) {
 /**
  * Parse a scene file. Throws an Error with a readable message when it is not one. The server still validates the
  * orders themselves when they are saved.
- * @returns {{config:{bpm:number,bars:number,rows_per_bar:number,seed:number|null}, orders:{instruments:any[],lanes:any[]}}}
+ * @returns {{config:{bpm:number,bars:number,rows_per_bar:number,seed:string|null}, orders:{instruments:any[],lanes:any[]}}}
  */
 export function readSceneFile(text) {
   if (text.length > MAX_BYTES) throw new Error('That file is too large to be a scene.');
@@ -41,10 +41,11 @@ export function readSceneFile(text) {
   }
   if (!o || !Array.isArray(o.instruments) || !Array.isArray(o.lanes)) throw new Error('The scene has no tracks.');
   if (!o.lanes.length) throw new Error('The scene has no tracks.');
-  // Keep the seed only when it is exact as a number; otherwise the session gets a fresh one.
-  const seed = Number(c.seed);
+  // The seed is text in the file (it can exceed what a JSON number holds exactly). An older file has none, or a plain number.
+  const seedText = String(c.seed ?? '').trim();
+  const seed = /^\d{1,20}$/.test(seedText) && BigInt(seedText) <= 18446744073709551615n ? seedText : null;
   return {
-    config: { bpm: c.bpm, bars: c.bars, rows_per_bar: c.rows_per_bar, seed: Number.isSafeInteger(seed) && seed >= 0 ? seed : null },
+    config: { bpm: c.bpm, bars: c.bars, rows_per_bar: c.rows_per_bar, seed },
     orders: { instruments: o.instruments, lanes: o.lanes },
   };
 }

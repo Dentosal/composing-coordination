@@ -7,13 +7,23 @@ const cfg = { bpm: 100, bars: 3, rows_per_bar: 8, seed: 42 };
 
 test('a scene survives writing and reading', () => {
   const s = readSceneFile(JSON.stringify(sceneFile(cfg, orders)));
-  assert.deepEqual(s.config, { bpm: 100, bars: 3, rows_per_bar: 8, seed: 42 });
+  assert.deepEqual(s.config, { bpm: 100, bars: 3, rows_per_bar: 8, seed: '42' });
   assert.deepEqual(s.orders, orders);
 });
 
-test('a seed too big for a number is dropped, not rounded', () => {
-  const s = readSceneFile(JSON.stringify(sceneFile({ ...cfg, seed: 18446744073709551615n.toString() }, orders)));
-  assert.equal(s.config.seed, null);
+test('a seed bigger than a JSON number holds exactly is kept as text, digit for digit', () => {
+  const big = '9341554369522371407';
+  const s = readSceneFile(JSON.stringify(sceneFile({ ...cfg, seed: big }, orders)));
+  assert.equal(s.config.seed, big);
+  assert.equal(readSceneFile(JSON.stringify(sceneFile({ ...cfg, seed: '18446744073709551615' }, orders))).config.seed, '18446744073709551615');
+});
+
+test('a missing or invalid seed becomes null (the new session picks its own)', () => {
+  const f = sceneFile(cfg, orders);
+  for (const seed of [undefined, '', 'abc', '-3', '18446744073709551616', '12345678901234567890123']) {
+    assert.equal(readSceneFile(JSON.stringify({ ...f, config: { ...f.config, seed } })).config.seed, null, String(seed));
+  }
+  assert.equal(readSceneFile(JSON.stringify({ ...f, config: { ...f.config, seed: 7 } })).config.seed, '7', 'an older file with a plain number');
 });
 
 test('files that are not scenes are refused with a reason', () => {
