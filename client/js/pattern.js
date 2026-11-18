@@ -2,6 +2,7 @@
 import { h, clear } from './dom.js';
 import { icon } from './icons.js';
 import { helpButton } from './help.js';
+import { dragByHandle } from './draggable.js';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
 export const noteName = (m) => `${NOTE_NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
@@ -88,6 +89,10 @@ export class PatternEditor {
     this.paintMode = false;
     try { this.paintMode = localStorage.getItem('directPaint') === '1'; } catch {}
     this.drag = null; // selecting with the mouse: the cell the drag started on
+    // The cursor and selection live in one layer at a time: the note cells or the effect (automation) cells. A selection
+    // that starts in one layer only ever covers cells of that layer.
+    this.domain = 'note';
+    this.adrag = null; // selecting effect cells with the mouse: the cell the drag started on
     this.loop = this.o.getLoop?.() ?? null; // the loop region {from, to} (rows, inclusive), set by dragging on the bar numbers
     this.loopDrag = null; // a gesture on the bar numbers: {mode: 'new'|'move', start, orig, moved}
     this.undoStack = [];
@@ -105,7 +110,15 @@ export class PatternEditor {
     this.roll = h('div.roll', this.rollLabels, this.rollScroll);
     this.rollCols = []; // per step column of the drum roll: its cells, for the playhead
     this.initMouse();
-    this.main = h('div.pattern-main', { tabindex: '0', onkeydown: (e) => this.onKey(e) }, this.roll); // takes the keyboard
+    this.effectInfo = h('p.effect-info');
+    const effectHead = h('div.effect-head', { title: 'Drag to move' }, h('strong', 'Effect'),
+      h('button.small', { type: 'button', 'aria-label': 'Close the effect dialog', onclick: () => this.closeEffectDialog() }, '✕'));
+    this.effectDlg = h('dialog.effect-dialog', { 'aria-label': 'Effect', onkeydown: (e) => e.stopPropagation() }, // typing in it must not drive the roll
+      effectHead,
+      this.effectInfo,
+      h('p.muted', 'Placeholder: the effect settings for the selected steps will be edited here.'));
+    dragByHandle(this.effectDlg, effectHead);
+    this.main = h('div.pattern-main', { tabindex: '0', onkeydown: (e) => this.onKey(e) }, this.roll, this.effectDlg); // takes the keyboard
     this.main.classList.toggle('paint-mode', this.paintMode);
     root.append(this.bar, this.main, this.status);
     this.render();
@@ -380,8 +393,9 @@ export class PatternEditor {
     this.cur = { lane: l1, row: r1 };
   }
 
-  inSel(lane, row) {
-    if (!this.hasSel) return false;
+  /** Is the cell in the selection? Only cells of the layer (note / effect) the selection lives in can be. */
+  inSel(lane, row, domain = 'note') {
+    if (this.domain !== domain || !this.hasSel) return false;
     const { l0, l1, r0, r1 } = this.rect();
     return lane >= l0 && lane <= l1 && row >= r0 && row <= r1;
   }
@@ -415,12 +429,14 @@ export class PatternEditor {
   }
 
   copy() {
+    if (!this.notesOnly()) return;
     const rc = this.rect();
     clipboard = this.capture(rc);
     this.flash(`Copied ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)`);
   }
 
   cut() {
+    if (!this.notesOnly()) return;
     const rc = this.rect();
     clipboard = this.capture(rc);
     this.flash(`Cut ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)`);
@@ -428,6 +444,7 @@ export class PatternEditor {
   }
 
   paste() {
+    if (!this.notesOnly()) return;
     if (!clipboard) return this.flash('Nothing copied yet');
     const { l0, r0 } = this.rect();
     const clip = clipboard;
@@ -438,6 +455,7 @@ export class PatternEditor {
 
   /** Remove every step of the cursor's track. Undoable, so no confirmation. */
   clearTrack() {
+    if (!this.notesOnly()) return;
     const lane = this.orders.lanes[this.cur.lane];
     if (!lane?.steps.length) return this.flash(`Track ${this.cur.lane + 1} is already empty`);
     const n = lane.steps.length;
@@ -457,6 +475,7 @@ export class PatternEditor {
    * that copy, so pressing it again lays out consecutive copies.
    */
   duplicate() {
+    if (!this.notesOnly()) return;
     const rc = this.blockRect();
     const clip = this.capture(rc);
     if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Duplicate: no room after the block');
@@ -474,6 +493,7 @@ export class PatternEditor {
    * overwriting what is there. The whole filled span ends up selected.
    */
   repeatToEnd() {
+    if (!this.notesOnly()) return;
     const rc = this.blockRect();
     const clip = this.capture(rc);
     if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Repeat to end: the block already reaches the end of the song');
@@ -487,6 +507,7 @@ export class PatternEditor {
   }
 
   transpose(delta) {
+    if (!this.notesOnly()) return;
     const rc = this.rect();
     let n = 0;
     this.pushUndo();
@@ -504,6 +525,7 @@ export class PatternEditor {
   }
 
   selectAll() {
+    if (!this.notesOnly()) return;
     const rows = this.o.totalRows;
     const lanes = this.orders.lanes.length;
     const laneOnly = this.hasSel && this.rect().l0 === this.cur.lane && this.rect().l1 === this.cur.lane
@@ -553,8 +575,39 @@ export class PatternEditor {
     });
   }
 
+  /** Switch the layer the cursor lives in. Leaving the effect layer closes its dialog. */
+  setDomain(domain) {
+    if (this.domain === domain) return;
+    this.domain = domain;
+    this.anchor = null;
+    if (domain !== 'auto') this.closeEffectDialog();
+  }
+
+  /** Placeholder dialog for the selected effect steps (non-modal: the roll stays usable while it is open). */
+  openEffectDialog() {
+    const rc = this.rect();
+    const lanes = this.lanesOf(rc).map((l) => `${l + 1} ${this.nameOf(this.orders.lanes[l])}`).join(', ');
+    this.effectInfo.textContent = `Track ${lanes} · steps ${rc.r0}–${rc.r1} (${rc.r1 - rc.r0 + 1})`;
+    if (!this.effectDlg.open) {
+      this.effectDlg.show();
+      this.main.focus({ preventScroll: true }); // show() moves focus into the dialog; the roll keeps the keyboard
+    }
+  }
+
+  closeEffectDialog() {
+    if (this.effectDlg.open) this.effectDlg.close();
+  }
+
+  /** Block operations edit notes only; with an effect selection they say so instead of touching the notes. */
+  notesOnly() {
+    if (this.domain === 'note') return true;
+    this.flash('That works on notes: select some note cells first');
+    return false;
+  }
+
   select(lane) {
     const moved = lane !== this.cur.lane;
+    this.setDomain('note');
     this.cur.lane = lane;
     this.anchor = null;
     this.render();
@@ -590,6 +643,24 @@ export class PatternEditor {
     const row = this.cur.row;
     const hasLane = this.orders.lanes.length > 0;
     let handled = true;
+
+    if (this.domain === 'auto' && !mod && !e.altKey) { // effect cells: move and select only, nothing edits notes
+      const ext = e.shiftKey;
+      const nav = {
+        ArrowUp: () => this.move(-1, 0, ext), ArrowDown: () => this.move(1, 0, ext),
+        ArrowLeft: () => this.move(0, -1, ext), ArrowRight: () => this.move(0, 1, ext),
+        PageUp: () => this.move(0, -this.o.rowsPerBar, ext), PageDown: () => this.move(0, this.o.rowsPerBar, ext),
+        Escape: () => { this.anchor = null; this.closeEffectDialog(); this.render(); },
+        ' ': () => this.o.onSpace?.(),
+        Enter: () => this.playFromCursor(),
+      }[e.key];
+      if (nav) {
+        nav();
+        if (e.key.startsWith('Arrow') || e.key.startsWith('Page')) this.openEffectDialog();
+        e.preventDefault();
+      }
+      return;
+    }
 
     if (mod && !e.altKey) {
       switch (e.key.toLowerCase()) {
@@ -679,6 +750,34 @@ export class PatternEditor {
       const c = e.target instanceof Element ? e.target.closest('.roll-cell') : null;
       return c ? { lane: Number(c.dataset.lane), row: Number(c.dataset.row) } : null;
     };
+    // Effect cells: click / shift+click / drag select them like note cells, but never together with notes.
+    const effectCellAt = (e) => {
+      const c = e.target instanceof Element ? e.target.closest('.roll-acell') : null;
+      return c ? { lane: Number(c.dataset.lane), row: Number(c.dataset.row) } : null;
+    };
+    this.roll.addEventListener('mousedown', (e) => {
+      const c = effectCellAt(e);
+      if (!c || e.button !== 0) return;
+      e.preventDefault();
+      const moved = c.lane !== this.cur.lane;
+      if (this.domain !== 'auto') { this.domain = 'auto'; this.anchor = null; }
+      if (e.shiftKey && this.anchor === null) this.anchor = { ...this.cur };
+      else if (!e.shiftKey) { this.anchor = null; this.adrag = c; }
+      this.cur = { ...c };
+      this.render();
+      this.main.focus({ preventScroll: true });
+      if (moved) this.o.onSelect?.();
+      if (e.shiftKey) this.openEffectDialog();
+    });
+    this.roll.addEventListener('mouseover', (e) => {
+      const c = this.adrag && effectCellAt(e); // notes under the pointer are ignored: the selection stays in the effect layer
+      if (!c || (c.lane === this.cur.lane && c.row === this.cur.row)) return;
+      const moved = c.lane !== this.cur.lane;
+      this.anchor = { ...this.adrag };
+      this.cur = { ...c };
+      this.render();
+      if (moved) this.o.onSelect?.();
+    });
     // The bar numbers: drag to set a loop, click the loop to clear it, drag the loop to move it.
     const headRowAt = (e) => {
       const c = e.target instanceof Element ? e.target.closest('.roll-hcell') : null;
@@ -723,6 +822,7 @@ export class PatternEditor {
       if (!c || e.button !== 0) return;
       e.preventDefault(); // render() replaces the cell mid-click
       const moved = c.lane !== this.cur.lane;
+      this.setDomain('note');
       if (e.altKey) { // an off note
         this.toggleOff(c);
         this.main.focus({ preventScroll: true });
@@ -777,6 +877,10 @@ export class PatternEditor {
       if (this.paint && !this.paint.changed) this.undoStack.pop(); // a press that changed nothing is not an undo step
       this.paint = null;
       this.drag = null;
+      if (this.adrag) { // a click or drag on effect cells ended: open the (placeholder) effect dialog for the selection
+        this.adrag = null;
+        this.openEffectDialog();
+      }
     };
     window.addEventListener('mouseup', this.onMouseUp);
   }
@@ -912,7 +1016,13 @@ export class PatternEditor {
       const autoRow = h('div', { class: `roll-row auto${state}` });
       autoRow.dataset.lane = String(li);
       stepsOf(autoRow, (group, r, _b, _bb, groupEnd, barEnd) => {
-        const cell = h('div', { class: `roll-acell${groupEnd ? ' gend' : ''}${barEnd ? ' bend' : ''}` });
+        let acls = 'roll-acell';
+        if (groupEnd) acls += ' gend';
+        if (barEnd) acls += ' bend';
+        if (this.domain === 'auto' && li === this.cur.lane && r === this.cur.row) acls += ' cur';
+        if (this.inSel(li, r, 'auto')) acls += ' sel';
+        const cell = h('div', { class: acls });
+        cell.dataset.lane = String(li);
         cell.dataset.row = String(r);
         this.rollCols[r].push(cell);
         group.append(cell);
@@ -931,7 +1041,7 @@ export class PatternEditor {
         if (span && r + 1 < span.end) cls += ' cont';
         if (groupEnd) cls += ' gend';
         if (barEnd) cls += ' bend';
-        if (li === this.cur.lane && r === this.cur.row) cls += ' cur';
+        if (this.domain === 'note' && li === this.cur.lane && r === this.cur.row) cls += ' cur';
         if (this.inSel(li, r)) cls += ' sel';
         if (lp && r >= lp.from && r <= lp.to) cls += ' in-loop';
         const cell = h('div', { class: cls });
@@ -963,7 +1073,9 @@ export class PatternEditor {
     const rc = this.rect();
     const sel = this.hasSel ? ` · selected ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)` : '';
     const cs = this.stepAt(this.cur.lane, this.cur.row);
-    const at = `track ${this.cur.lane + 1}, row ${this.cur.row}: ${cs ? (cs.note == null ? 'note off' : `${noteName(cs.note)} vel ${cs.vel}`) : 'empty'}`;
+    const at = this.domain === 'auto'
+      ? `effect lane of track ${this.cur.lane + 1}, row ${this.cur.row}`
+      : `track ${this.cur.lane + 1}, row ${this.cur.row}: ${cs ? (cs.note == null ? 'note off' : `${noteName(cs.note)} vel ${cs.vel}`) : 'empty'}`;
     const base = `${at} · octave ${this.octave} · velocity ${this.vel} · step ${this.step}${sel}`;
     this.status.textContent = this.msg ? `${this.msg} · ${base}` : base; // a transient message never hides the selection
   }
