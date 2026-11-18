@@ -48,6 +48,8 @@ pub struct Config {
     /// Players may add and delete tracks themselves (up to `UNLIMITED_TRACK_CAP`); `max_lanes` / `max_instruments`
     /// are then only the number of tracks everyone starts with.
     pub unlimited_tracks: bool,
+    /// Freeform mode: a single user, no game. One seat, no rounds to commit; tracks are unlimited.
+    pub freeform: bool,
     pub rounds: Option<u32>,
     pub round_timer_secs: Option<u32>,
     pub timeout_policy: TimeoutPolicy,
@@ -63,6 +65,7 @@ impl Default for Config {
             max_lanes: 4,
             max_instruments: 4,
             unlimited_tracks: false,
+            freeform: false,
             rounds: None,
             round_timer_secs: None,
             timeout_policy: TimeoutPolicy::Wait,
@@ -95,7 +98,7 @@ impl Config {
     }
 
     pub fn limits(&self) -> Limits {
-        let (max_lanes, max_instruments) = if self.unlimited_tracks {
+        let (max_lanes, max_instruments) = if self.unlimited_tracks || self.freeform {
             (UNLIMITED_TRACK_CAP, UNLIMITED_TRACK_CAP)
         } else {
             (self.max_lanes as usize, self.max_instruments as usize)
@@ -224,6 +227,9 @@ impl Session {
     pub fn join(&mut self) -> Result<Uuid, ApiError> {
         if self.phase == Phase::Ended {
             return err(StatusCode::CONFLICT, "session has ended");
+        }
+        if self.config.freeform && !self.seats.is_empty() {
+            return err(StatusCode::CONFLICT, "a freeform session is for one person only");
         }
         let joined_round = match self.phase {
             Phase::Lobby => 1,

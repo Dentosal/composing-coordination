@@ -75,26 +75,45 @@ function showHome() {
   clear(root);
   const inputs = {};
   const form = h('form.config', { onsubmit: onCreate });
+  const gameOnly = []; // settings that only make sense in a game; a freeform session hides them
+  // Freeform mode: one person, no game. Only the tempo, the loop size and the seed matter.
+  inputs.freeform = h('input', { name: 'freeform', type: 'checkbox', onchange: () => {
+    for (const el of gameOnly) el.hidden = inputs.freeform.checked;
+    submit.textContent = inputs.freeform.checked ? 'Start freeform' : 'Create session';
+  } });
+  form.append(h('label.check.freeform-opt', { title: 'Just you: no rounds, no other players. Write with as many tracks as you like.' },
+    inputs.freeform, h('span', 'Freeform mode (just you, no game)')));
   for (const [name, label, def, type] of FIELDS) {
     inputs[name] = h('input', { name, type, value: String(def), step: 'any' });
+    if (name === 'rounds' || name === 'round_timer_secs') {
+      const row = h('label', h('span', label), inputs[name]);
+      gameOnly.push(row);
+      form.append(row);
+      continue;
+    }
     if (name !== 'max_tracks') { form.append(h('label', h('span', label), inputs[name])); continue; }
     // "Unlimited tracks" sits beside "Tracks per player" and replaces it: players start with the default number and
     // add or delete tracks themselves, so the field is switched off.
     inputs.unlimited_tracks = h('input', { name: 'unlimited_tracks', type: 'checkbox',
       onchange: (e) => { inputs.max_tracks.disabled = e.target.checked; } });
     inputs.max_tracks.id = 'max-tracks';
-    form.append(h('div.config-pair', h('label.name', { for: 'max-tracks' }, h('span', label)),
+    const pair = h('div.config-pair', h('label.name', { for: 'max-tracks' }, h('span', label)),
       h('label.check', { title: 'Players add and delete tracks themselves (up to 64) instead of having a fixed number. Everyone starts with 4.' },
         inputs.unlimited_tracks, h('span', 'Unlimited')),
-      inputs.max_tracks)); // the field stays in the right-hand column with the others
+      inputs.max_tracks); // the field stays in the right-hand column with the others
+    gameOnly.push(pair);
+    form.append(pair);
   }
   inputs.timeout_policy = h('select', { name: 'timeout_policy' },
     h('option', { value: 'Wait' }, 'Wait for everyone'),
     h('option', { value: 'RepeatLast' }, 'Repeat last orders on timeout'));
-  form.append(h('label', h('span', 'When the timer runs out'), inputs.timeout_policy));
+  const timeoutRow = h('label', h('span', 'When the timer runs out'), inputs.timeout_policy);
+  gameOnly.push(timeoutRow);
+  form.append(timeoutRow);
 
   const msg = h('p.error');
-  form.append(h('button.primary', { type: 'submit' }, 'Create session'), msg);
+  const submit = h('button.primary', { type: 'submit' }, 'Create session');
+  form.append(submit, msg);
 
   async function onCreate(e) {
     e.preventDefault();
@@ -109,11 +128,17 @@ function showHome() {
     delete cfg.max_tracks;
     cfg.timeout_policy = inputs.timeout_policy.value;
     if (inputs.unlimited_tracks.checked) cfg.unlimited_tracks = true;
+    const freeform = inputs.freeform.checked;
+    if (freeform) { // only the loop's settings count; the game settings are not sent
+      for (const k of Object.keys(cfg)) if (!['bpm', 'bars', 'rows_per_bar', 'seed'].includes(k)) delete cfg[k];
+      cfg.freeform = true;
+    }
     try {
       await unlock();
       const { session_id, host_token } = await api.createSession(cfg);
       // The host takes a seat like everyone else; the two tokens are unrelated on the server.
       const { seat_token } = await api.join(session_id);
+      if (freeform) await api.start(session_id, host_token); // no lobby: straight to the work
       const t = { seat: seat_token, host: host_token };
       saveTokens(session_id, t);
       setHash(session_id, t);

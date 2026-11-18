@@ -74,6 +74,15 @@ export class Game {
       this.fatal(e);
       return;
     }
+    if (this.freeform && this.st.phase === 'lobby' && this.host) { // a freeform session has no lobby: begin at once
+      try {
+        await api.start(this.sid, this.host);
+        await this.refresh(true);
+      } catch (e) {
+        this.fatal(e);
+        return;
+      }
+    }
     this.connect();
     this.tickT = setInterval(() => this.tick(), 250);
     const frame = () => {
@@ -281,19 +290,28 @@ export class Game {
     const r = this.refs;
     const cfg = this.st.config;
     const totalRows = cfg.bars * cfg.rows_per_bar;
-    r.round = h('span'); r.timer = h('span'); r.ready = h('span'); r.seats = h('span');
-    r.endBtn = this.host
-      ? h('button.small', { onclick: async (e) => {
-          if (!confirm('End the session after the current round resolves?')) return;
-          try { await api.end(this.sid, this.host); this.st.end_requested = true; this.updateTop(); } catch (err) { alert(err.message); }
-        } }, 'End after this round')
-      : null;
+    const free = this.freeform;
+    if (!free) { // the round machinery of a game; a freeform session has none of it
+      r.round = h('span'); r.timer = h('span'); r.ready = h('span'); r.seats = h('span');
+      r.endBtn = this.host
+        ? h('button.small', { onclick: async (e) => {
+            if (!confirm('End the session after the current round resolves?')) return;
+            try { await api.end(this.sid, this.host); this.st.end_requested = true; this.updateTop(); } catch (err) { alert(err.message); }
+          } }, 'End after this round')
+        : null;
+      r.commit = h('button.primary', { onclick: () => this.commit() }, 'Commit & ready');
+      r.commitInfo = h('span.muted.commit-info');
+    }
     r.errors = h('ul.errors');
-    r.commit = h('button.primary', { onclick: () => this.commit() }, 'Commit & ready');
-    r.commitInfo = h('span.muted.commit-info');
     r.help = helpButton({
-      title: 'How this works',
-      body: [
+      title: free ? 'Freeform' : 'How this works',
+      body: free ? [
+        'A workspace for one person: write patterns and effects with as many tracks as you like. There are no rounds and nothing to commit.',
+        h('ul', h('li', 'Each row of the track roll is one instrument. Click a track to shape its sound in the panel above, and place notes in its cells.'),
+          h('li', 'Drag across the bar numbers to loop a section while you work.'),
+          h('li', 'The footer plays everything you have written; your work is kept while the session is open.'),
+          h('li', 'The download button in the header saves all your patches, notes and effects as one file.')),
+      ] : [
         'Every round, each player writes a short looping part. When everyone has committed, the parts are mixed into one band loop that plays under the next round.',
         h('ul', h('li', 'Each row of the track roll is one instrument. Click a track to shape its sound in the panel above, and place notes in its cells.'),
           h('li', 'Drag across the bar numbers to loop a section while you work.'),
@@ -312,18 +330,22 @@ export class Game {
     this.updateFullscreenBtn();
     r.exportBtn = h('button.icon-btn', { type: 'button', title: 'Export everything as one file: all patches, notes and effects', 'aria-label': 'Export all tracks',
       onclick: () => this.exportAll() }, icon('download'));
-    r.top = h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
+    r.top = free
+      ? h('header.topbar', r.fsBtn, h('strong.mode-name', 'Freeform'), h('span.spacer'), r.exportBtn, r.help)
+      : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
-    r.prevChk = h('input', { type: 'checkbox', checked: this.playMix, onchange: (e) => this.setPlayMix(e.target.checked) });
-    r.prevLbl = h('label.muted', {}, r.prevChk, ' Previous round');
+    if (!free) { // the previous round's mix: a game has one, a freeform session does not
+      r.prevChk = h('input', { type: 'checkbox', checked: this.playMix, onchange: (e) => this.setPlayMix(e.target.checked) });
+      r.prevLbl = h('label.muted', {}, r.prevChk, ' Previous round');
+    }
     r.serverChk = h('input', { type: 'checkbox', checked: this.serverPreview, onchange: (e) => this.setServerPreview(e.target.checked) });
     r.serverLbl = h('label.muted', { title: 'Render the preview on the server, exactly like the final band mix (slower, edits are heard after a short delay). Off: play it live in your browser.' }, r.serverChk, ' Server render');
     r.mixInfo = h('span.muted');
     this.spectrum?.destroy();
     this.spectrum = new Spectrum();
-    r.foot = h('footer.bottombar', r.playBtn, r.previewBtn, r.prevLbl, r.serverLbl, r.mixInfo, this.spectrum.el);
+    r.foot = h('footer.bottombar', r.playBtn, r.previewBtn, free ? null : r.prevLbl, r.serverLbl, r.mixInfo, this.spectrum.el);
 
     const instRoot = h('div');
     const patRoot = h('div');
@@ -408,24 +430,27 @@ export class Game {
     const hasAudio = (!!this.mixRound && this.playMix) || (this.previewOn && !!this.previewPlayer.buffer);
     r.playBtn.disabled = !hasAudio;
     r.playBtn.textContent = this.playing ? '■ Stop' : '▶ Play';
-    r.prevChk.checked = this.playMix && !!this.mixRound;
-    r.prevChk.disabled = !this.mixRound;
-    r.prevLbl.title = this.mixRound
+    if (r.prevChk) r.prevChk.checked = this.playMix && !!this.mixRound;
+    if (r.prevChk) r.prevChk.disabled = !this.mixRound;
+    if (r.prevLbl) r.prevLbl.title = this.mixRound
       ? `Play the band mix of round ${this.mixRound} in the background while you listen to your draft.`
       : 'There is no previous round to play yet.';
     r.previewBtn.classList.toggle('active', this.previewOn);
     r.previewBtn.textContent = this.previewOn ? '🎧 Previewing my part' : '🎧 Preview my part';
-    const mixText = this.mixRound
-      ? (this.playMix ? `Round ${this.mixRound}'s band mix plays in the background.` : '')
-      : this.previewOn ? '' : 'No mix yet: round 1 is written blind. Use Preview to hear your part.';
+    const free = this.freeform;
+    const mixText = free
+      ? (this.previewOn ? '' : 'Turn on Preview to hear your tracks.')
+      : this.mixRound
+        ? (this.playMix ? `Round ${this.mixRound}'s band mix plays in the background.` : '')
+        : this.previewOn ? '' : 'No mix yet: round 1 is written blind. Use Preview to hear your part.';
     let previewText = '';
     if (this.previewOn) {
       previewText = this.previewMsg || (this.previewBusy || !this.previewPlayer.buffer ? 'Rendering preview…' : 'Preview is on.');
       if (this.mixRound && this.playMix) previewText += ' (The mix already contains your last committed part.)';
     }
     let listenText = '';
-    if (this.solo.size) listenText = 'Solo: the band mix is silenced; you hear only the soloed track(s) of your draft.';
-    else if (this.muted.size) listenText = 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
+    if (this.solo.size) listenText = free ? 'Solo: you hear only the soloed track.' : 'Solo: the band mix is silenced; you hear only the soloed track(s) of your draft.';
+    else if (this.muted.size) listenText = free ? '' : 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
     r.mixInfo.textContent = [mixText, previewText, listenText].filter(Boolean).join(' ');
   }
 
@@ -448,7 +473,12 @@ export class Game {
 
   /** Sessions where players add and delete tracks themselves. */
   get unlimited() {
-    return !!this.st?.config.unlimited_tracks;
+    return !!this.st?.config.unlimited_tracks || this.freeform;
+  }
+
+  /** Freeform mode: one person, no game (no rounds, no committing, nobody else). */
+  get freeform() {
+    return !!this.st?.config.freeform;
   }
 
   addTrack() {
