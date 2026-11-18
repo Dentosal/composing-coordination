@@ -76,7 +76,7 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .patch-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; align-items: start; }
 .nodes-body { display: grid; gap: 12px; }
 .patch-cols, .lfo-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
-/* The LFO row: one tinted band over all four columns (controls above Misc, then a depth slider per column). */
+/* The LFO row: one tinted band under all four columns (controls under Noise/FM, then a depth slider per column). */
 .lfo-row { align-items: center; padding: 8px 0; border-radius: 8px; background: var(--panel2); }
 .lfo-ctl { display: grid; gap: 4px; padding: 0 12px; font-size: .85rem; }
 .lfo-head { display: flex; align-items: center; gap: 6px; }
@@ -89,28 +89,28 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 @media (max-width: 1100px) {
   .patch-cols, .lfo-row { grid-template-columns: 1fr; }
 }
-/* Side-by-side columns: no "LFO →" text. Instead a connector runs from each depth slider down into the
-   column it modulates, and that column gets an accent bar on top. */
+/* Side-by-side columns: no "LFO →" text. Instead a connector runs from each depth slider up into the
+   column it modulates, and that column gets an accent bar along its bottom. */
 @media (min-width: 1101px) {
   .lfo-row { align-items: stretch; }
   .lfo-amt { position: relative; }
   .lfo-amt .knob { grid-template-columns: 1fr var(--lfo-out-w); }
   .lfo-amt .knob > span:first-child { display: none; } /* the label only, not the value + unit */
-  .lfo-amt::after { content: ''; position: absolute; left: var(--lfo-arrow-x); top: calc(50% + 12px); bottom: -14px; width: 2px; margin-left: -1px; background: var(--accent); }
-  .lfo-amt::before { content: ''; position: absolute; left: var(--lfo-arrow-x); top: calc(100% + 14px); margin-left: -5px; border: 5px solid transparent; border-top: 6px solid var(--accent); border-bottom: 0; }
-  .lfo-target { box-shadow: inset 0 3px 0 var(--accent); }
+  .lfo-amt::after { content: ''; position: absolute; left: var(--lfo-arrow-x); bottom: calc(50% + 12px); top: -14px; width: 2px; margin-left: -1px; background: var(--accent); }
+  .lfo-amt::before { content: ''; position: absolute; left: var(--lfo-arrow-x); bottom: calc(100% + 14px); margin-left: -5px; border: 5px solid transparent; border-bottom: 6px solid var(--accent); border-top: 0; }
+  .lfo-target { box-shadow: inset 0 -3px 0 var(--accent); }
   /* LFO depth of 0: the connector and the column's top bar go grey. */
   .lfo-amt.lfo-zero::after { background: var(--lfo-off); }
-  .lfo-amt.lfo-zero::before { border-top-color: var(--lfo-off); }
-  .lfo-target.lfo-zero { box-shadow: inset 0 3px 0 var(--lfo-off); }
+  .lfo-amt.lfo-zero::before { border-bottom-color: var(--lfo-off); }
+  .lfo-target.lfo-zero { box-shadow: inset 0 -3px 0 var(--lfo-off); }
   /* Equal-height columns; each column's content stays on top and its envelope sinks to the bottom. */
   .patch-cols { align-items: stretch; }
   .patch-cols > .module { display: flex; flex-direction: column; gap: 4px; }
   .patch-cols > .module .env-sec { margin-top: auto; }
 }
-/* The connector arrows sit at the horizontal centre of their cell, which is the centre of the box below it. */
+/* The connector arrows sit at the horizontal centre of their cell, which is the centre of the box above it. */
 .nodes-body { --lfo-off: color-mix(in srgb, var(--muted) 45%, transparent); }
-.lfo-row { --lfo-pad: 12px; --lfo-out-w: 76px; --lfo-arrow-x: 50%; } /* arrows point at the horizontal centre of the box below */
+.lfo-row { --lfo-pad: 12px; --lfo-out-w: 76px; --lfo-arrow-x: 50%; } /* arrows point at the horizontal centre of the box above */
 .lfo-amt { display: flex; align-items: center; padding: 0 var(--lfo-pad); font-size: .85rem; }
 .lfo-amt .knob { flex: 1; }
 .noise-sec > h5.sub:first-child, .fm-sec > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
@@ -135,9 +135,9 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .check { display: flex; align-items: center; gap: 6px; font-size: .82rem; color: var(--muted); }
 .osc { display: grid; gap: 4px; padding: 6px 0; border-top: 1px solid var(--line); }
 .osc:first-of-type { border-top: none; }
-.osc-head { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 6px; font-size: .85rem; }
+.osc-head { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px; font-size: .85rem; }
 .osc-head .knob { display: block; }
-.osc-head select { width: 100%; }
+.osc-head select { width: 100%; font-weight: 700; font-size: .95rem; }
 .nodes { margin-bottom: 0; }
 /* The toggle for this section lives on the audition row (see nodesToggle), so its own summary line is hidden. */
 .nodes > summary { display: none; }
@@ -185,7 +185,6 @@ input[type=range] { accent-color: var(--accent); }
 .module h5.sub { margin: 1px; padding: 0; border-top: 1px solid var(--line); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 
 .osc.off > :not(.osc-head), .osc.off .osc-head select { opacity: .4; }
-.osc.off .osc-head strong { opacity: .5; }
 .osc.off .knob:nth-of-type(1) { opacity: 1; } /* the level slider stays fully visible so it can be raised again */
 /* hover-link highlight: a thin, half-strength accent so it hints rather than shouts */
 :root { --hl: color-mix(in srgb, var(--accent) 50%, transparent); }

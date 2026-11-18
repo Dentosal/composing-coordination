@@ -442,7 +442,12 @@ export class InstrumentPanel {
       };
       row.classList.toggle('off', !(o.level > 0));
       row.append(
-        h('div.osc-head', h('strong', `Osc ${n}`), select('', o, 'wave', WAVES, change)),
+        h('div.osc-head', select('', o, 'wave', WAVES, change),
+          check('fixed pitch', () => o.fixed_hz != null, (on) => {
+            o.fixed_hz = on ? 220 : null;
+            change();
+            this.render();
+          })),
         knob('level', o, 'level', { min: 0, max: 1 }, edit),
         o.fixed_hz == null
           ? knob('pitch', o, 'semitones', { min: -48, max: 48, step: 1, unit: ' st' }, change)
@@ -450,13 +455,7 @@ export class InstrumentPanel {
         knob('fine', o, 'detune', { min: -100, max: 100, step: 1, unit: ' ct' }, change),
         knob('unison', o, 'unison', { min: 1, max: 7, step: 1, unit: ' voices' }, change),
         knob('spread', o, 'spread', { min: 0, max: 100, step: 1, unit: ' ct' }, change),
-        h('div.osc-opts',
-          check('fixed pitch', () => o.fixed_hz != null, (on) => {
-            o.fixed_hz = on ? 220 : null;
-            change();
-            this.render();
-          }),
-          routeSelect(o, change)));
+        h('div.osc-opts', routeSelect(o, change)));
       return row;
     };
     const noise = patch.noise;
@@ -464,7 +463,7 @@ export class InstrumentPanel {
     const envelope = (key, title, e, amount) => node(key, h('div.env-sec',
       h('h5.sub', title),
       adsrControl(e, change, { defaults: DEFAULTS.get(e) }),
-      amount ? knob(amount.label, e, 'amount', amount, change)
+      amount ? knob(amount.label, amount.obj ?? e, amount.key ?? 'amount', amount, change) // the amp envelope's slot holds the output level
         // No amount slider: an invisible copy of one keeps the sliders level with the other envelopes' (wide layout only).
         : h('div.env-spacer', { 'aria-hidden': 'true' }, knob('amount', { v: 0 }, 'v', { min: 0, max: 1 }, () => {}))));
 
@@ -482,7 +481,7 @@ export class InstrumentPanel {
     const lfoAmount = (key, o) => h('div.lfo-amt', { title: `LFO depth → ${TARGETS[key]}`, 'data-lfo': key },
       knob('LFO →', patch.lfo, key, o, lfoChange));
     const target = (el, key) => { el.classList.add('lfo-target'); el.dataset.lfo = key; return el; }; // a column the LFO row modulates
-    // The LFO's own controls take the strip above the Misc column (nothing in Misc is modulated).
+    // The LFO's own controls take the strip below the Noise/FM column (nothing in it is modulated).
     const oscRows = patch.osc.map((o, i) => oscRow(o, i + 1));
     const showOsc = (i) => {
       this.oscTab = i;
@@ -573,7 +572,6 @@ export class InstrumentPanel {
     showFilter(Math.min(this.filterTab, filterRows.length - 1));
 
     const nodes = this.section('nodes', 'Node configuration', 'nodesOpen', h('div.nodes-body',
-      lfoRow,
       h('div.patch-cols',
         h('div.col-stack',
           module(null,
@@ -586,16 +584,16 @@ export class InstrumentPanel {
         target(module(null,
           h('div.mod-head', h('h4', 'Oscillators'), h('div.osc-tabs', oscTabs)),
           oscRows,
-          envelope('penv', 'Pitch envelope', patch.penv, { label: 'amount', min: -4800, max: 4800, step: 10, unit: ' ct' })), 'pitch'),
+          envelope('penv', 'Pitch envelope (shared)', patch.penv, { label: 'amount', min: -4800, max: 4800, step: 10, unit: ' ct' })), 'pitch'),
         target(module(null,
           h('div.mod-head', h('h4', 'Filter'), h('div.seg', routingBtns), h('div.osc-tabs', filterTabs)),
           filterRows), 'cutoff'),
         target(node('amp', module('Amplifier + FX',
-          knob('level', patch, 'gain', { min: 0, max: 1 }, change),
           knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
           knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change),
           node('drive', knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change)),
-          envelope('aenv', 'Amp envelope', patch.aenv))), 'amp'))));
+          envelope('aenv', 'Amp envelope', patch.aenv, { label: 'level', obj: patch, key: 'gain', min: 0, max: 1 }))), 'amp')),
+      lfoRow));
     patchEl = h('div.patch', head, this.auditionBar(inst, [this.detailsToggle(nodes, 'Patch'), this.detailsToggle(routing, 'Signal routing')]), nodes, routing);
     syncLfo();
     return patchEl;
