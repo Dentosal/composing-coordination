@@ -120,6 +120,13 @@ const presets = {
     aenv: { attack: 0.008, decay: 0.1, sustain: 1, release: 0.08 },
     lfo: { rate: 6, pitch: 15 },
   }],
+  fmkeys: ['FM Keys', 'Lead & Keys', { // osc 2 (2:1) frequency-modulates the sine carrier: an electric-piano-like tone with a bright bite
+    gain: 0.8, send_delay: 0.1, send_reverb: 0.25,
+    osc: [{ wave: 'sine', level: 0.5 }, { wave: 'sine', semitones: 12, level: 0 }, OFF],
+    fm: { on: true, depth: 1.6 },
+    filter: { freq: 6000, q: 0.7, key_track: 0.5 },
+    aenv: { attack: 0.003, decay: 0.9, sustain: 0.25, release: 0.4 },
+  }],
   bell: ['Bell', 'Lead & Keys', {
     gain: 0.9, send_delay: 0.2, send_reverb: 0.4,
     osc: [{ wave: 'sine', level: 0.35 }, { wave: 'sine', semitones: 12, detune: 8, level: 0.25 }, { wave: 'triangle', semitones: 28, level: 0.12 }],

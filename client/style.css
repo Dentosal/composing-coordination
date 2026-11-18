@@ -113,7 +113,10 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .lfo-row { --lfo-pad: 12px; --lfo-out-w: 76px; --lfo-arrow-x: 50%; } /* arrows point at the horizontal centre of the box below */
 .lfo-amt { display: flex; align-items: center; padding: 0 var(--lfo-pad); font-size: .85rem; }
 .lfo-amt .knob { flex: 1; }
-.noise-sec > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.noise-sec > h5.sub:first-child, .fm-sec > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.col-stack { display: grid; gap: 12px; align-content: start; } /* two modules sharing one column */
+.fm-sec { display: grid; gap: 4px; }
+.fm-sec.off .knob { opacity: .5; }
 .module { background: var(--panel2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
 .module h4 { margin: 0 0 4px; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .knob { display: grid; grid-template-columns: 74px 1fr 76px; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
@@ -183,7 +186,7 @@ input[type=range] { accent-color: var(--accent); }
 .osc.off .knob:nth-of-type(1) { opacity: 1; } /* the level slider stays fully visible so it can be raised again */
 /* hover-link highlight: a thin, half-strength accent so it hints rather than shouts */
 :root { --hl: color-mix(in srgb, var(--accent) 50%, transparent); }
-.module.hl, .osc.hl, .env-sec.hl, .knob.hl, .lfo-row.hl, .noise-sec.hl { outline: 1px solid var(--hl); outline-offset: 2px; border-radius: 6px; }
+.module.hl, .osc.hl, .env-sec.hl, .knob.hl, .lfo-row.hl, .noise-sec.hl, .fm-sec.hl { outline: 1px solid var(--hl); outline-offset: 2px; border-radius: 6px; }
 .rd-box.hl rect { stroke: var(--hl); stroke-width: 1.4; }
 
 .mod-head { display: flex; align-items: center; gap: 10px; }

@@ -129,3 +129,51 @@ test('unison start phases: the copies add up like uncorrelated signals on the lo
     assert.ok(worst < n * 0.9, `n=${n}: some low harmonic adds up coherently (${worst})`); // equal phases would give n
   }
 });
+
+test('FM: off adds nothing to the graph, on adds a pitch-tracked gain from osc 2 to osc 1, and it round-trips', () => {
+  const p = defaultPatch();
+  assert.equal(buildInstrument('x', p).nodes.some((n) => n.id === 'fm'), false);
+  p.fm = { on: true, depth: 2.5 };
+  p.osc[1].semitones = 12;
+  const inst = buildInstrument('x', p);
+  const fm = inst.nodes.find((n) => n.id === 'fm');
+  assert.equal(fm.key_track, 1);
+  assert.ok(Math.abs(fm.gain - 2.5 * 261.6255653005986 * 2) < 1e-3, `gain at middle C: ${fm.gain}`); // index 2.5 x modulator frequency (2x)
+  assert.ok(inst.edges.some((e) => e.from === 'o2' && e.to === 'fm' && !e.port));
+  assert.ok(inst.edges.some((e) => e.from === 'fm' && e.to === 'o1' && e.port === 'freq'));
+  assert.deepEqual(parseInstrument(inst), p);
+  // A fixed-pitch modulator follows no note: its gain is the index times its own frequency, untracked.
+  p.osc[1].fixed_hz = 300;
+  const fixed = buildInstrument('x', p);
+  assert.equal(fixed.nodes.find((n) => n.id === 'fm').gain, 750);
+  assert.equal(fixed.nodes.find((n) => n.id === 'fm').key_track, undefined);
+  assert.deepEqual(parseInstrument(fixed), p);
+  // A rewired FM graph is custom.
+  inst.edges = inst.edges.filter((e) => e.from !== 'fm');
+  assert.equal(parseInstrument(inst), null);
+});
+
+test('an instrument that went through the server (explicit default fields) is still a template instrument', () => {
+  const p = defaultPatch();
+  p.fm = { on: true, depth: 1.6 };
+  p.osc[0].unison = 3;
+  const inst = JSON.parse(JSON.stringify(buildInstrument('x', p)));
+  for (const n of inst.nodes) {
+    if (n.type === 'gain') n.key_track ??= 0; // what the server used to write for every gain node
+    if (n.type === 'osc') { n.unison ??= 1; n.spread ??= 0; }
+  }
+  assert.deepEqual(parseInstrument(inst), p);
+});
+
+test('FM gain is a 32-bit float value, as the server stores it, for any depth and pitch', () => {
+  for (const depth of [0.05, 1, 1.6, 2.35, 9.95]) {
+    for (const semitones of [-12, 0, 7, 19.02, 36]) {
+      const p = defaultPatch();
+      p.fm = { on: true, depth };
+      p.osc[1].semitones = semitones;
+      const inst = buildInstrument('x', p);
+      const stored = { ...inst, nodes: inst.nodes.map((n) => (n.type === 'gain' ? { ...n, gain: Math.fround(n.gain) } : n)) }; // f32 round trip
+      assert.deepEqual(parseInstrument(stored), p, `depth ${depth}, ${semitones} st`);
+    }
+  }
+});

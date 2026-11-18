@@ -11,6 +11,7 @@
 export const OSC_COUNT = 3;
 export const WAVES = ['sine', 'triangle', 'sawtooth', 'square'];
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass', 'notch'];
+export const MIDDLE_C_HZ = 261.6255653005986; // as in the renderers: FM depth is stored as a gain in Hz at middle C
 export const MIN_DRIVE = 0.1; // server minimum for a shaper node
 
 const oscPatch = (level = 0) => ({
@@ -26,6 +27,7 @@ export function defaultPatch() {
     noise: { color: 'white', level: 0, filtered: true },
     filter: { mode: 'lowpass', freq: 2000, q: 1, key_track: 0.5 },
     drive: 0,
+    fm: { on: false, depth: 1 }, // osc 2 frequency-modulates osc 1; depth is the modulation index (peak deviation / modulator frequency)
     aenv: { attack: 0.005, decay: 0.2, sustain: 0.7, release: 0.1 },
     fenv: { attack: 0.005, decay: 0.25, sustain: 0.3, release: 0.1, amount: 0 }, // amount in Hz
     penv: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.05, amount: 0 }, // amount in cents
@@ -37,6 +39,9 @@ const env = (id, e, amount) => ({
   id, type: 'env', attack: e.attack, decay: e.decay, sustain: e.sustain, release: e.release, amount,
 });
 const gainNode = (id, gain) => ({ id, type: 'gain', gain });
+
+/** The modulator's frequency in Hz at middle C: what an FM index of 1 means as a deviation (fixed-pitch oscillators: their own frequency). */
+const fmBase = (o) => (o.fixed_hz != null ? o.fixed_hz : MIDDLE_C_HZ * 2 ** (o.semitones / 12));
 
 /** Patch -> orders instrument. */
 export function buildInstrument(id, p, name, pianoRoll = false) {
@@ -65,6 +70,15 @@ export function buildInstrument(id, p, name, pianoRoll = false) {
   edge('lp', 'bus');
   edge('fenv', 'lp', 'freq');
   edge('lfo_c', 'lp', 'freq');
+
+  // FM: osc 2 -> fm gain -> osc 1 frequency. The gain is the peak deviation in Hz at middle C; with key_track 1 it
+  // follows the note's pitch, so the index (deviation / modulator frequency) stays constant. Omitted when off.
+  if (p.fm.on) {
+    // fround: the server stores 32-bit floats, and the graph must come back from it identical to what is built here.
+    nodes.push({ id: 'fm', type: 'gain', gain: Math.fround(p.fm.depth * fmBase(p.osc[1])), ...(p.osc[1].fixed_hz == null ? { key_track: 1 } : {}) });
+    edge('o2', 'fm');
+    edge('fm', 'o1', 'freq');
+  }
 
   let tail = 'bus';
   if (p.drive > 0) {
@@ -103,7 +117,7 @@ function canonical(inst) {
       c.spread ??= 0;
       if (c.fixed_hz == null) delete c.fixed_hz;
     }
-    if (c.type === 'filter') c.key_track ??= 0;
+    if (c.type === 'filter' || c.type === 'gain') c.key_track ??= 0;
     return sortKeys(c);
   }).sort((a, b) => (a.id < b.id ? -1 : 1));
   const edges = inst.edges.map((e) => sortKeys({ from: e.from, to: e.to, ...(e.port ? { port: e.port } : {}) }))
@@ -140,6 +154,7 @@ export function parseInstrument(inst) {
     const lp = need('lp', 'filter');
     p.filter = { mode: lp.mode, freq: lp.freq, q: lp.q, key_track: lp.key_track ?? 0 };
     p.drive = by.has('drv') ? need('drv', 'shaper').drive : 0;
+    if (by.has('fm')) p.fm = { on: true, depth: Number((need('fm', 'gain').gain / fmBase(p.osc[1])).toFixed(4)) };
     p.aenv = envOf('aenv');
     p.fenv = { ...envOf('fenv'), amount: by.get('fenv').amount };
     p.penv = { ...envOf('penv'), amount: by.get('penv').amount };
@@ -178,6 +193,7 @@ const allNum = (o, keys) => keys.every((k) => isNum(o?.[k]));
 /** A message describing the first thing wrong with a parsed patch, or null. Ranges are left to the server. */
 export function validatePatch(p) {
   if (!allNum(p, ['gain', 'send_delay', 'send_reverb', 'drive'])) return 'output levels must be numbers';
+  if (typeof p.fm?.on !== 'boolean' || !isNum(p.fm.depth)) return 'invalid FM settings';
   for (const o of p.osc) {
     if (!WAVES.includes(o.wave)) return `unknown oscillator wave "${o.wave}"`;
     if (!allNum(o, ['semitones', 'detune', 'level', 'unison', 'spread']) || (o.fixed_hz != null && !isNum(o.fixed_hz))) return 'oscillator values must be numbers';

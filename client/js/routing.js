@@ -58,6 +58,13 @@ export function routingDiagram(p) {
     src.push({ cy: y + 19, filtered: o.filtered, on: o.level > 0 });
   });
 
+  // FM: a dashed loop from osc 2 up to osc 1 (frequency modulation), only while it is switched on
+  if (p.fm.on) {
+    const x = SRC_X + SRC_W;
+    layers.wires.push(s('path', { d: `M${x},${src[2].cy} C${x + 34},${src[2].cy} ${x + 34},${src[1].cy} ${x},${src[1].cy}`, class: 'rd-wire mod', 'marker-end': 'url(#rd-arrow-mod)' }));
+    layers.labels.push(label(x + 40, (src[1].cy + src[2].cy) / 2 + 4, `FM ${num(p.fm.depth)}`));
+  }
+
   // ---- filter / bypass sinks
   const SINK_X = 290;
   const SINK_W = 150;

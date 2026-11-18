@@ -413,7 +413,9 @@ export class InstrumentPanel {
     // Every edit rebuilds the graph from the patch and swaps it in; lanes refer to the id, which never changes.
     pairDefaults(patch, defaultPatch());
     const routing = this.section('routing', 'Signal routing', 'routingOpen', routingDiagram(patch));
+    let syncFm = () => {}; // refreshes the FM box (ratio helper, dimming) after any patch edit; set below
     const change = () => {
+      syncFm();
       const prev = this.orders.instruments[idx()];
       this.orders.instruments[idx()] = buildInstrument(inst.id, patch, prev.name, prev.piano_roll === true);
       hintLoad();
@@ -492,15 +494,48 @@ export class InstrumentPanel {
       lfoAmount('cutoff', { min: 0, max: 4000, step: 10, unit: ' Hz' }),
       lfoAmount('amp', { min: 0, max: 1 })));
 
+    // FM box: osc 2 frequency-modulates osc 1. "ratio" is osc 2's frequency over osc 1's; picking one sets osc 2's pitch.
+    const fm = patch.fm;
+    const RATIOS = [[0.25, '1 : 4'], [0.5, '1 : 2'], [1, '1 : 1'], [1.5, '3 : 2'], [2, '2 : 1'], [3, '3 : 1'], [4, '4 : 1'], [5, '5 : 1'], [6, '6 : 1'], [7, '7 : 1'], [8, '8 : 1']];
+    const ratioSelect = h('select', {
+      title: "Osc 2's frequency relative to osc 1's. Whole ratios sound harmonic, others clangorous.",
+      onchange: (e) => {
+        const o1 = patch.osc[0];
+        patch.osc[1].semitones = Math.min(48, Math.max(-48, Number((o1.semitones + 12 * Math.log2(Number(e.target.value))).toFixed(3))));
+        change();
+        this.render(); // the pitch knob of osc 2 shows the new value
+      },
+    });
+    const fmBox = node('fm', h('div.fm-sec',
+      h('h5.sub', 'FM'),
+      check('osc 2 → osc 1', () => fm.on, (on) => { fm.on = on; change(); }),
+      knob('depth', fm, 'depth', { min: 0, max: 10, step: 0.05 }, change),
+      h('label.knob', h('span', 'ratio'), ratioSelect)));
+    syncFm = () => {
+      const [o1, o2] = patch.osc;
+      const free = o1.fixed_hz == null && o2.fixed_hz == null;
+      const cur = 2 ** ((o2.semitones - o1.semitones) / 12);
+      const hit = RATIOS.find(([r]) => Math.abs(12 * Math.log2(cur / r)) < 0.01);
+      ratioSelect.replaceChildren(
+        ...RATIOS.map(([r, text]) => h('option', { value: String(r), selected: free && hit?.[0] === r }, text)),
+        ...(free && !hit ? [h('option', { value: String(cur), selected: true }, `${Number(cur.toPrecision(3))} : 1`)] : []),
+        ...(free ? [] : [h('option', { selected: true }, 'fixed pitch')]));
+      ratioSelect.disabled = !free;
+      fmBox.classList.toggle('off', !fm.on);
+    };
+    syncFm();
+
     const nodes = this.section('nodes', 'Node configuration', 'nodesOpen', h('div.nodes-body',
       lfoRow,
       h('div.patch-cols',
-        module(null,
-          node('noise', h('div.noise-sec',
-            h('h5.sub', 'Noise'),
-            select('color', noise, 'color', ['white', 'pink'], change),
-            knob('level', noise, 'level', { min: 0, max: 1 }, change),
-            check('through filter', () => noise.filtered, (on) => { noise.filtered = on; change(); })))),
+        h('div.col-stack',
+          module(null,
+            node('noise', h('div.noise-sec',
+              h('h5.sub', 'Noise'),
+              select('color', noise, 'color', ['white', 'pink'], change),
+              knob('level', noise, 'level', { min: 0, max: 1 }, change),
+              check('through filter', () => noise.filtered, (on) => { noise.filtered = on; change(); })))),
+          module(null, fmBox)),
         target(module(null,
           h('div.mod-head', h('h4', 'Oscillators'), h('div.osc-tabs', oscTabs)),
           oscRows,

@@ -5,7 +5,7 @@
 /**
  * @typedef {{id:string,type:'osc',wave:Wave,semitones?:number,detune?:number,fixed_hz?:number|null,unison?:number,spread?:number}
  *  | {id:string,type:'noise',color:'white'|'pink'}
- *  | {id:string,type:'gain',gain:number}
+ *  | {id:string,type:'gain',gain:number,key_track?:number}
  *  | {id:string,type:'filter',mode:FilterMode,freq:number,q:number,key_track?:number}
  *  | {id:string,type:'env',attack:number,decay:number,sustain:number,release:number,amount:number}
  *  | {id:string,type:'shaper',drive:number}

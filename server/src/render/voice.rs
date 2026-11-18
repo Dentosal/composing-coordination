@@ -411,7 +411,9 @@ fn build_voice(
                 s.stop_at(t_stop);
                 VNode::Noise(s)
             }
-            NodeKind::Gain { gain: g } => VNode::Gain(gain(ctx, *g)),
+            NodeKind::Gain { gain: g, key_track } => {
+                VNode::Gain(gain(ctx, *g * (hz / MIDDLE_C_HZ).powf(*key_track as f64) as f32))
+            }
             NodeKind::Filter { mode, freq, q, key_track } => {
                 let mut f = ctx.create_biquad_filter();
                 f.set_type(match mode {

@@ -257,7 +257,7 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
         sources.push(node);
         break;
       case 'gain':
-        node = gain(ctx, n.gain);
+        node = gain(ctx, n.gain * (hz / MIDDLE_C_HZ) ** (n.key_track ?? 0));
         params = { gain: [node.gain] };
         break;
       case 'filter':

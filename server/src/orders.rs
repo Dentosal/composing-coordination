@@ -88,6 +88,10 @@ pub enum NoiseColor {
     Pink,
 }
 
+fn is_zero(v: &f32) -> bool {
+    *v == 0.0
+}
+
 pub const MAX_UNISON: u8 = 7;
 pub const MAX_SPREAD_CENTS: f32 = 100.0;
 
@@ -128,7 +132,13 @@ pub enum NodeKind {
     /// AudioBufferSourceNode looping a seeded noise buffer. No ports.
     Noise { color: NoiseColor },
     /// GainNode. Port: `gain`.
-    Gain { gain: f32 },
+    /// `key_track` (0..=1) scales the gain by (note_hz / middle_c_hz)^key_track, like the filter's: 1 makes the
+    /// gain proportional to the note's pitch (used for FM, to keep the modulation index constant across notes).
+    Gain {
+        gain: f32,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        key_track: f32,
+    },
     /// BiquadFilterNode. `freq` is the cutoff at middle C; `key_track` (0..=1) scales it by
     /// (note_hz / middle_c_hz)^key_track. Ports: `freq` (Hz), `q`, `detune`.
     Filter {
@@ -427,8 +437,11 @@ fn validate_instrument(inst: &Instrument, p: &str, err: &mut impl FnMut(String, 
             }
             NodeKind::Noise { .. } => {}
             // Wide on purpose: a gain node also scales modulators (an LFO into a filter cutoff needs a
-            // depth in the thousands of Hz), same span as `env.amount`.
-            NodeKind::Gain { gain } => range(*gain, -20000.0, 20000.0, &format!("{np}.gain"), err),
+            // depth in the thousands of Hz, an FM depth up to ten times the modulator's frequency).
+            NodeKind::Gain { gain, key_track } => {
+                range(*gain, -50000.0, 50000.0, &format!("{np}.gain"), err);
+                range(*key_track, 0.0, 1.0, &format!("{np}.key_track"), err);
+            }
             NodeKind::Filter { freq, q, key_track, .. } => {
                 range(*freq, 20.0, 20000.0, &format!("{np}.freq"), err);
                 range(*q, 0.0001, 30.0, &format!("{np}.q"), err);
@@ -529,9 +542,18 @@ mod tests {
     }
 
     #[test]
+    fn a_gain_node_without_key_track_serializes_without_it() {
+        // The browser compares instruments with its own template output, so a default must not appear as an extra field.
+        let plain = serde_json::to_value(NodeKind::Gain { gain: 1.0, key_track: 0.0 }).unwrap();
+        assert!(plain.get("key_track").is_none(), "{plain}");
+        let tracked = serde_json::to_value(NodeKind::Gain { gain: 1.0, key_track: 1.0 }).unwrap();
+        assert_eq!(tracked["key_track"], 1.0);
+    }
+
+    #[test]
     fn rejects_cycle_and_bad_rows() {
         let mut o: Orders = serde_json::from_str(GOOD).unwrap();
-        o.instruments[0].nodes.push(Node { id: "g".into(), kind: NodeKind::Gain { gain: 1.0 } });
+        o.instruments[0].nodes.push(Node { id: "g".into(), kind: NodeKind::Gain { gain: 1.0, key_track: 0.0 } });
         o.instruments[0].edges.push(Edge { from: "g".into(), to: "g".into(), port: None });
         o.lanes[0].steps.push(Step { row: 64, note: Some(60), vel: 100 });
         let errs = o.validate(&limits());
