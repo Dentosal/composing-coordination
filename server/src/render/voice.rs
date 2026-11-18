@@ -13,7 +13,10 @@ use web_audio_api::node::{
 use web_audio_api::{AudioBuffer, AudioParam, PeriodicWave, PeriodicWaveOptions};
 use std::cell::RefCell;
 
-pub const NOISE_SECS: f64 = 1.0;
+/// Length of the looped noise buffer. Long enough that a held noise sound (rain, wind) does not audibly repeat; the first
+/// second is the same random sequence whatever the length, so short noise hits sound as they always did.
+/// Must stay identical to `NOISE_SECS` in client/js/voice.js.
+pub const NOISE_SECS: f64 = 8.0;
 pub const MIDDLE_C_HZ: f64 = 261.6255653005986;
 pub const SHAPER_CURVE_LEN: usize = 2048;
 /// Env decay/release use setTargetAtTime with tau = time / ENV_TAU_DIV.
