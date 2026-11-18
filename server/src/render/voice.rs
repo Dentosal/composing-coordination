@@ -2,7 +2,7 @@
 
 use super::master::Master;
 use super::{gain, RenderConfig, SeatPart, SAMPLE_RATE, SEAT_GAIN};
-use crate::orders::{Edge, FilterMode, FxStep, Instrument, Lane, NodeKind, NoiseColor, Wave, ARP_TICKS_PER_ROW};
+use crate::orders::{unison_offsets, Edge, FilterMode, FxStep, Instrument, Lane, NodeKind, NoiseColor, Wave, ARP_TICKS_PER_ROW};
 use crate::prng::Mulberry32;
 use std::collections::HashMap;
 use web_audio_api::context::{BaseAudioContext, OfflineAudioContext};
@@ -10,7 +10,8 @@ use web_audio_api::node::{
     AudioNode, AudioScheduledSourceNode, AudioBufferSourceNode, BiquadFilterNode, BiquadFilterType,
     ConstantSourceNode, GainNode, OscillatorNode, OscillatorType, WaveShaperNode,
 };
-use web_audio_api::{AudioBuffer, AudioParam};
+use web_audio_api::{AudioBuffer, AudioParam, PeriodicWave, PeriodicWaveOptions};
+use std::cell::RefCell;
 
 pub const NOISE_SECS: f64 = 1.0;
 pub const MIDDLE_C_HZ: f64 = 261.6255653005986;
@@ -21,7 +22,8 @@ pub const MIN_TIME: f64 = 0.001;
 pub const STOP_PAD: f64 = 0.005;
 
 enum VNode {
-    Osc(OscillatorNode),
+    /// One oscillator, or the copies of a unison oscillator with the gain that mixes them.
+    Osc(Vec<OscillatorNode>, Option<GainNode>),
     Noise(AudioBufferSourceNode),
     Gain(GainNode),
     Filter(BiquadFilterNode),
@@ -33,7 +35,10 @@ enum VNode {
 impl VNode {
     fn node(&self) -> &dyn AudioNode {
         match self {
-            VNode::Osc(n) => n,
+            VNode::Osc(v, mix) => match mix {
+                Some(g) => g,
+                None => &v[0],
+            },
             VNode::Noise(n) => n,
             VNode::Gain(n) | VNode::Out(n) => n,
             VNode::Filter(n) => n,
@@ -42,17 +47,88 @@ impl VNode {
         }
     }
 
-    fn param(&self, port: &str) -> Option<&AudioParam> {
+    fn params(&self, port: &str) -> Vec<&AudioParam> {
         match (self, port) {
-            (VNode::Osc(n), "freq") => Some(n.frequency()),
-            (VNode::Osc(n), "detune") => Some(n.detune()),
-            (VNode::Gain(n), "gain") => Some(n.gain()),
-            (VNode::Filter(n), "freq") => Some(n.frequency()),
-            (VNode::Filter(n), "q") => Some(n.q()),
-            (VNode::Filter(n), "detune") => Some(n.detune()),
-            _ => None,
+            (VNode::Osc(v, _), "freq") => v.iter().map(|o| o.frequency()).collect(),
+            (VNode::Osc(v, _), "detune") => v.iter().map(|o| o.detune()).collect(),
+            (VNode::Gain(n), "gain") => vec![n.gain()],
+            (VNode::Filter(n), "freq") => vec![n.frequency()],
+            (VNode::Filter(n), "q") => vec![n.q()],
+            (VNode::Filter(n), "detune") => vec![n.detune()],
+            _ => vec![],
         }
     }
+}
+
+/// Fourier coefficients (real, imag; index 0 unused) of a built-in wave shape shifted by `phase` cycles, with
+/// `harmonics` harmonics (the spec's formulas for the built-in types). Unison copies use these so that they start
+/// at different points of the cycle instead of all at phase 0 (which makes the start of a note `n` times as loud).
+/// Must stay identical to `unisonCoeffs` in client/js/voice.js (checked against server/tests/fixtures/unison_wave.json).
+pub fn wave_coeffs(wave: Wave, harmonics: usize, phase: f64) -> (Vec<f32>, Vec<f32>) {
+    use std::f64::consts::PI;
+    let mut real = vec![0f32; harmonics + 1];
+    let mut imag = vec![0f32; harmonics + 1];
+    for n in 1..=harmonics {
+        let k = n as f64;
+        let b = match wave {
+            Wave::Sine => (n == 1) as u8 as f64,
+            Wave::Square => if n % 2 == 1 { 4.0 / (k * PI) } else { 0.0 },
+            Wave::Sawtooth => 2.0 / (k * PI) * if n % 2 == 1 { 1.0 } else { -1.0 },
+            Wave::Triangle => 8.0 * (k * PI / 2.0).sin() / (k * PI).powi(2),
+        };
+        let a = 2.0 * PI * phase * k;
+        real[n] = (b * a.sin()) as f32;
+        imag[n] = (b * a.cos()) as f32;
+    }
+    (real, imag)
+}
+
+/// How many harmonics a unison copy's wave table gets: all that stay under the Nyquist frequency at the highest
+/// pitch the voice reaches (`max_hz`), rounded down to a power of two so the tables can be cached.
+/// Must stay identical to `unisonHarmonics` in client/js/voice.js.
+pub fn unison_harmonics(max_hz: f64) -> usize {
+    let fit = (SAMPLE_RATE as f64 / 2.0 / max_hz).floor().max(1.0) as usize;
+    let mut h = 1;
+    while h * 2 <= fit && h < 512 {
+        h *= 2;
+    }
+    h
+}
+
+/// Start phase (in cycles) of copy `i` of `n` unison copies. Evenly spaced phases would make the copies cancel every
+/// harmonic that is not a multiple of `n` (a hollow, quiet start), and equal phases make the start `n` times as loud.
+/// These were searched offline so the copies add up like uncorrelated signals (power about `n`) on the low harmonics.
+/// Must stay identical to `unisonPhase` in client/js/voice.js (checked against server/tests/fixtures/unison_wave.json).
+pub fn unison_phase(i: usize, n: usize) -> f64 {
+    const PHASES: [&[f64]; 8] = [
+        &[],
+        &[0.0],
+        &[0.0, 0.75],
+        &[0.0, 0.722, 0.112],
+        &[0.0, 0.854, 0.562, 0.625],
+        &[0.0, 0.539, 0.621, 0.96, 0.729],
+        &[0.0, 0.78, 0.854, 0.416, 0.805, 0.531],
+        &[0.0, 0.769, 0.086, 0.244, 0.281, 0.704, 0.105],
+    ];
+    PHASES[n.min(7)].get(i).copied().unwrap_or(0.0)
+}
+
+thread_local! {
+    static WAVES: RefCell<HashMap<(u8, usize, u8, u8), PeriodicWave>> = RefCell::new(HashMap::new());
+}
+
+/// The cached wave for copy `i` of `n` (its start phase is `unison_phase`).
+fn unison_wave(ctx: &OfflineAudioContext, wave: Wave, harmonics: usize, i: usize, n: usize) -> PeriodicWave {
+    let key = (wave as u8, harmonics, i as u8, n as u8);
+    WAVES.with(|w| {
+        w.borrow_mut()
+            .entry(key)
+            .or_insert_with(|| {
+                let (real, imag) = wave_coeffs(wave, harmonics, unison_phase(i, n));
+                ctx.create_periodic_wave(PeriodicWaveOptions { real: Some(real), imag: Some(imag), disable_normalization: false })
+            })
+            .clone()
+    })
 }
 
 pub fn midi_hz(note: u8) -> f64 {
@@ -281,29 +357,49 @@ fn build_voice(
     let mut nodes: HashMap<&str, VNode> = HashMap::new();
     for n in &inst.nodes {
         let v = match &n.kind {
-            NodeKind::Osc { wave, semitones, detune, fixed_hz } => {
-                let mut o = ctx.create_oscillator();
-                o.set_type(match wave {
-                    Wave::Sine => OscillatorType::Sine,
-                    Wave::Square => OscillatorType::Square,
-                    Wave::Sawtooth => OscillatorType::Sawtooth,
-                    Wave::Triangle => OscillatorType::Triangle,
-                });
+            NodeKind::Osc { wave, semitones, detune, fixed_hz, unison, spread } => {
                 let f = match fixed_hz {
                     Some(h) => *h as f64,
                     None => hz * 2f64.powf(*semitones as f64 / 12.0),
                 };
-                o.frequency().set_value(f as f32);
-                o.detune().set_value(*detune);
-                if fixed_hz.is_none() {
-                    // Arpeggio ticks: the detune param carries the semitone offset (in cents) on top of the oscillator's own detune.
-                    for (t, semis) in &plan.pitches {
-                        o.detune().set_value_at_time(*detune + (*semis * 100.0) as f32, t0 + t);
+                let offsets = unison_offsets(*unison, *spread);
+                let mut voices = Vec::with_capacity(offsets.len());
+                let top_semis = plan.pitches.iter().fold(0f64, |m, (_, s)| m.max(*s));
+                let top_cents = *detune as f64 + offsets.iter().fold(0f32, |m, o| m.max(*o)) as f64 + top_semis * 100.0;
+                let harmonics = unison_harmonics(f * 2f64.powf(top_cents.max(0.0) / 1200.0));
+                for (i, off) in offsets.iter().enumerate() {
+                    let mut o = ctx.create_oscillator();
+                    if offsets.len() > 1 {
+                        // Copies start at different points of the cycle (see `unison_phase`), so they do not all add up at the start of the note.
+                        o.set_periodic_wave(unison_wave(ctx, *wave, harmonics, i, offsets.len()));
+                    } else {
+                        o.set_type(match wave {
+                            Wave::Sine => OscillatorType::Sine,
+                            Wave::Square => OscillatorType::Square,
+                            Wave::Sawtooth => OscillatorType::Sawtooth,
+                            Wave::Triangle => OscillatorType::Triangle,
+                        });
                     }
+                    o.frequency().set_value(f as f32);
+                    o.detune().set_value(*detune + off);
+                    if fixed_hz.is_none() {
+                        // Arpeggio ticks: the detune param carries the semitone offset (in cents) on top of the oscillator's own detune.
+                        for (t, semis) in &plan.pitches {
+                            o.detune().set_value_at_time(*detune + off + (*semis * 100.0) as f32, t0 + t);
+                        }
+                    }
+                    o.start_at(t0);
+                    o.stop_at(t_stop);
+                    voices.push(o);
                 }
-                o.start_at(t0);
-                o.stop_at(t_stop);
-                VNode::Osc(o)
+                let mix = (offsets.len() > 1).then(|| {
+                    let g = gain(ctx, 1.0 / (offsets.len() as f32).sqrt());
+                    for o in &voices {
+                        o.connect(&g);
+                    }
+                    g
+                });
+                VNode::Osc(voices, mix)
             }
             NodeKind::Noise { .. } => {
                 let mut s = ctx.create_buffer_source();
@@ -360,7 +456,7 @@ fn build_voice(
                 a.node().connect(b.node());
             }
             Some(p) => {
-                if let Some(param) = b.param(p) {
+                for param in b.params(p) {
                     a.node().connect(param);
                 }
             }

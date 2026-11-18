@@ -3,7 +3,7 @@
 //! Keep structurally parallel to client/js/render.js.
 
 mod master;
-mod voice;
+pub mod voice;
 pub mod wav;
 pub use voice::{fx_plan, FxSegment};
 

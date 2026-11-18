@@ -437,6 +437,8 @@ export class InstrumentPanel {
           ? knob('pitch', o, 'semitones', { min: -48, max: 48, step: 1, unit: ' st' }, change)
           : knob('pitch', o, 'fixed_hz', { min: 20, max: 2000, log: true, unit: ' Hz', def: 220 }, change),
         knob('fine', o, 'detune', { min: -100, max: 100, step: 1, unit: ' ct' }, change),
+        knob('unison', o, 'unison', { min: 1, max: 7, step: 1, unit: ' voices' }, change),
+        knob('spread', o, 'spread', { min: 0, max: 100, step: 1, unit: ' ct' }, change),
         h('div.osc-opts',
           check('fixed pitch', () => o.fixed_hz != null, (on) => {
             o.fixed_hz = on ? 220 : null;
@@ -538,7 +540,7 @@ function patchHelp() {
     'A patch is a small synthesizer. Sound sources go through a filter and an amplifier, and envelopes shape how the sound changes over the length of each note. The sound of the track you have selected is what you edit here.',
     h('h3', 'Sound sources'),
     h('ul',
-      h('li', h('strong', 'Oscillators'), ': up to three tone generators. Pick a wave shape, set the pitch (in semitones from the note) and a fine detune; stack them for a thicker sound.'),
+      h('li', h('strong', 'Oscillators'), ': up to three tone generators. Pick a wave shape, set the pitch (in semitones from the note) and a fine detune; stack them, or use unison (several detuned copies of one oscillator, spread across the given cents) for a thicker sound.'),
       h('li', h('strong', 'Noise'), ': white or pink noise, good for drums and breath. "Through filter" decides whether a source passes the filter.')),
     h('h3', 'Filter and drive'),
     h('ul',

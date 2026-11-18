@@ -88,6 +88,22 @@ pub enum NoiseColor {
     Pink,
 }
 
+pub const MAX_UNISON: u8 = 7;
+pub const MAX_SPREAD_CENTS: f32 = 100.0;
+
+fn one_voice() -> u8 {
+    1
+}
+
+/// Detune offsets in cents of the `n` copies of a unison oscillator: evenly spaced across -spread..=+spread.
+/// Must stay identical to `unisonOffsets` in client/js/voice.js (checked against server/tests/fixtures/unison.json).
+pub fn unison_offsets(n: u8, spread: f32) -> Vec<f32> {
+    if n <= 1 {
+        return vec![0.0];
+    }
+    (0..n).map(|i| (spread as f64 * (2.0 * i as f64 / (n - 1) as f64 - 1.0)) as f32 + 0.0).collect()
+}
+
 /// Node types. Each maps onto one Web Audio primitive.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -102,6 +118,12 @@ pub enum NodeKind {
         detune: f32,
         #[serde(default)]
         fixed_hz: Option<f32>,
+        /// Unison: this many copies of the oscillator, detuned evenly across +-`spread` cents, mixed at 1/sqrt(n).
+        /// 1 is a plain oscillator. Param edges (`freq`, `detune`) reach every copy.
+        #[serde(default = "one_voice")]
+        unison: u8,
+        #[serde(default)]
+        spread: f32,
     },
     /// AudioBufferSourceNode looping a seeded noise buffer. No ports.
     Noise { color: NoiseColor },
@@ -392,7 +414,11 @@ fn validate_instrument(inst: &Instrument, p: &str, err: &mut impl FnMut(String, 
             err(format!("{np}.id"), format!("duplicate node id '{}'", n.id));
         }
         match &n.kind {
-            NodeKind::Osc { semitones, detune, fixed_hz, .. } => {
+            NodeKind::Osc { semitones, detune, fixed_hz, unison, spread, .. } => {
+                if !(1..=MAX_UNISON).contains(unison) {
+                    err(format!("{np}.unison"), format!("must be within 1..={MAX_UNISON}"));
+                }
+                range(*spread, 0.0, MAX_SPREAD_CENTS, &format!("{np}.spread"), err);
                 range(*semitones, -48.0, 48.0, &format!("{np}.semitones"), err);
                 range(*detune, -1200.0, 1200.0, &format!("{np}.detune"), err);
                 if let Some(h) = fixed_hz {

@@ -1,0 +1,8 @@
+[
+  { "n": 1, "spread": 25, "offsets": [0] },
+  { "n": 2, "spread": 10, "offsets": [-10, 10] },
+  { "n": 3, "spread": 20, "offsets": [-20, 0, 20] },
+  { "n": 5, "spread": 20, "offsets": [-20, -10, 0, 10, 20] },
+  { "n": 7, "spread": 12, "offsets": [-12, -8, -4, 0, 4, 8, 12] },
+  { "n": 4, "spread": 0, "offsets": [0, 0, 0, 0] }
+]

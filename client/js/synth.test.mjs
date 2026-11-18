@@ -91,3 +91,41 @@ test('the piano roll flag is part of the instrument, not of the sound', () => {
   assert.deepEqual({ ...on, piano_roll: undefined }, { ...off, piano_roll: undefined }); // same graph either way
   assert.ok(parseInstrument(on), 'a piano-roll instrument is still a template instrument');
 });
+
+test('unison: patch round-trips, defaults leave the graph untouched, offsets match the shared fixture', async () => {
+  const { unisonOffsets } = await import('./voice.js');
+  const p = defaultPatch();
+  assert.equal(buildInstrument('x', p).nodes.find((n) => n.id === 'o1').unison, undefined);
+  p.osc[0].unison = 5;
+  p.osc[0].spread = 18;
+  const inst = buildInstrument('x', p);
+  assert.equal(inst.nodes.find((n) => n.id === 'o1').unison, 5);
+  assert.deepEqual(parseInstrument(inst), p);
+  for (const { n, spread, offsets } of JSON.parse(readFileSync(new URL('../../server/tests/fixtures/unison.json', import.meta.url)))) {
+    assert.deepEqual(unisonOffsets(n, spread), offsets, `n=${n}`);
+  }
+});
+
+test('unison wave tables and harmonic counts match the shared fixture', async () => {
+  const { unisonCoeffs, unisonHarmonics, unisonPhase } = await import('./voice.js');
+  const fx = JSON.parse(readFileSync(new URL('../../server/tests/fixtures/unison_wave.json', import.meta.url)));
+  for (const c of fx.coeffs) {
+    const got = unisonCoeffs(c.wave, c.harmonics, c.phase);
+    for (const key of ['real', 'imag']) got[key].forEach((v, i) => assert.ok(Math.abs(v - c[key][i]) < 1e-6, `${c.wave} ${key}[${i}]`));
+  }
+  for (const h of fx.harmonics) assert.equal(unisonHarmonics(h.hz), h.harmonics);
+  for (const [n, ph] of Object.entries(fx.phases)) ph.forEach((v, i) => assert.equal(unisonPhase(i, Number(n)), v));
+});
+
+test('unison start phases: the copies add up like uncorrelated signals on the low harmonics, not like one', async () => {
+  const { unisonPhase } = await import('./voice.js');
+  for (let n = 2; n <= 7; n++) {
+    let worst = 0;
+    for (let k = 1; k <= 3; k++) { // power of the sum of the copies' k-th harmonic, relative to n (uncorrelated = 1)
+      let re = 0, im = 0;
+      for (let i = 0; i < n; i++) { const a = 2 * Math.PI * k * unisonPhase(i, n); re += Math.cos(a); im += Math.sin(a); }
+      worst = Math.max(worst, ((re * re + im * im) / n) / 1);
+    }
+    assert.ok(worst < n * 0.9, `n=${n}: some low harmonic adds up coherently (${worst})`); // equal phases would give n
+  }
+});

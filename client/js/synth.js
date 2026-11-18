@@ -14,7 +14,7 @@ export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 export const MIN_DRIVE = 0.1; // server minimum for a shaper node
 
 const oscPatch = (level = 0) => ({
-  wave: 'sawtooth', semitones: 0, detune: 0, fixed_hz: null, level, filtered: true,
+  wave: 'sawtooth', semitones: 0, detune: 0, fixed_hz: null, unison: 1, spread: 0, level, filtered: true,
 });
 
 export function defaultPatch() {
@@ -46,6 +46,8 @@ export function buildInstrument(id, p, name, pianoRoll = false) {
 
   p.osc.forEach((o, i) => {
     const n = { id: `o${i + 1}`, type: 'osc', wave: o.wave, semitones: o.semitones, detune: o.detune };
+    if (o.unison > 1) n.unison = o.unison; // omitted at the defaults, so plain patches keep their old graph
+    if (o.spread !== 0) n.spread = o.spread;
     if (o.fixed_hz != null) n.fixed_hz = o.fixed_hz;
     nodes.push(n, gainNode(`l${i + 1}`, o.level));
     edge(n.id, `l${i + 1}`);
@@ -97,6 +99,8 @@ function canonical(inst) {
     if (c.type === 'osc') {
       c.semitones ??= 0;
       c.detune ??= 0;
+      c.unison ??= 1;
+      c.spread ??= 0;
       if (c.fixed_hz == null) delete c.fixed_hz;
     }
     if (c.type === 'filter') c.key_track ??= 0;
@@ -128,7 +132,7 @@ export function parseInstrument(inst) {
     for (let i = 0; i < OSC_COUNT; i++) {
       const o = need(`o${i + 1}`, 'osc');
       p.osc[i] = {
-        wave: o.wave, semitones: o.semitones ?? 0, detune: o.detune ?? 0, fixed_hz: o.fixed_hz ?? null,
+        wave: o.wave, semitones: o.semitones ?? 0, detune: o.detune ?? 0, fixed_hz: o.fixed_hz ?? null, unison: o.unison ?? 1, spread: o.spread ?? 0,
         level: need(`l${i + 1}`, 'gain').gain, filtered: routedTo(`l${i + 1}`, 'lp'),
       };
     }
@@ -176,7 +180,7 @@ export function validatePatch(p) {
   if (!allNum(p, ['gain', 'send_delay', 'send_reverb', 'drive'])) return 'output levels must be numbers';
   for (const o of p.osc) {
     if (!WAVES.includes(o.wave)) return `unknown oscillator wave "${o.wave}"`;
-    if (!allNum(o, ['semitones', 'detune', 'level']) || (o.fixed_hz != null && !isNum(o.fixed_hz))) return 'oscillator values must be numbers';
+    if (!allNum(o, ['semitones', 'detune', 'level', 'unison', 'spread']) || (o.fixed_hz != null && !isNum(o.fixed_hz))) return 'oscillator values must be numbers';
   }
   if (!['white', 'pink'].includes(p.noise.color) || !isNum(p.noise.level)) return 'invalid noise settings';
   if (!FILTER_MODES.includes(p.filter.mode) || !allNum(p.filter, ['freq', 'q', 'key_track'])) return 'invalid filter settings';

@@ -13,7 +13,9 @@
     "type": "osc",
     "wave": "square",
     "semitones": 0,
-    "detune": 0
+    "detune": 0,
+    "unison": 3,
+    "spread": 8
    },
    {
     "id": "l1",
@@ -25,7 +27,9 @@
     "type": "osc",
     "wave": "sawtooth",
     "semitones": 0,
-    "detune": 7
+    "detune": 7,
+    "unison": 3,
+    "spread": 8
    },
    {
     "id": "l2",

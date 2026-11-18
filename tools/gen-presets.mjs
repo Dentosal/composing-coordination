@@ -25,13 +25,13 @@ const presets = {
   }],
   pad: ['Pad', 'Pads & FX', {
     gain: 0.6, send_delay: 0.1, send_reverb: 0.45,
-    osc: [{ detune: -9, level: 0.3 }, { detune: 9, level: 0.3 }, { wave: 'triangle', semitones: -12, level: 0.3 }],
+    osc: [{ unison: 5, spread: 14, level: 0.3 }, OFF, { wave: 'triangle', semitones: -12, level: 0.3 }],
     filter: { freq: 1100, q: 0.8, key_track: 0.4 },
     aenv: { attack: 0.6, decay: 0.5, sustain: 0.8, release: 1 },
   }],
   lead: ['Lead', 'Lead & Keys', {
     gain: 0.7, send_delay: 0.25, send_reverb: 0.2,
-    osc: [{ wave: 'square', level: 0.35 }, { detune: 7, level: 0.35 }, OFF],
+    osc: [{ wave: 'square', unison: 3, spread: 8, level: 0.35 }, { detune: 7, unison: 3, spread: 8, level: 0.35 }, OFF],
     filter: { freq: 2600, q: 1.5, key_track: 0.5 },
     aenv: { attack: 0.01, decay: 0.15, sustain: 0.7, release: 0.2 },
     lfo: { rate: 5.5, pitch: 12 },
@@ -140,8 +140,8 @@ const CATEGORIES = ['Basic', 'Drums', 'Bass', 'Lead & Keys', 'Pads & FX'];
 const sorted = Object.entries(presets).sort((a, b) => CATEGORIES.indexOf(a[1][1]) - CATEGORIES.indexOf(b[1][1]));
 const dir = new URL('../client/presets/', import.meta.url);
 for (const [key, [label, category, over]] of sorted) {
-  // Sustained, pitched sounds are written as piano-roll tracks (notes drawn until the next note or off); drums, noise hits and Init as steps.
-  const pianoRoll = ['Bass', 'Lead & Keys', 'Pads & FX'].includes(category);
+  // Sustained, pitched sounds are written as piano-roll tracks (notes drawn until the next note or off); drums and noise hits as steps. Init (the only Basic preset) is a piano-roll track too.
+  const pianoRoll = ['Basic', 'Bass', 'Lead & Keys', 'Pads & FX'].includes(category);
   writeFileSync(new URL(`${key}.json`, dir), JSON.stringify({ label, category, instrument: buildInstrument(key, patch(over), undefined, pianoRoll) }, null, 1) + '\n');
 }
 writeFileSync(new URL('index.json', dir), JSON.stringify(sorted.map(([k]) => k)) + '\n');

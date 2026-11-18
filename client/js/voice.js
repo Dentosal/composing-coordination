@@ -37,6 +37,68 @@ function limiterCurve() {
   return c;
 }
 
+/** Detune offsets in cents of the `n` copies of a unison oscillator. Must stay identical to `unison_offsets` in server/src/orders.rs. */
+export function unisonOffsets(n, spread) {
+  if (n <= 1) return [0];
+  return Array.from({ length: n }, (_, i) => Math.fround(spread * ((2 * i) / (n - 1) - 1)) + 0); // + 0 turns -0 into 0
+}
+
+const NYQUIST = 24000; // the server's sample rate / 2, so the tables match whatever rate the browser runs at
+
+/**
+ * Fourier coefficients ({real, imag}, index 0 unused) of a built-in wave shape shifted by `phase` cycles. Unison copies
+ * use these so they start at different points of the cycle, not all at phase 0. Must stay identical to `wave_coeffs`
+ * in server/src/render/voice.rs.
+ */
+export function unisonCoeffs(wave, harmonics, phase) {
+  const real = new Float32Array(harmonics + 1);
+  const imag = new Float32Array(harmonics + 1);
+  for (let n = 1; n <= harmonics; n++) {
+    let b;
+    if (wave === 'sine') b = n === 1 ? 1 : 0;
+    else if (wave === 'square') b = n % 2 === 1 ? 4 / (n * Math.PI) : 0;
+    else if (wave === 'sawtooth') b = (2 / (n * Math.PI)) * (n % 2 === 1 ? 1 : -1);
+    else b = (8 * Math.sin((n * Math.PI) / 2)) / (n * Math.PI) ** 2; // triangle
+    const a = 2 * Math.PI * phase * n;
+    real[n] = b * Math.sin(a);
+    imag[n] = b * Math.cos(a);
+  }
+  return { real, imag };
+}
+
+/** Harmonics in a unison copy's table: as many as fit under Nyquist at `maxHz`, rounded down to a power of two (max 512). Must stay identical to `unison_harmonics` in voice.rs. */
+export function unisonHarmonics(maxHz) {
+  const fit = Math.max(1, Math.floor(NYQUIST / maxHz));
+  let h = 1;
+  while (h * 2 <= fit && h < 512) h *= 2;
+  return h;
+}
+
+const UNISON_PHASES = [
+  [], [0],
+  [0, 0.75],
+  [0, 0.722, 0.112],
+  [0, 0.854, 0.562, 0.625],
+  [0, 0.539, 0.621, 0.96, 0.729],
+  [0, 0.78, 0.854, 0.416, 0.805, 0.531],
+  [0, 0.769, 0.086, 0.244, 0.281, 0.704, 0.105],
+];
+/** Start phase (in cycles) of copy `i` of `n`. Searched offline so the copies add up like uncorrelated signals on the low harmonics (even spacing cancels them, equal phases make the start n times as loud). Must stay identical to `unison_phase` in voice.rs. */
+export const unisonPhase = (i, n) => UNISON_PHASES[Math.min(n, 7)][i] ?? 0;
+
+const waveCache = new WeakMap(); // ctx -> Map<key, PeriodicWave>
+function unisonWave(ctx, wave, harmonics, i, n) {
+  let m = waveCache.get(ctx);
+  if (!m) waveCache.set(ctx, (m = new Map()));
+  const key = `${wave}:${harmonics}:${i}:${n}`;
+  let w = m.get(key);
+  if (!w) {
+    w = ctx.createPeriodicWave(...Object.values(unisonCoeffs(wave, harmonics, unisonPhase(i, n))));
+    m.set(key, w);
+  }
+  return w;
+}
+
 export const midiHz = (note) => 440 * 2 ** ((note - 69) / 12);
 
 const gain = (ctx, v) => {
@@ -160,17 +222,33 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
     let node;
     let params = {};
     switch (n.type) {
-      case 'osc':
-        node = ctx.createOscillator();
-        node.type = n.wave;
-        node.frequency.value = n.fixed_hz ?? hz * 2 ** ((n.semitones ?? 0) / 12);
-        node.detune.value = n.detune ?? 0;
-        // Arpeggio ticks: the detune param carries the semitone offset (in cents) on top of the oscillator's own detune.
-        if (n.fixed_hz == null) for (const [dt, semis] of plan?.pitches ?? []) node.detune.setValueAtTime((n.detune ?? 0) + semis * 100, t0 + dt);
-        node.start(t0);
-        sources.push(node);
-        params = { freq: node.frequency, detune: node.detune };
+      case 'osc': {
+        const offsets = unisonOffsets(n.unison ?? 1, n.spread ?? 0);
+        const f = n.fixed_hz ?? hz * 2 ** ((n.semitones ?? 0) / 12);
+        const topCents = (n.detune ?? 0) + Math.max(...offsets) + Math.max(0, ...(plan?.pitches ?? []).map(([, s]) => s)) * 100;
+        const harmonics = unisonHarmonics(f * 2 ** (Math.max(0, topCents) / 1200));
+        const oscs = offsets.map((off, i) => {
+          const o = ctx.createOscillator();
+          // Copies start at different points of the cycle (see unisonPhase), so they do not all add up at the start of the note.
+          if (offsets.length > 1) o.setPeriodicWave(unisonWave(ctx, n.wave, harmonics, i, offsets.length));
+          else o.type = n.wave;
+          o.frequency.value = f;
+          o.detune.value = (n.detune ?? 0) + off;
+          // Arpeggio ticks: the detune param carries the semitone offset (in cents) on top of the oscillator's own detune.
+          if (n.fixed_hz == null) for (const [dt, semis] of plan?.pitches ?? []) o.detune.setValueAtTime((n.detune ?? 0) + off + semis * 100, t0 + dt);
+          o.start(t0);
+          sources.push(o);
+          return o;
+        });
+        if (oscs.length > 1) {
+          node = gain(ctx, 1 / Math.sqrt(oscs.length));
+          for (const o of oscs) o.connect(node);
+        } else {
+          node = oscs[0];
+        }
+        params = { freq: oscs.map((o) => o.frequency), detune: oscs.map((o) => o.detune) };
         break;
+      }
       case 'noise':
         node = ctx.createBufferSource();
         node.buffer = noise.get(n.id) ?? null;
@@ -180,14 +258,14 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
         break;
       case 'gain':
         node = gain(ctx, n.gain);
-        params = { gain: node.gain };
+        params = { gain: [node.gain] };
         break;
       case 'filter':
         node = ctx.createBiquadFilter();
         node.type = n.mode;
         node.frequency.value = Math.min(22000, Math.max(10, n.freq * (hz / MIDDLE_C_HZ) ** (n.key_track ?? 0)));
         node.Q.value = n.q;
-        params = { freq: node.frequency, q: node.Q, detune: node.detune };
+        params = { freq: [node.frequency], q: [node.Q], detune: [node.detune] };
         break;
       case 'env':
         node = ctx.createConstantSource();
@@ -216,7 +294,7 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
     const b = nodes.get(to);
     if (!a || !b) continue;
     if (!port) a.node.connect(b.node);
-    else if (b.params[port]) a.node.connect(b.params[port]);
+    else for (const p of b.params[port] ?? []) a.node.connect(p);
   }
   const maxRelease = Math.max(0, ...envs.map(({ e }) => e.release));
   let released = false;
