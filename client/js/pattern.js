@@ -24,7 +24,7 @@ const rollHelp = () => [
   h('ul',
     h('li', 'Click a cell to put the cursor there; drag to select a block of cells.'),
     h('li', 'Hold ', key('Shift'), ' while clicking or dragging to paint hits (drag across tracks too). Click a hit to erase it. The "quick paint" box swaps these two.'),
-    h('li', key('Alt'), ' + click sets a hit to an accent.'),
+    h('li', key('Alt'), ' + click places an off (✕) on a cell, or removes it. A note keeps sounding through empty cells until the next note or off.'),
     h('li', 'Drag a track label up or down to reorder the tracks.'),
     h('li', 'Drag across the bar numbers to loop a region: click the loop to clear it, drag it to move it, double-click a bar to loop that bar.')),
   h('h3', 'Entering notes'),
@@ -185,20 +185,20 @@ export class PatternEditor {
   }
 
   /**
-   * Start painting hits: pressing on a hit erases (and the drag erases), on an empty cell adds; alt+click toggles an
-   * accent. The drag may run across steps and tracks alike.
+   * Start painting hits: pressing on a hit erases (and the drag erases), on an empty cell adds. The drag may run
+   * across steps and tracks alike.
    */
-  startPaint(c, accent) {
+  startPaint(c) {
     const s = this.stepAt(c.lane, c.row);
     this.pushUndo();
-    this.paint = { last: { ...c }, changed: false, mode: accent ? 'accent' : s && s.note != null ? 'erase' : 'paint' };
+    this.paint = { last: { ...c }, changed: false, mode: s && s.note != null ? 'erase' : 'paint' };
     this.paintCell(c.lane, c.row, true);
   }
 
   /** Continue a paint drag onto cell `c`, filling the cells a fast drag skipped on the straight line from the last one. */
   paintTo(c) {
     const p = this.paint;
-    if (p.mode === 'accent' || (c.lane === p.last.lane && c.row === p.last.row)) return;
+    if (c.lane === p.last.lane && c.row === p.last.row) return;
     const dl = c.lane - p.last.lane;
     const dr = c.row - p.last.row;
     const n = Math.max(Math.abs(dl), Math.abs(dr));
@@ -208,6 +208,17 @@ export class PatternEditor {
     this.cur = { ...c };
     this.render();
     if (moved) this.o.onSelect?.();
+  }
+
+  /** Alt+click: place an off (a step that ends the note) on the cell, or remove it if the cell already has one. */
+  toggleOff(c) {
+    const s = this.stepAt(c.lane, c.row);
+    this.anchor = null;
+    this.cur = { ...c };
+    this.edit(() => {
+      if (s && s.note == null) this.clearStep(c.lane, c.row);
+      else this.setStep(c.lane, c.row, null, this.vel); // replaces a note that was there
+    });
   }
 
   paintCell(lane, row, first) {
@@ -223,11 +234,6 @@ export class PatternEditor {
         p.changed = true;
         if (first) this.hearNote(lane, note, this.vel);
       }
-    } else if (first) {
-      if (on) s.vel = s.vel >= 127 ? this.vel : 127;
-      else this.setStep(lane, row, note, 127);
-      p.changed = true;
-      this.hearNote(lane, s?.note ?? note, 127);
     }
     if (p.changed) this.o.onChange();
   }
@@ -648,9 +654,15 @@ export class PatternEditor {
       if (!c || e.button !== 0) return;
       e.preventDefault(); // render() replaces the cell mid-click
       const moved = c.lane !== this.cur.lane;
+      if (e.altKey) { // an off note
+        this.toggleOff(c);
+        this.main.focus({ preventScroll: true });
+        if (moved) this.o.onSelect?.();
+        return;
+      }
       if (this.paintMode !== e.shiftKey) { // painting: plain click in quick paint mode, shift+click otherwise
         this.anchor = null;
-        this.startPaint(c, e.altKey);
+        this.startPaint(c);
       } else if (e.shiftKey) { // quick paint mode + shift: extend the selection from the cursor to here
         this.anchor ??= { ...this.cur };
       } else { // selecting: the click puts the cursor here, dragging grows a rectangle from it
@@ -767,7 +779,7 @@ export class PatternEditor {
 
   /**
    * The track view (a "drum roll"): the whole song laid out horizontally, a row per track (bars, beats, steps). Click or drag
-   * to paint hits like on pad tracks (alt+click: accent). Arrow keys: left/right in time, up/down between tracks.
+   * to paint hits (alt+click: place an off). Arrow keys: left/right in time, up/down between tracks.
    */
   renderRoll() {
     const rpb = this.o.rowsPerBar;
@@ -833,8 +845,8 @@ export class PatternEditor {
         cell.dataset.lane = String(li);
         cell.dataset.row = String(r);
         if (s) {
-          cell.title = s.note == null ? 'note off' : `${noteName(s.note)} · velocity ${s.vel}`;
-          if (s.note == null) cell.append(h('div.rc-text', h('span', 'off')));
+          cell.title = s.note == null ? 'Off: ends the note (alt+click to remove)' : `${noteName(s.note)} · velocity ${s.vel}`;
+          if (s.note == null) cell.append(h('div.rc-text', h('span.off-mark', '✕')));
           else {
             cell.style.setProperty('--a', `${Math.round((0.3 + 0.7 * s.vel / 127) * 100)}%`); // louder hits are brighter
             if (s.vel < 70) cell.classList.add('soft'); // the bright background needs dark text, the dim one light text
