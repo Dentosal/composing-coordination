@@ -191,10 +191,7 @@ export class InstrumentPanel {
   /** Overwrite the active track's patch with a preset. */
   loadPreset(key) {
     const p = this.o.presets.get(key);
-    const id = this.active?.id;
-    if (!p) return;
-    this.replaceActive(structuredClone(p.instrument), p.label ?? key);
-    if (id) this.o.onLoadPreset?.(id);
+    if (p) this.replaceActive(structuredClone(p.instrument), p.label ?? key);
   }
 
   /** Save the active track's patch as a .json file the user can keep and import later. */

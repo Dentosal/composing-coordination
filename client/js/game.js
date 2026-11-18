@@ -44,7 +44,6 @@ export class Game {
     this.previewMsg = '';
     // Local-only listening state per track (keyed by instrument id). Never part of the orders, so it can't be committed.
     this.muted = new Set();
-    this.padView = new Map(); // instrument id -> true: shown as pads, false: as text (unset: by preset, see isPads)
     this.solo = new Set();
     this.playing = false;
     this.mixRound = null;
@@ -305,11 +304,9 @@ export class Game {
       isAudible: (id) => this.isAudible(id),
       onToggleMute: (id) => this.toggleMute(id),
       onToggleSolo: (id) => this.toggleSolo(id),
-      isPads: (id) => this.isPads(id),
-      onToggleView: (id) => { this.padView.set(id, !this.isPads(id)); this.pattern.render(); },
     });
     this.panel = new InstrumentPanel(instRoot, {
-      presets: this.presets, onLoadPreset: (id) => { this.padView.delete(id); this.pattern.render(); }, bpm: cfg.bpm, seed: cfg.seed, getActive: () => this.pattern.cur.lane,
+      presets: this.presets, bpm: cfg.bpm, seed: cfg.seed, getActive: () => this.pattern.cur.lane,
       getOrders: () => this.orders, onChange: () => { this.touch(); this.pattern.syncHeads(); },
       onRename: () => this.pattern.syncHeads(),
     });
@@ -363,13 +360,6 @@ export class Game {
     if (this.solo.size) listenText = 'Solo: the band mix is silenced; you hear only the soloed track(s) of your draft.';
     else if (this.muted.size) listenText = 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
     r.mixInfo.textContent = [mixText, previewText, listenText].filter(Boolean).join(' ');
-  }
-
-  /** Pad view unless the user chose otherwise: on by default for tracks loaded from a Drums preset (matched by name). */
-  isPads(id) {
-    if (this.padView.has(id)) return this.padView.get(id);
-    const name = this.orders.instruments.find((i) => i.id === id)?.name;
-    return !!name && [...this.presets.values()].some((p) => p.category === 'Drums' && p.label === name);
   }
 
   /** With a track soloed only that track is heard, otherwise everything not muted. */

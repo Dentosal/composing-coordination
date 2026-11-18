@@ -27,8 +27,7 @@ export class PatternEditor {
    *   onAudition?:(lane:number, note:number, vel:number)=>void,
    *   isMuted?:(id:string)=>boolean, isSolo?:(id:string)=>boolean, isAudible?:(id:string)=>boolean,
    *   onToggleMute?:(id:string)=>void, onToggleSolo?:(id:string)=>void,
-   *   isPads?:(id:string)=>boolean, onToggleView?:(id:string)=>void,
-   *   onPlay?:(kind:'cursor'|'region', fromRow:number, toRow?:number)=>void}} opts
+   *    *   onPlay?:(kind:'cursor'|'region', fromRow:number, toRow?:number)=>void}} opts
    */
   constructor(root, opts) {
     this.root = root;
@@ -39,21 +38,29 @@ export class PatternEditor {
     this.vel = 100;
     this.step = 1; // rows the cursor advances after entering a note
     this.hear = true; // sound the active track's patch while entering notes
+    // Mouse: by default click/drag selects and shift paints; "direct paint" swaps the two.
+    this.paintMode = false;
+    try { this.paintMode = localStorage.getItem('directPaint') === '1'; } catch {}
+    this.drag = null; // selecting with the mouse: the cell the drag started on
     this.undoStack = [];
     this.redoStack = [];
-    this.drag = null;
-    this.headDrag = null; // reordering a track by its header: {from, x, active, ins}
+    this.headDrag = null; // reordering a track by its label: {from, y, active, ins}
     this.paint = null; // pad-column painting in progress: {lane, last, mode, changed}
     this.lastNote = new Map(); // instrument id -> note most recently entered on its track (what a pad hit plays)
-    this.rowEls = [];
     this.playRow = -1;
-    this.grid = h('div.grid', { tabindex: '0', onkeydown: (e) => this.onKey(e) });
     this.bar = this.buildBar();
     this.status = h('div.pattern-status');
     this.help = h('div.pattern-help');
     this.msg = '';
+    // The labels column stays put; only the steps (rollScroll) scroll sideways. Both persist across renders so the scroll position survives edits.
+    this.rollLabels = h('div.roll-labels');
+    this.rollScroll = h('div.roll-scroll');
+    this.roll = h('div.roll', this.rollLabels, this.rollScroll);
+    this.rollCols = []; // per step column of the drum roll: its cells, for the playhead
     this.initMouse();
-    root.append(this.bar, this.grid, this.status, this.help);
+    this.main = h('div.pattern-main', { tabindex: '0', onkeydown: (e) => this.onKey(e) }, this.roll); // takes the keyboard
+    this.main.classList.toggle('paint-mode', this.paintMode);
+    root.append(this.bar, this.main, this.status, this.help);
     this.render();
   }
 
@@ -69,17 +76,25 @@ export class PatternEditor {
   // ------------------------------------------------------------ toolbar
 
   buildBar() {
-    const act = (fn) => () => { fn(); this.grid.focus({ preventScroll: true }); };
+    const act = (fn) => () => { fn(); this.main.focus({ preventScroll: true }); };
     const btn = (label, title, fn) => h('button.small', { type: 'button', title, onclick: act(fn) }, label);
     this.undoBtn = btn('↶ Undo', 'Undo (Ctrl+Z)', () => this.undo());
     this.redoBtn = btn('↷ Redo', 'Redo (Ctrl+Shift+Z)', () => this.redo());
     const stepSel = h('select', { title: 'Rows the cursor advances after each note',
-      onchange: (e) => { this.step = Number(e.target.value); this.renderStatus(); this.grid.focus({ preventScroll: true }); } },
+      onchange: (e) => { this.step = Number(e.target.value); this.renderStatus(); this.main.focus({ preventScroll: true }); } },
       STEPS.map((n) => h('option', { value: n, selected: n === this.step }, String(n))));
     const hear = h('label.check', h('input', { type: 'checkbox', checked: this.hear,
       onchange: (e) => { this.hear = e.target.checked; } }), 'hear notes');
+    const direct = h('label.check', { title: 'Off: click or drag selects cells, shift+click or shift+drag paints hits. On: the other way round.' },
+      h('input', { type: 'checkbox', checked: this.paintMode, onchange: (e) => {
+        this.paintMode = e.target.checked;
+        try { localStorage.setItem('directPaint', this.paintMode ? '1' : '0'); } catch {}
+        this.main.classList.toggle('paint-mode', this.paintMode);
+        this.renderStatus();
+        this.main.focus({ preventScroll: true });
+      } }), 'direct paint');
     return h('div.pattern-bar',
-      h('label', 'step', stepSel), hear,
+      h('label', 'step', stepSel), hear, direct,
       h('span.sep'), this.undoBtn, this.redoBtn,
       h('span.sep'),
       btn('Duplicate', 'Copy the selection (default: this bar) right below it (Ctrl+D)', () => this.duplicate()),
@@ -119,16 +134,15 @@ export class PatternEditor {
     }
   }
 
-  /** True when the track is shown as pads (one hit per row) instead of text cells. Same data either way. */
-  isPadLane(lane) {
-    const l = this.orders.lanes[lane];
-    return !!l && !!this.o.isPads?.(l.instrument);
-  }
-
   /** The note a new pad hit gets: the last one typed on this track, else its first note, else C of the current octave. */
   hitNote(lane) {
     const l = this.orders.lanes[lane];
     return this.lastNote.get(l?.instrument) ?? l?.steps.find((s) => s.note != null)?.note ?? (this.octave + 1) * 12;
+  }
+
+  /** The lanes of rectangle `rc`. */
+  lanesOf({ l0, l1 }) {
+    return Array.from({ length: l1 - l0 + 1 }, (_, i) => l0 + i);
   }
 
   /** Keyboard: add a hit at the cursor with the track's hit note, or remove the one that is there. */
@@ -148,6 +162,20 @@ export class PatternEditor {
     this.pushUndo();
     this.paint = { lane: c.lane, last: c.row, changed: false, mode: accent ? 'accent' : s && s.note != null ? 'erase' : 'paint' };
     this.paintCell(c.row, true);
+  }
+
+  /** Continue a paint drag onto cell `c` (same track only), filling any rows a fast drag skipped. */
+  paintTo(c) {
+    const p = this.paint;
+    if (c.lane !== p.lane || c.row === p.last || p.mode === 'accent') return;
+    const dir = Math.sign(c.row - p.last);
+    for (let r = p.last + dir; ; r += dir) {
+      this.paintCell(r, false);
+      if (r === c.row) break;
+    }
+    p.last = c.row;
+    this.cur = { lane: p.lane, row: c.row };
+    this.render();
   }
 
   paintCell(row, first) {
@@ -259,16 +287,13 @@ export class PatternEditor {
   // ---- block operations
 
   capture({ l0, l1, r0, r1 }) {
-    const lanes = [];
-    for (let l = l0; l <= l1; l++) {
-      lanes.push((this.orders.lanes[l]?.steps ?? []).filter((s) => s.row >= r0 && s.row <= r1)
-        .map((s) => ({ row: s.row - r0, note: s.note, vel: s.vel })));
-    }
+    const lanes = this.lanesOf({ l0, l1 }).map((l) => (this.orders.lanes[l]?.steps ?? [])
+      .filter((s) => s.row >= r0 && s.row <= r1).map((s) => ({ row: s.row - r0, note: s.note, vel: s.vel })));
     return { rows: r1 - r0 + 1, lanes };
   }
 
   clearRect({ l0, l1, r0, r1 }) {
-    for (let l = l0; l <= l1; l++) {
+    for (const l of this.lanesOf({ l0, l1 })) {
       const lane = this.orders.lanes[l];
       if (lane) lane.steps = lane.steps.filter((s) => s.row < r0 || s.row > r1);
     }
@@ -290,13 +315,13 @@ export class PatternEditor {
   copy() {
     const rc = this.rect();
     clipboard = this.capture(rc);
-    this.flash(`Copied ${rc.r1 - rc.r0 + 1} row(s) × ${rc.l1 - rc.l0 + 1} track(s)`);
+    this.flash(`Copied ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)`);
   }
 
   cut() {
     const rc = this.rect();
     clipboard = this.capture(rc);
-    this.flash(`Cut ${rc.r1 - rc.r0 + 1} row(s) × ${rc.l1 - rc.l0 + 1} track(s)`);
+    this.flash(`Cut ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)`);
     this.edit(() => this.clearRect(rc));
   }
 
@@ -363,7 +388,7 @@ export class PatternEditor {
     const rc = this.rect();
     let n = 0;
     this.pushUndo();
-    for (let l = rc.l0; l <= rc.l1; l++) {
+    for (const l of this.lanesOf(rc)) {
       for (const st of this.orders.lanes[l]?.steps ?? []) {
         if (st.row < rc.r0 || st.row > rc.r1 || st.note == null) continue;
         st.note = clamp(st.note + delta, 0, 127);
@@ -412,16 +437,12 @@ export class PatternEditor {
     return i?.name || i?.id || '';
   }
 
-  /** Refresh header names and volumes in place (after an edit made elsewhere); keeps focus and drags intact. */
+  /** Refresh track names in place (after an edit made elsewhere); keeps focus and drags intact. */
   syncHeads() {
-    this.grid.querySelectorAll('.lane-head').forEach((el, li) => {
-      const lane = this.orders.lanes[li];
-      if (!lane) return;
-      const name = el.querySelector('.lane-name');
-      if (name) { name.textContent = this.nameOf(lane); name.title = name.textContent; }
-      const vol = el.querySelector('.lane-vol');
-      const g = String(this.instOf(lane)?.gain ?? 0.8);
-      if (vol && vol !== document.activeElement && vol.value !== g) vol.value = g;
+    this.roll.querySelectorAll('.roll-label[data-lane]').forEach((el) => {
+      const lane = this.orders.lanes[Number(el.dataset.lane)];
+      const name = el.querySelector('.roll-name');
+      if (lane && name) { name.textContent = this.nameOf(lane); el.title = name.textContent; }
     });
   }
 
@@ -430,7 +451,7 @@ export class PatternEditor {
     this.cur.lane = lane;
     this.anchor = null;
     this.render();
-    this.grid.focus({ preventScroll: true });
+    this.main.focus({ preventScroll: true });
     if (moved) this.o.onSelect?.();
   }
 
@@ -486,11 +507,11 @@ export class PatternEditor {
     if (e.altKey) return;
 
     const ext = e.shiftKey;
-    switch (e.key) {
-      case 'ArrowUp': this.move(0, -1, ext); break;
-      case 'ArrowDown': this.move(0, 1, ext); break;
-      case 'ArrowLeft': this.move(-1, 0, ext); break;
-      case 'ArrowRight': this.move(1, 0, ext); break;
+    switch (e.key) { // time runs left to right and the tracks stack up and down
+      case 'ArrowUp': this.move(-1, 0, ext); break;
+      case 'ArrowDown': this.move(1, 0, ext); break;
+      case 'ArrowLeft': this.move(0, -1, ext); break;
+      case 'ArrowRight': this.move(0, 1, ext); break;
       case 'Tab': this.move(e.shiftKey ? -1 : 1, 0); break;
       case 'PageUp': this.move(0, -this.o.rowsPerBar, ext); break;
       case 'PageDown': this.move(0, this.o.rowsPerBar, ext); break;
@@ -518,7 +539,7 @@ export class PatternEditor {
         if (this.hasSel) {
           const rc = this.rect();
           this.edit(() => {
-            for (let l = rc.l0; l <= rc.l1; l++) {
+            for (const l of this.lanesOf(rc)) {
               for (const st of this.orders.lanes[l]?.steps ?? []) {
                 if (st.row >= rc.r0 && st.row <= rc.r1 && st.note != null) st.vel = clamp(st.vel + d, 1, 127);
               }
@@ -547,49 +568,34 @@ export class PatternEditor {
   // ------------------------------------------------------------ mouse
 
   initMouse() {
-    const cellAt = (e) => {
-      const c = e.target instanceof Element ? e.target.closest('.cell') : null;
+    const rollCellAt = (e) => {
+      const c = e.target instanceof Element ? e.target.closest('.roll-cell') : null;
       return c ? { lane: Number(c.dataset.lane), row: Number(c.dataset.row) } : null;
     };
-    this.grid.addEventListener('mousedown', (e) => {
-      const c = cellAt(e);
+    this.roll.addEventListener('mousedown', (e) => {
+      const c = rollCellAt(e);
       if (!c || e.button !== 0) return;
-      // preventDefault: render() replaces this cell mid-click, and browsers that then run the default focus
-      // step on the detached node (Safari, Firefox) leave the grid unfocused.
-      e.preventDefault();
+      e.preventDefault(); // render() replaces the cell mid-click
       const moved = c.lane !== this.cur.lane;
-      if (e.shiftKey) {
-        this.anchor ??= { ...this.cur };
-      } else if (this.isPadLane(c.lane)) {
+      if (this.paintMode !== e.shiftKey) { // painting: plain click in direct paint mode, shift+click otherwise
         this.anchor = null;
         this.startPaint(c, e.altKey);
-      } else {
+      } else if (e.shiftKey) { // direct paint mode + shift: extend the selection from the cursor to here
+        this.anchor ??= { ...this.cur };
+      } else { // selecting: the click puts the cursor here, dragging grows a rectangle from it
         this.anchor = null;
         this.drag = c;
       }
       this.cur = { ...c };
       this.render();
-      this.grid.focus({ preventScroll: true });
+      this.main.focus({ preventScroll: true });
       if (moved) this.o.onSelect?.();
     });
-    this.grid.addEventListener('mouseover', (e) => {
-      const p = this.paint;
-      if (p) {
-        const c = cellAt(e);
-        if (!c || c.lane !== p.lane || c.row === p.last || p.mode === 'accent') return;
-        const dir = Math.sign(c.row - p.last);
-        for (let r = p.last + dir; ; r += dir) { // fill rows skipped by a fast drag
-          this.paintCell(r, false);
-          if (r === c.row) break;
-        }
-        p.last = c.row;
-        this.cur = { lane: p.lane, row: c.row };
-        this.render();
-        return;
-      }
-      if (!this.drag) return;
-      const c = cellAt(e);
-      if (!c || (c.lane === this.cur.lane && c.row === this.cur.row)) return;
+    this.roll.addEventListener('mouseover', (e) => {
+      const c = rollCellAt(e);
+      if (!c) return;
+      if (this.paint) return this.paintTo(c);
+      if (!this.drag || (c.lane === this.cur.lane && c.row === this.cur.row)) return;
       const moved = c.lane !== this.cur.lane;
       this.anchor = { ...this.drag };
       this.cur = { ...c };
@@ -602,7 +608,7 @@ export class PatternEditor {
       const d = this.headDrag;
       this.headDrag = null;
       if (d?.active) {
-        this.grid.classList.remove('reordering');
+        this.main.classList.remove('reordering');
         const to = d.ins > d.from ? d.ins - 1 : d.ins;
         if (to !== d.from) this.moveTrack(d.from, to);
         else this.render();
@@ -630,133 +636,171 @@ export class PatternEditor {
     this.o.onSelect?.();
   }
 
-  /** Header drag: mark where the track would land (before the head under the pointer's left half). */
+  /**
+   * Track drag (a roll label, up and down): mark where the track would land. `ins` is the lane index it would be
+   * inserted before (lane count: at the end).
+   */
   onHeadDrag(e) {
     const d = this.headDrag;
     if (!d) return;
     if (!d.active) {
-      if (Math.abs(e.clientX - d.x) < 6) return;
+      if (Math.abs(e.clientY - d.y) < 6) return;
       d.active = true;
-      this.grid.classList.add('reordering');
+      this.main.classList.add('reordering');
     }
-    const heads = [...this.grid.querySelectorAll('.lane-head')];
-    let ins = heads.findIndex((el) => { const r = el.getBoundingClientRect(); return e.clientX < r.left + r.width / 2; });
-    if (ins < 0) ins = heads.length;
-    d.ins = ins;
-    heads.forEach((el, i) => {
-      el.classList.toggle('dragging', i === d.from);
-      el.classList.toggle('drop-before', i === ins);
-      el.classList.toggle('drop-after', ins === heads.length && i === heads.length - 1);
+    const items = [...this.roll.querySelectorAll('.roll-row:not(.head)')];
+    let k = items.findIndex((el) => { const r = el.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+    if (k < 0) k = items.length;
+    d.ins = k < items.length ? Number(items[k].dataset.lane) : Number(items[items.length - 1].dataset.lane) + 1;
+    items.forEach((el, i) => {
+      for (const m of [el, this.rollLabels.querySelector(`.roll-label[data-lane="${el.dataset.lane}"]`)]) { // the row and its label
+        m?.classList.toggle('dragging', Number(el.dataset.lane) === d.from);
+        m?.classList.toggle('drop-before', i === k);
+        m?.classList.toggle('drop-after', k === items.length && i === items.length - 1);
+      }
     });
   }
 
   /** Highlight the playing row (null clears). */
   setPlayhead(row) {
     if (row === this.playRow) return;
-    this.rowEls[this.playRow]?.classList.remove('play');
     this.playRow = row ?? -1;
-    this.rowEls[this.playRow]?.classList.add('play');
+    this.markRollPlayhead();
+    this.followPlayhead();
+  }
+
+  /** While playing, scroll the roll when the playhead leaves the visible steps (back to the start when the loop wraps). */
+  followPlayhead() {
+    const cell = this.playRow >= 0 ? this.rollCols[this.playRow]?.[0] : null;
+    if (!cell) return;
+    const box = this.rollScroll.getBoundingClientRect();
+    const c = cell.getBoundingClientRect();
+    if (c.left >= box.left && c.right <= box.right) return;
+    this.rollScroll.scrollLeft += c.left - box.left - 24; // land a little in from the left edge
+  }
+
+  /** Drum roll: the playing step's column. */
+  markRollPlayhead() {
+    for (const col of this.rollCols) for (const el of col) el.classList.remove('play');
+    if (this.playRow >= 0) for (const el of this.rollCols[this.playRow] ?? []) el.classList.add('play');
+  }
+
+  /**
+   * The track view (a "drum roll"): the whole song laid out horizontally, a row per track (bars, beats, steps). Click or drag
+   * to paint hits like on pad tracks (alt+click: accent). Arrow keys: left/right in time, up/down between tracks.
+   */
+  renderRoll() {
+    const rpb = this.o.rowsPerBar;
+    const bars = Math.ceil(this.o.totalRows / rpb);
+    const beat = rpb / 4;
+    const tracks = this.orders.lanes.map((lane, li) => ({ lane, li }));
+    this.rollCols = Array.from({ length: this.o.totalRows }, () => []);
+    clear(this.rollLabels);
+    clear(this.rollScroll);
+    this.roll.style.setProperty('--beat', String(beat));
+    this.rollLabels.append(h('div.roll-title', 'Tracks'));
+    // Bars hold beat groups of `beat` steps: the groups and bars get the gaps, so every cell has the same width.
+    const stepsOf = (row, fn) => {
+      const body = h('div.roll-body');
+      for (let b = 0; b < bars; b++) {
+        const bar = h('div.roll-bar');
+        for (let g = 0; g < 4; g++) {
+          const group = h('div.roll-group');
+          for (let c = 0; c < beat; c++) fn(group, b * rpb + g * beat + c, c === 0, g === 0 && c === 0);
+          bar.append(group);
+        }
+        body.append(bar);
+      }
+      row.append(body);
+    };
+    const head = h('div.roll-row.head');
+    stepsOf(head, (group, r, beatStart, barStart) => {
+      const bar = Math.floor(r / rpb) + 1;
+      const n = (r % rpb) / beat + 1;
+      group.append(h('div', { class: `roll-num${barStart ? ' bar' : ''}` }, beatStart ? h('span', barStart ? `${bar}` : `${bar}.${n}`) : null));
+    });
+    this.rollScroll.append(head);
+    for (const { lane, li } of tracks) {
+      const id = lane.instrument;
+      const audible = this.o.isAudible ? this.o.isAudible(id) : true;
+      const state = `${li === this.cur.lane ? ' active' : ''}${audible ? '' : ' silent'}`;
+      const label = h('div', { class: `roll-label${state}`,
+        title: `${this.nameOf(lane)} (drag to reorder)`,
+        onmousedown: (e) => {
+          e.preventDefault();
+          if (e.button === 0) this.headDrag = { from: li, x: e.clientX, y: e.clientY, axis: 'y', active: false, ins: li };
+          this.select(li);
+        } },
+        h('strong', String(li + 1)), h('span.roll-name', this.nameOf(lane)), h('span.roll-btns', this.muteSoloBtns(id)));
+      label.dataset.lane = String(li);
+      this.rollLabels.append(label);
+      const row = h('div', { class: `roll-row${state}` });
+      row.dataset.lane = String(li);
+      stepsOf(row, (group, r) => {
+        const s = lane.steps.find((x) => x.row === r);
+        let cls = 'roll-cell';
+        if (s) cls += s.note == null ? ' off' : ' hit';
+        if (li === this.cur.lane && r === this.cur.row) cls += ' cur';
+        if (this.inSel(li, r)) cls += ' sel';
+        const cell = h('div', { class: cls });
+        cell.dataset.lane = String(li);
+        cell.dataset.row = String(r);
+        if (s) {
+          cell.title = s.note == null ? 'note off' : `${noteName(s.note)} · velocity ${s.vel}`;
+          if (s.note == null) cell.append(h('div.rc-text', h('span', 'off')));
+          else {
+            cell.style.setProperty('--a', `${Math.round((0.3 + 0.7 * s.vel / 127) * 100)}%`); // louder hits are brighter
+            if (s.vel < 70) cell.classList.add('soft'); // the bright background needs dark text, the dim one light text
+            cell.append(h('div.rc-text', h('span', noteName(s.note).replace('-', '')), h('span.rc-v', String(s.vel))));
+          }
+        }
+        this.rollCols[r].push(cell);
+        group.append(cell);
+      });
+      this.rollScroll.append(row);
+    }
+    this.markRollPlayhead();
   }
 
   renderStatus() {
     const rc = this.rect();
-    const sel = this.hasSel ? ` · selected ${rc.r1 - rc.r0 + 1} row(s) × ${rc.l1 - rc.l0 + 1} track(s)` : '';
-    const base = `octave ${this.octave} · velocity ${this.vel} · step ${this.step}${sel}`;
+    const sel = this.hasSel ? ` · selected ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)` : '';
+    const cs = this.stepAt(this.cur.lane, this.cur.row);
+    const at = `track ${this.cur.lane + 1}, row ${this.cur.row}: ${cs ? (cs.note == null ? 'note off' : `${noteName(cs.note)} vel ${cs.vel}`) : 'empty'}`;
+    const base = `${at} · octave ${this.octave} · velocity ${this.vel} · step ${this.step}${sel}`;
     this.status.textContent = this.msg ? `${this.msg} · ${base}` : base; // a transient message never hides the selection
     this.help.textContent =
       'keys: z s x d c v … piano, q 2 w 3 e … upper octave · ` or 1 note-off · ⌫ clear · [ ] octave · - = velocity · ' +
-      'shift+arrows or drag select · ctrl+c/x/v copy/cut/paste · ctrl+z undo · ctrl+d duplicate · ctrl+e repeat to end · ' +
-      'drag a track header to reorder · pad tracks: click or drag to add/erase hits · alt+click accent · a toggle hit at cursor · ' +
+      'shift+arrows select · ctrl+c/x/v copy/cut/paste · ctrl+z undo · ctrl+d duplicate · ctrl+e repeat to end · ' +
+      'drag a track label to reorder · click or drag selects, shift+click or shift+drag paints hits ("direct paint" swaps them), alt+click accent · arrows: left/right in time, up/down between tracks · a toggle hit at cursor · ' +
       'alt+↑↓ transpose (+shift: octave) · enter play from cursor · shift+enter loop selection · space play/stop';
   }
 
+  /** A mute / solo button for a track label. */
+  laneBtn(id, kind, title, pressed, ico, fn) {
+    return h('button', { type: 'button', class: `lane-btn ${kind}${pressed ? ' on' : ''}`, title, 'aria-label': title,
+      'aria-pressed': String(pressed),
+      onmousedown: (e) => e.stopPropagation(), // don't select the track / re-render before the click lands
+      onclick: () => { fn(id); this.main.focus({ preventScroll: true }); } }, icon(ico));
+  }
+
+  muteSoloBtns(id) {
+    const muted = !!this.o.isMuted?.(id);
+    const solo = !!this.o.isSolo?.(id);
+    return [
+      this.laneBtn(id, 'mute', muted ? 'Unmute track' : 'Mute track', muted, muted ? 'muted' : 'speaker', (i) => this.o.onToggleMute?.(i)),
+      this.laneBtn(id, 'solo', solo ? 'Stop listening only to this track' : 'Only listen to this track', solo, 'headphones', (i) => this.o.onToggleSolo?.(i)),
+    ];
+  }
+
   render() {
-    const orders = this.orders;
-    const lanes = orders.lanes;
+    const lanes = this.orders.lanes;
     if (this.cur.lane >= lanes.length) this.cur.lane = Math.max(0, lanes.length - 1);
-    const hadFocus = this.grid.contains(document.activeElement) || document.activeElement === this.grid;
-    clear(this.grid);
-    this.rowEls = [];
-    this.grid.style.setProperty('--lanes', Math.max(1, lanes.length));
-
-    const head = h('div.grid-row.head', h('div.rownum', ''));
-    lanes.forEach((lane, li) => {
-      const id = lane.instrument;
-      const muted = !!this.o.isMuted?.(id);
-      const solo = !!this.o.isSolo?.(id);
-      const audible = this.o.isAudible ? this.o.isAudible(id) : true;
-      const pads = !!this.o.isPads?.(id);
-      const lbtn = (kind, title, pressed, ico, fn) => {
-        const b = h('button', { type: 'button', class: `lane-btn ${kind}${pressed ? ' on' : ''}`, title, 'aria-label': title,
-          'aria-pressed': String(pressed),
-          onmousedown: (e) => e.stopPropagation(), // don't select the track / re-render before the click lands
-          onclick: () => { fn(id); this.grid.focus({ preventScroll: true }); } }, icon(ico));
-        return b;
-      };
-      head.append(
-        h('div', { class: `lane-head${li === this.cur.lane ? ' active' : ''}${muted ? ' muted' : ''}${solo ? ' soloed' : ''}${audible ? '' : ' silent'}`,
-          onmousedown: (e) => {
-            e.preventDefault();
-            if (e.button === 0) this.headDrag = { from: li, x: e.clientX, active: false, ins: li };
-            this.select(li);
-          } },
-          h('strong', `Track ${li + 1}`),
-          h('div.lane-name', { title: this.nameOf(lane) }, this.nameOf(lane)),
-          h('input.lane-vol', { type: 'range', min: '0', max: '1', step: '0.01', title: 'Track volume',
-            value: String(this.instOf(lane)?.gain ?? 0.8),
-            // No selection / re-render on press: this slider must survive the drag.
-            onmousedown: (e) => e.stopPropagation(),
-            oninput: (e) => {
-              const inst = this.instOf(lane);
-              if (!inst) return;
-              inst.gain = Number(e.target.value);
-              this.o.onChange();
-              this.o.onVolume?.();
-            } }),
-          h('div.lane-btns',
-            lbtn('mute', muted ? 'Unmute track' : 'Mute track', muted, muted ? 'muted' : 'speaker', (i) => this.o.onToggleMute?.(i)),
-            lbtn('solo', solo ? 'Stop listening only to this track' : 'Only listen to this track', solo, 'headphones', (i) => this.o.onToggleSolo?.(i)),
-            lbtn('view', pads ? 'Show this track as note text' : 'Show this track as pads (one hit per row)', pads, 'pads', (i) => this.o.onToggleView?.(i)))),
-      );
-    });
-    this.grid.append(head);
-
-    const padLane = lanes.map((l) => !!this.o.isPads?.(l.instrument));
-    const rpb = this.o.rowsPerBar / 4;
-    for (let r = 0; r < this.o.totalRows; r++) {
-      const row = h('div.grid-row', { class: [r % this.o.rowsPerBar === 0 ? 'bar' : '', r % rpb === 0 ? 'beat' : ''].join(' ') },
-        h('div.rownum', String(r).padStart(2, '0')));
-      lanes.forEach((lane, li) => {
-        const s = lane.steps.find((x) => x.row === r);
-        let text = '··· ···';
-        let cls = 'cell';
-        if (padLane[li]) { // pads: the cell is drawn by CSS (a bar whose strength follows the velocity)
-          text = '';
-          cls += ' pad';
-          if (s) cls += s.note == null ? ' off' : ' hit';
-        } else if (s) {
-          if (s.note == null) { text = 'OFF'; cls += ' off'; }
-          else { text = `${noteName(s.note)} ${String(s.vel).padStart(3, ' ')}`; cls += ' note'; }
-        }
-        if (li === this.cur.lane) cls += r === this.cur.row ? ' cur' : ' laneact';
-        if (this.inSel(li, r)) cls += ' sel';
-        if (this.o.isAudible && !this.o.isAudible(lane.instrument)) cls += ' silent';
-        const cell = h('div', { class: cls }, text);
-        if (padLane[li] && s) {
-          cell.style.setProperty('--v', String(s.vel / 127));
-          cell.title = s.note == null ? 'note off' : `${noteName(s.note)} · velocity ${s.vel}`;
-        }
-        cell.dataset.lane = String(li);
-        cell.dataset.row = String(r);
-        row.append(cell);
-      });
-      this.rowEls.push(row);
-      this.grid.append(row);
-    }
-    if (this.playRow >= 0) this.rowEls[this.playRow]?.classList.add('play');
+    const hadFocus = this.main.contains(document.activeElement);
+    this.renderRoll();
     this.renderStatus();
     this.updateBar();
-    if (hadFocus) this.grid.focus({ preventScroll: true });
-    this.grid.querySelector('.cur')?.scrollIntoView({ block: 'nearest' });
+    if (hadFocus && document.activeElement !== this.main) this.main.focus({ preventScroll: true });
+    this.roll.querySelector('.roll-cell.cur')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }

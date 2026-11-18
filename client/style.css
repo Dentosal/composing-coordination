@@ -138,32 +138,8 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .osc-opts { display: flex; gap: 14px; flex-wrap: wrap; }
 
 .pattern { overflow-x: auto; }
-.grid { font-family: var(--mono); font-size: .9rem; outline: none; max-height: 62vh; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #101217; width: fit-content; max-width: 100%; }
-.grid:focus-visible { border-color: var(--accent); }
-.grid-row { display: grid; grid-template-columns: 34px repeat(var(--lanes), 120px); }
-.grid-row.head { position: sticky; top: 0; z-index: 2; background: var(--panel2); }
-.grid-row.beat .cell, .grid-row.beat .rownum { background: #161923; }
-.grid-row.bar .cell, .grid-row.bar .rownum { background: #1c2030; border-top: 1px solid var(--line); }
-.grid-row.play .cell, .grid-row.play .rownum { background: #3a2f12; }
-.rownum { color: var(--muted); text-align: right; padding: 1px 6px; }
-.cell { padding: 1px 8px; white-space: pre; color: #4a5064; cursor: pointer; border-left: 1px solid var(--line); }
-.cell.note { color: var(--text); }
-.cell.off { color: var(--muted); }
 /* Cursor and selection only lighten the cell: colours are never inverted, so a note or pad hit keeps its own colour. */
-.cell.cur { background: rgba(255, 255, 255, .22) !important; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55); }
-.lane-head { display: flex; gap: 4px; padding: 4px; border-left: 1px solid var(--line); }
-.lane-head { flex-direction: column; gap: 2px; cursor: pointer; min-width: 0; }
-.lane-name { font-size: .8rem; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lane-vol { width: 100%; margin: 2px 0 0; }
 /* Active track: a soft accent tint with a bar on top, so it never competes with the solo button's solid accent fill. */
-.lane-head.active { background: color-mix(in srgb, var(--accent) 16%, var(--panel2)); box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 70%, transparent); }
-/* Pad view: one bar per row; a hit is filled, its strength follows the velocity. */
-.cell.pad { display: flex; align-items: center; padding-top: 0; padding-bottom: 0; min-height: 1.3em; }
-.cell.pad::before { content: ''; flex: 1; height: .8em; border-radius: 3px; background: #232838; }
-.cell.pad.hit::before { background: var(--accent); opacity: calc(.3 + .7 * var(--v, 1)); }
-.cell.pad.off::before { background: transparent; border: 1px dashed var(--muted); }
-.lane-btn.view.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.cell.laneact { box-shadow: inset 0 0 0 100px rgba(255,255,255,.05); }
 .pattern-help { margin-top: 8px; color: var(--muted); font-size: .8rem; }
 .empty { padding: 20px; color: var(--muted); font-family: system-ui; }
 .commit-info { font-size: .85rem; }
@@ -217,34 +193,57 @@ input[type=range] { accent-color: var(--accent); }
 
 .loader > button.hint { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 
+/* Pattern area: the drum roll (pad tracks, whole song across) above the track grid (note tracks). */
+.pattern-main { display: flex; flex-direction: column; gap: 16px; align-items: flex-start; outline: none; }
+.pattern-main:focus-visible .roll-scroll { box-shadow: 0 0 0 1px var(--accent); border-radius: 4px; }
+.pattern-main.paint-mode .roll-cell { cursor: crosshair; }
+.pattern-main.reordering, .pattern-main.reordering * { cursor: grabbing; }
+.roll { display: flex; width: 100%; font-size: .8rem; color: var(--muted); }
+/* Labels stay put on the left; the steps scroll sideways beside them when the song is wider than the page. */
+.roll-labels { flex: 0 0 160px; }
+.roll-scroll { flex: 1; min-width: 0; overflow-x: auto; padding: 0 3px 6px; }
+.roll-title { height: 18px; margin-bottom: 3px; text-transform: uppercase; letter-spacing: .06em; font-size: .72rem; }
+.roll-row { display: flex; align-items: stretch; margin-bottom: 3px; width: max-content; min-width: 100%; }
+.roll-row.head { height: 18px; }
+.roll-row.silent, .roll-label.silent { opacity: .45; }
+.roll-row.dragging, .roll-label.dragging { opacity: .5; }
+.roll-row.drop-before, .roll-label.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
+.roll-row.drop-after, .roll-label.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
+.roll-label { box-sizing: border-box; height: 32px; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 6px 0 4px; border-radius: 5px; color: var(--text); cursor: pointer; }
+.roll-label.active { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.roll-label.active strong { color: var(--accent); }
+.roll-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.roll-btns { display: flex; gap: 3px; }
+.roll-btns .lane-btn { padding: 1px 4px; }
+.roll-body { flex: 1 0 auto; display: flex; gap: 12px; }
+.roll-bar { flex: 1 0 auto; display: flex; gap: 5px; }
+.roll-group { flex: 1 0 auto; display: grid; grid-template-columns: repeat(var(--beat), minmax(0, 1fr)); gap: 2px; min-width: calc(var(--beat) * 26px - 2px); } /* cells are at least 24px wide (+2px gap) */
+.roll-num { position: relative; min-width: 0; height: 18px; font-size: .7rem; line-height: 1.2; }
+.roll-num > span { position: absolute; left: 0; white-space: nowrap; } /* the label overhangs its cell but never changes the column widths */
+.roll-num.bar { color: var(--text); }
+.roll-cell { position: relative; min-width: 0; height: 32px; border-radius: 3px; background: #232838; cursor: pointer; overflow: hidden; font: 7px/1.15 var(--mono); user-select: none; }
+/* The text is taken out of the flow, so whatever its size (browser minimum font size, zoom) it can never widen a cell. */
+.rc-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+.roll-cell.hit { background: color-mix(in srgb, var(--accent) var(--a, 100%), #232838); color: var(--accent-ink); }
+.roll-cell.hit.soft { color: var(--text); }
+.rc-v { opacity: .75; }
+.roll-cell.off { background: transparent; border: 1px dashed var(--muted); box-sizing: border-box; color: var(--muted); }
+.roll-cell.sel { box-shadow: inset 0 0 0 100px rgba(255, 255, 255, .14); }
+.roll-cell.cur { box-shadow: 0 0 0 2px rgba(255, 255, 255, .8); position: relative; }
+.roll-cell.play { outline: 2px solid rgba(255, 255, 255, .35); }
 .pattern-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; font-size: .85rem; color: var(--muted); }
 .pattern-bar label { display: flex; align-items: center; gap: 6px; }
 .pattern-bar select { padding: 2px 4px; }
 .pattern-bar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
 .pattern-status { margin-top: 8px; font-size: .85rem; color: var(--text); }
 .pattern-help { margin-top: 4px; }
-.cell.sel { background: rgba(255, 255, 255, .1) !important; }
-.cell.sel.cur { background: rgba(255, 255, 255, .22) !important; }
 
-.lane-btns { display: flex; justify-content: center; gap: 4px; margin-top: 3px; padding-bottom: 3px; }
 .lane-btn { display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 5px; }
 .lane-btn .ico { display: inline-flex; }
 .lane-btn.mute.on { background: var(--bad); border-color: var(--bad); color: #1a0d0d; }
 :root { --solo: #2bc4ff; } /* neon blue, distinct from the yellow accent used for the active track */
 .lane-btn.solo.on { background: var(--solo); border-color: var(--solo); color: #04202b; box-shadow: 0 0 8px color-mix(in srgb, var(--solo) 60%, transparent); }
-.lane-head.muted { box-shadow: inset 0 -3px 0 var(--bad); }
-.lane-head.soloed { box-shadow: inset 0 -3px 0 var(--solo); }
-.lane-head.active.muted { box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 70%, transparent), inset 0 -3px 0 var(--bad); }
-.lane-head.active.soloed { box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 70%, transparent), inset 0 -3px 0 var(--solo); }
 /* Reordering tracks: the dragged header dims, a bar marks the drop position. */
-.lane-head { position: relative; }
-.grid.reordering, .grid.reordering * { cursor: grabbing; }
-.lane-head.dragging { opacity: .5; }
-.lane-head.drop-before::after, .lane-head.drop-after::after { content: ''; position: absolute; top: 0; bottom: 0; width: 4px; background: var(--accent); z-index: 3; }
-.lane-head.drop-before::after { left: -2px; }
-.lane-head.drop-after::after { right: -2px; }
-.lane-head.silent strong, .lane-head.silent .lane-name { opacity: .45; }
-.cell.silent { opacity: .35; }
 
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; }
 .icon-btn .ico { display: inline-flex; }

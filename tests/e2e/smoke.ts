@@ -33,10 +33,10 @@ await host.click("text=Start session");
 
 async function play(p: any, name: string, preset: string, notes: string[]) {
   await p.waitForSelector("text=Round 1");
-  await p.click(".cell >> nth=0"); // selects track 1; its patch is shown in the instrument panel
+  await p.click('.roll-label[data-lane="0"] strong'); // selects track 1; its patch is shown in the instrument panel
   await p.click("text=Load preset");
   await p.click(`.preset-item >> text=${preset}`); // labels are capitalised; text= matches case-insensitively
-  await p.click(".cell >> nth=0");
+  await p.click('.roll-label[data-lane="0"] strong');
   for (const k of notes) await p.keyboard.press(k);
   await p.screenshot({ path: `${shots}/${name}-editing.png` });
   await p.click("text=Commit & ready");
@@ -52,8 +52,8 @@ await host.waitForFunction(() => document.body.innerText.includes("round 1"), nu
 log("round 2 open, mix 1 loaded");
 await host.click("text=Play mix");
 await host.waitForTimeout(1500);
-const row = await host.locator(".grid-row.play").count();
-if (row !== 1) fail("playhead not shown: " + row);
+const row = await host.locator(".roll-cell.play").count(); // one lit cell per track in the playing column
+if (row < 1) fail("playhead not shown: " + row);
 await host.screenshot({ path: `${shots}/host-round2.png` });
 
 await Promise.all([host.click("text=Commit & ready"), guest.click("text=Commit & ready")]);
