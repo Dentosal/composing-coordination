@@ -99,8 +99,8 @@ export class PatternEditor {
       h('label', 'step', stepSel), hear, direct,
       h('span.sep'), this.undoBtn, this.redoBtn,
       h('span.sep'),
-      btn('Duplicate', 'Copy the selection (default: this bar) right below it (Ctrl+D)', () => this.duplicate()),
-      btn('Repeat to end', 'Repeat the selection (default: this bar) to the end of the loop (Ctrl+E)', () => this.repeatToEnd()),
+      btn('Duplicate', 'Copy the selection (default: this bar of the track) to directly after it, to the right. Press again for the next copy (Ctrl+D)', () => this.duplicate()),
+      btn('Repeat to end', 'Repeat the selection (default: this bar of the track) one copy after another to the end of the song (Ctrl+E)', () => this.repeatToEnd()),
       btn('Clear track', 'Remove every note in the current track (undoable with Ctrl+Z)', () => this.clearTrack()),
       h('span.sep'),
       btn('−12', 'Transpose down an octave (Alt+Shift+↓)', () => this.transpose(-12)),
@@ -300,7 +300,7 @@ export class PatternEditor {
     }
   }
 
-  /** Paste overwrites: the destination block is cleared first, then the copied steps go in (clipped to the loop). */
+  /** Paste overwrites: the destination block is cleared first, then the copied steps go in (clipped to the song). */
   pasteAt(clip, lane0, row0) {
     const total = this.o.totalRows;
     clip.lanes.forEach((steps, i) => {
@@ -352,13 +352,13 @@ export class PatternEditor {
   }
 
   /**
-   * Copy the block (the selection, or the cursor's bar in the cursor's track) to directly below itself and select
+   * Copy the block (the selection, or the cursor's bar in the cursor's track) to directly after itself (in time) and select
    * that copy, so pressing it again lays out consecutive copies.
    */
   duplicate() {
     const rc = this.blockRect();
     const clip = this.capture(rc);
-    if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Duplicate: no room below the block');
+    if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Duplicate: no room after the block');
     if (!clip.lanes.some((l) => l.length)) return this.flash(`Duplicate: ${this.describe(rc)} is empty, nothing to copy`);
     const to = rc.r1 + 1;
     this.pushUndo();
@@ -369,19 +369,19 @@ export class PatternEditor {
   }
 
   /**
-   * Repeat the block (the selection, or the cursor's bar in the cursor's track) end to end until the loop runs out,
+   * Repeat the block (the selection, or the cursor's bar in the cursor's track) end to end until the song runs out,
    * overwriting what is there. The whole filled span ends up selected.
    */
   repeatToEnd() {
     const rc = this.blockRect();
     const clip = this.capture(rc);
-    if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Repeat to end: the block already reaches the end of the loop');
+    if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Repeat to end: the block already reaches the end of the song');
     if (!clip.lanes.some((l) => l.length)) return this.flash(`Repeat to end: ${this.describe(rc)} is empty, nothing to repeat`);
     this.pushUndo();
     let copies = 0;
     for (let r = rc.r0 + clip.rows; r < this.o.totalRows; r += clip.rows) { this.pasteAt(clip, rc.l0, r); copies++; }
     this.setSel(rc.l0, rc.r0, rc.l1, this.o.totalRows - 1);
-    this.flash(`Repeated ${this.describe(rc)} ${copies} more time(s), to the end of the loop`);
+    this.flash(`Repeated ${this.describe(rc)} ${copies} more time(s), to the end of the song`);
     this.changed();
   }
 
