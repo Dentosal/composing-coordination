@@ -147,7 +147,6 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .pattern { overflow-x: auto; }
 /* Cursor and selection only lighten the cell: colours are never inverted, so a note or pad hit keeps its own colour. */
 /* Active track: a soft accent tint with a bar on top, so it never competes with the solo button's solid accent fill. */
-.pattern-help { margin-top: 8px; color: var(--muted); font-size: .8rem; }
 .empty { padding: 20px; color: var(--muted); font-family: system-ui; }
 .commit-info { font-size: .85rem; }
 .errors { margin: 8px 0 0; padding-left: 20px; font-size: .9rem; max-height: 120px; overflow: auto; }
@@ -245,7 +244,6 @@ input[type=range] { accent-color: var(--accent); }
 .pattern-bar select { padding: 2px 4px; }
 .pattern-bar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
 .pattern-status { margin-top: 8px; font-size: .85rem; color: var(--text); }
-.pattern-help { margin-top: 4px; }
 
 .lane-btn { display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 5px; }
 .lane-btn .ico { display: inline-flex; }
@@ -257,3 +255,16 @@ input[type=range] { accent-color: var(--accent); }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 6px 8px; }
 .icon-btn .ico { display: inline-flex; }
 .icon-btn .ico svg { width: 16px; height: 16px; }
+
+/* Help buttons and their dialogs */
+.help-btn { width: 28px; height: 28px; padding: 0; border-radius: 50%; font-weight: 700; line-height: 1; color: var(--muted); background: var(--panel2); border: 1px solid var(--line); }
+.help-btn:hover { color: var(--text); border-color: var(--muted); }
+.help-dialog { max-width: min(520px, calc(100vw - 32px)); padding: 20px 24px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, .55); }
+.help-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+.help-dialog h2 { font-size: 1.1rem; margin: 0 0 .6em; }
+.help-dialog p, .help-dialog li { line-height: 1.5; }
+.help-dialog ul { padding-left: 1.2em; margin: .6em 0; }
+.help-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.help-dialog h3 { margin: 1em 0 .3em; }
+.help-dialog kbd { padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--panel2); font: .8rem var(--mono); }
+.help-dialog { max-height: calc(100vh - 48px); overflow-y: auto; }

@@ -5,6 +5,7 @@ import { h, clear } from './dom.js';
 import { InstrumentPanel, ensureTracks, loadPresets } from './editor.js';
 import { LiveSequencer } from './live.js';
 import { PatternEditor } from './pattern.js';
+import { helpButton } from './help.js';
 
 const fmtTime = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -281,7 +282,17 @@ export class Game {
     r.errors = h('ul.errors');
     r.commit = h('button.primary', { onclick: () => this.commit() }, 'Commit & ready');
     r.commitInfo = h('span.muted.commit-info');
-    r.top = h('header.topbar', r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit);
+    r.help = helpButton({
+      title: 'How this works',
+      body: [
+        'Every round, each player writes a short looping part. When everyone has committed, the parts are mixed into one band loop that plays under the next round.',
+        h('ul', h('li', 'Each row of the track roll is one instrument. Click a track to shape its sound in the panel above, and place notes in its cells.'),
+          h('li', 'Drag across the bar numbers to loop a section while you work.'),
+          h('li', 'The footer plays your draft, optionally over the previous round.'),
+          h('li', 'Commit & ready sends your part. The round ends when everyone is ready.')),
+      ],
+    });
+    r.top = h('header.topbar', r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');

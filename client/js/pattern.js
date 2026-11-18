@@ -1,6 +1,7 @@
 // Tracker-style pattern editor: one column per lane, one row per loop row.
 import { h, clear } from './dom.js';
 import { icon } from './icons.js';
+import { helpButton } from './help.js';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
 export const noteName = (m) => `${NOTE_NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
@@ -15,6 +16,32 @@ const KEYMAP = {
 let clipboard = null; // {rows, lanes: [[{row, note, vel}]]}, rows relative to the copied block
 
 const UNDO_LIMIT = 200;
+
+const key = (t) => h('kbd', t);
+/** Contents of the roll's help dialog: what the mouse and keyboard do. */
+const rollHelp = () => [
+  h('h3', 'Mouse'),
+  h('ul',
+    h('li', 'Click a cell to put the cursor there; drag to select a block of cells.'),
+    h('li', 'Hold ', key('Shift'), ' while clicking or dragging to paint hits (drag across tracks too). Click a hit to erase it. The "quick paint" box swaps these two.'),
+    h('li', key('Alt'), ' + click sets a hit to an accent.'),
+    h('li', 'Drag a track label up or down to reorder the tracks.'),
+    h('li', 'Drag across the bar numbers to loop a region: click the loop to clear it, drag it to move it, double-click a bar to loop that bar.')),
+  h('h3', 'Entering notes'),
+  h('ul',
+    h('li', key('Z'), ' ', key('S'), ' ', key('X'), ' ', key('D'), ' ', key('C'), ' … are piano keys; the row above (', key('Q'), ' ', key('2'), ' ', key('W'), ' ', key('3'), ' …) is the next octave up.'),
+    h('li', key('['), ' ', key(']'), ' change octave; ', key('-'), ' ', key('='), ' change velocity.'),
+    h('li', key('`'), ' or ', key('1'), ' puts a note-off; ', key('A'), ' toggles a hit at the cursor; ', key('Backspace'), ' clears.')),
+  h('h3', 'Selection and editing'),
+  h('ul',
+    h('li', key('Shift'), ' + arrows extend the selection; arrows otherwise move left/right in time and up/down between tracks.'),
+    h('li', key('Ctrl'), ' + ', key('C'), ' / ', key('X'), ' / ', key('V'), ' copy, cut, paste; ', key('Ctrl'), ' + ', key('Z'), ' undoes.'),
+    h('li', key('Ctrl'), ' + ', key('D'), ' duplicates the selection (or this bar) after itself; ', key('Ctrl'), ' + ', key('E'), ' repeats it to the end of the song.'),
+    h('li', key('Alt'), ' + ', key('↑'), ' / ', key('↓'), ' transposes a semitone (add ', key('Shift'), ' for an octave).')),
+  h('h3', 'Playback'),
+  h('ul',
+    h('li', key('Space'), ' plays or stops; ', key('Enter'), ' plays from the cursor; ', key('Shift'), ' + ', key('Enter'), ' loops the selection or this bar.')),
+];
 const STEPS = [0, 1, 2, 3, 4, 6, 8];
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -52,7 +79,6 @@ export class PatternEditor {
     this.playRow = -1;
     this.bar = this.buildBar();
     this.status = h('div.pattern-status');
-    this.help = h('div.pattern-help');
     this.msg = '';
     // The labels column stays put; only the steps (rollScroll) scroll sideways. Both persist across renders so the scroll position survives edits.
     this.rollLabels = h('div.roll-labels');
@@ -62,7 +88,7 @@ export class PatternEditor {
     this.initMouse();
     this.main = h('div.pattern-main', { tabindex: '0', onkeydown: (e) => this.onKey(e) }, this.roll); // takes the keyboard
     this.main.classList.toggle('paint-mode', this.paintMode);
-    root.append(this.bar, this.main, this.status, this.help);
+    root.append(this.bar, this.main, this.status);
     this.render();
   }
 
@@ -108,7 +134,8 @@ export class PatternEditor {
       btn('+1', 'Transpose up a semitone (Alt+↑)', () => this.transpose(1)),
       btn('+12', 'Transpose up an octave (Alt+Shift+↑)', () => this.transpose(12)),
       h('span.sep'),
-      btn('▶ From cursor', 'Play the mix starting at the cursor row (Enter). With a loop set (drag on the bar numbers), it loops that region.', () => this.playFromCursor()));
+      btn('▶ From cursor', 'Play the mix starting at the cursor row (Enter). With a loop set (drag on the bar numbers), it loops that region.', () => this.playFromCursor()),
+      helpButton({ title: 'Editing the track roll', label: 'Help: editing the track roll', body: rollHelp() }));
   }
 
   updateBar() {
@@ -829,11 +856,6 @@ export class PatternEditor {
     const at = `track ${this.cur.lane + 1}, row ${this.cur.row}: ${cs ? (cs.note == null ? 'note off' : `${noteName(cs.note)} vel ${cs.vel}`) : 'empty'}`;
     const base = `${at} · octave ${this.octave} · velocity ${this.vel} · step ${this.step}${sel}`;
     this.status.textContent = this.msg ? `${this.msg} · ${base}` : base; // a transient message never hides the selection
-    this.help.textContent =
-      'keys: z s x d c v … piano, q 2 w 3 e … upper octave · ` or 1 note-off · ⌫ clear · [ ] octave · - = velocity · ' +
-      'shift+arrows select · ctrl+c/x/v copy/cut/paste · ctrl+z undo · ctrl+d duplicate · ctrl+e repeat to end · ' +
-      'drag a track label to reorder · click or drag selects, shift+click or shift+drag paints hits ("quick paint" swaps them), alt+click accent · arrows: left/right in time, up/down between tracks · a toggle hit at cursor · ' +
-      'alt+↑↓ transpose (+shift: octave) · enter play from cursor · shift+enter loop selection · space play/stop';
   }
 
   /** A mute / solo button for a track label. */

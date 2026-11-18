@@ -3,6 +3,7 @@ import { h, clear } from './dom.js';
 import { Auditioner } from './audition.js';
 import { adsrControl } from './adsr.js';
 import { icon } from './icons.js';
+import { helpButton } from './help.js';
 import { routingDiagram } from './routing.js';
 import { FILTER_MODES, WAVES, buildInstrument, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
 
@@ -360,7 +361,8 @@ export class InstrumentPanel {
     const exportBtn = h('button.icon-btn', { type: 'button', title: exportTitle, 'aria-label': exportTitle, onclick: () => this.exportPatch() }, icon('download'));
     const importBtn = h('button.icon-btn', { type: 'button', title: importTitle, 'aria-label': importTitle, onclick: () => fileIn.click() }, icon('upload'));
     const head = h('div.track-head', h('strong', `Track ${this.o.getActive() + 1}`), nameIn,
-      h('div.loader-group', ioMsg, loader, exportBtn, importBtn, fileIn));
+      h('div.loader-group', ioMsg, loader, exportBtn, importBtn, fileIn,
+        helpButton({ title: 'Shaping a sound', label: 'Help: the patch editor', body: patchHelp() })));
 
     if (!patch) {
       // Not a template instrument (e.g. hand-written orders): only the output levels can be edited here.
@@ -492,6 +494,34 @@ function categories(presets) {
     groups.get(cat).push(e);
   }
   return [...groups];
+}
+
+/** Contents of the patch editor's help dialog. */
+function patchHelp() {
+  return [
+    'A patch is a small synthesizer. Sound sources go through a filter and an amplifier, and envelopes shape how the sound changes over the length of each note. The sound of the track you have selected is what you edit here.',
+    h('h3', 'Sound sources'),
+    h('ul',
+      h('li', h('strong', 'Oscillators'), ': up to three tone generators. Pick a wave shape, set the pitch (in semitones from the note) and a fine detune; stack them for a thicker sound.'),
+      h('li', h('strong', 'Noise'), ': white or pink noise, good for drums and breath. "Through filter" decides whether a source passes the filter.')),
+    h('h3', 'Filter and drive'),
+    h('ul',
+      h('li', h('strong', 'Filter'), ': removes frequencies. Cutoff sets where, resonance emphasises that spot, and key track makes higher notes open the filter more.'),
+      h('li', h('strong', 'Drive'), ': distortion that makes the sound thicker and louder.')),
+    h('h3', 'Envelopes'),
+    h('ul',
+      h('li', 'Each envelope has Attack, Decay, Sustain and Release: how fast the sound rises, falls to its held level, and fades when the note ends.'),
+      h('li', h('strong', 'Amp'), ' shapes the volume, ', h('strong', 'filter'), ' moves the cutoff, and ', h('strong', 'pitch'), ' bends the pitch at the start of a note (kicks and toms). "Amount" sets how far.')),
+    h('h3', 'LFO'),
+    h('ul', h('li', 'A slow repeating wobble you can send to pitch (vibrato), cutoff (wah) or volume (tremolo). The three sliders set how much goes where.')),
+    h('h3', 'Output'),
+    h('ul', h('li', 'Level is the track volume. Delay and reverb set how much of the sound goes to the shared echo and room effects.')),
+    h('h3', 'Presets and files'),
+    h('ul',
+      h('li', "Load preset replaces this track's sound with a starting point."),
+      h('li', 'Export saves the patch as a file, and import loads one into this track.'),
+      h('li', 'The Audition bar plays the sound while you tweak it, and "Signal routing" draws how it is wired.')),
+  ];
 }
 
 /**
