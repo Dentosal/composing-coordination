@@ -268,6 +268,18 @@ input[type=range] { accent-color: var(--accent); }
 .roll-acell.sel { box-shadow: inset 0 0 0 100px rgba(255, 255, 255, .22); }
 .roll-acell.cur { box-shadow: 0 0 0 2px rgba(255, 255, 255, .8); }
 .roll-acell.sel, .roll-acell.cur { opacity: .9; }
+/* An effect cell with something in it: the note colour, dimmer, with a letter per effect (V volume, A arpeggio; the values are in the hover text). */
+.roll-acell.has { background: color-mix(in srgb, var(--accent) 45%, #232838); color: var(--accent-ink); opacity: .85; overflow: hidden; font: 700 9px/1 var(--mono); }
+.roll-acell .rc-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+.effect-dialog { width: 380px; }
+.fx-controls { display: grid; gap: 10px; }
+.fx-field { display: grid; grid-template-columns: 96px 1fr auto; align-items: center; gap: 8px; font-size: .85rem; }
+.fx-head { grid-column: 1; }
+.fx-field input[type=range] { grid-column: 2; width: 100%; padding: 0; }
+.fx-field output { font-family: var(--mono); min-width: 3.2ch; text-align: right; }
+.fx-offsets { grid-column: 2 / 4; width: 100%; min-width: 0; font-family: var(--mono); }
+.fx-offsets.bad { outline: 2px solid var(--bad); }
+.fx-actions { display: flex; justify-content: flex-end; }
 /* The effect dialog (a placeholder for now): non-modal, floating above the footer so the roll stays usable. */
 .effect-dialog { position: fixed; inset: auto 24px 72px auto; margin: 0; z-index: 6; width: 300px; padding: 12px 14px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
 .effect-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; cursor: grab; user-select: none; touch-action: none; }

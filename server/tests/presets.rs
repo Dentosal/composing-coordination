@@ -20,7 +20,7 @@ fn presets_render_sanely_with_held_notes() {
             Step { row: 9, note: None, vel: 100 },
             Step { row: 32, note: Some(48), vel: 100 },
         ];
-        let orders = Orders { lanes: vec![Lane { instrument: inst.id.clone(), steps }], instruments: vec![inst] };
+        let orders = Orders { lanes: vec![Lane { instrument: inst.id.clone(), steps, fx: vec![] }], instruments: vec![inst] };
         let errs = orders.validate(&Limits { max_lanes: 4, max_instruments: 4, total_rows: 64 });
         assert!(errs.is_empty(), "{name}: preset fails server validation: {errs:?}");
         let parts = vec![SeatPart { seat_index: 0, orders: &orders }];

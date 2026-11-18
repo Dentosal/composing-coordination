@@ -2,7 +2,7 @@
 
 use super::master::Master;
 use super::{gain, RenderConfig, SeatPart, SAMPLE_RATE, SEAT_GAIN};
-use crate::orders::{Edge, FilterMode, Instrument, Lane, NodeKind, NoiseColor, Wave};
+use crate::orders::{Edge, FilterMode, FxStep, Instrument, Lane, NodeKind, NoiseColor, Wave, ARP_TICKS_PER_ROW};
 use crate::prng::Mulberry32;
 use std::collections::HashMap;
 use web_audio_api::context::{BaseAudioContext, OfflineAudioContext};
@@ -141,9 +141,56 @@ pub fn schedule_part(
         for (note, vel, row, end_row) in lane_notes(lane, total_rows) {
             let t0 = loop_start + row as f64 * row_secs;
             let tg = loop_start + end_row as f64 * row_secs;
-            build_voice(ctx, cfg, part.seat_index, inst, &bus.input, &noise, note, vel, t0, tg);
+            let plan = fx_plan(&lane.fx, row, end_row, row_secs);
+            build_voice(ctx, cfg, part.seat_index, inst, &bus.input, &noise, note, vel, t0, tg, &plan);
         }
     }
+}
+
+/// Parameter automation for one note, from its lane's effect cells. Times are seconds after the note's start.
+/// Must stay identical to `notePlan` in client/js/fx.js (both are checked against server/tests/fixtures/fx_plan.json).
+#[derive(Debug, Default, PartialEq)]
+pub struct FxPlan {
+    /// (time, volume multiplier) whenever the volume changes; the voice starts at 1.
+    pub volumes: Vec<(f64, f32)>,
+    /// (time, semitone offset) for the oscillators, set at each arpeggio tick and back to 0 after an arpeggio row.
+    pub pitches: Vec<(f64, i32)>,
+}
+
+/// Each effect cell applies during its own row only: volume multiplies the notes' level (rows without one are at 1),
+/// an arpeggio cycles the pitch through its offsets, once per tick, restarting at the start of the row.
+pub fn fx_plan(fx: &[FxStep], start_row: u32, end_row: u32, row_secs: f64) -> FxPlan {
+    let mut plan = FxPlan::default();
+    if fx.is_empty() {
+        return plan;
+    }
+    let by_row: HashMap<u32, &FxStep> = fx.iter().map(|f| (f.row, f)).collect();
+    let mut last_vol = 1.0f32;
+    let mut arp_on = false;
+    for r in start_row..end_row {
+        let t = (r - start_row) as f64 * row_secs;
+        let f = by_row.get(&r);
+        let vol = f.and_then(|f| f.volume).unwrap_or(1.0);
+        if vol != last_vol {
+            plan.volumes.push((t, vol));
+            last_vol = vol;
+        }
+        match f.and_then(|f| f.arp.as_ref()) {
+            Some(a) if !a.offsets.is_empty() => {
+                for k in 0..ARP_TICKS_PER_ROW {
+                    plan.pitches.push((t + k as f64 * row_secs / ARP_TICKS_PER_ROW as f64, a.offsets[k as usize % a.offsets.len()]));
+                }
+                arp_on = true;
+            }
+            _ => {
+                if arp_on {
+                    plan.pitches.push((t, 0));
+                    arp_on = false;
+                }
+            }
+        }
+    }
+    plan
 }
 
 /// (note, vel, start_row, end_row) for each note-on, in row order.
@@ -174,6 +221,7 @@ fn build_voice(
     vel: u8,
     t0: f64,
     tg: f64,
+    plan: &FxPlan,
 ) {
     let hz = midi_hz(note);
     let max_release = inst
@@ -203,6 +251,12 @@ fn build_voice(
                 };
                 o.frequency().set_value(f as f32);
                 o.detune().set_value(*detune);
+                if fixed_hz.is_none() {
+                    // Arpeggio ticks: the detune param carries the semitone offset (in cents) on top of the oscillator's own detune.
+                    for (t, semis) in &plan.pitches {
+                        o.detune().set_value_at_time(*detune + *semis as f32 * 100.0, t0 + t);
+                    }
+                }
                 o.start_at(t0);
                 o.stop_at(t_stop);
                 VNode::Osc(o)
@@ -243,7 +297,14 @@ fn build_voice(
                 w.set_curve(shaper_curve(*drive));
                 VNode::Shaper(w)
             }
-            NodeKind::Out {} => VNode::Out(gain(ctx, vel as f32 / 127.0)),
+            NodeKind::Out {} => {
+                let level = vel as f32 / 127.0;
+                let g = gain(ctx, level);
+                for (t, v) in &plan.volumes {
+                    g.gain().set_value_at_time(level * v, t0 + t);
+                }
+                VNode::Out(g)
+            }
         };
         nodes.insert(n.id.as_str(), v);
     }

@@ -5,6 +5,7 @@
 mod master;
 mod voice;
 pub mod wav;
+pub use voice::{fx_plan, FxPlan};
 
 use crate::orders::Orders;
 use web_audio_api::context::{BaseAudioContext, OfflineAudioContext};

@@ -4,6 +4,7 @@
 // (play / stop / position / loopRegion / playing) so game.js can drive either.
 import { getBus, getCtx, unlock } from './audio.js';
 import { Master, noiseBuffer, startVoice } from './voice.js';
+import { notePlan } from './fx.js';
 
 const LOOK_AHEAD = 0.1; // seconds scheduled ahead
 const TICK_MS = 25;
@@ -115,7 +116,8 @@ export class LiveSequencer {
       const inst = part.instruments.find((i) => i.id === lane.instrument);
       if (!inst) continue;
       const endRow = row < r.leRow ? Math.min(next, r.leRow) : next; // a looped slice cuts the note at its end
-      startVoice(ctx, r.master.bus(ctx, inst), inst, this.noiseFor(ctx, inst, seed), on.note, on.vel, t)
+      const plan = notePlan(lane.fx, row, endRow, r.rowSecs); // effect cells: volume and arpeggio for the rows the note spans
+      startVoice(ctx, r.master.bus(ctx, inst), inst, this.noiseFor(ctx, inst, seed), on.note, on.vel, t, plan)
         .release(t + (endRow - row) * r.rowSecs);
     }
   }

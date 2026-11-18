@@ -3,6 +3,7 @@ import { h, clear } from './dom.js';
 import { icon } from './icons.js';
 import { helpButton } from './help.js';
 import { dragByHandle } from './draggable.js';
+import { ARP_MAX_OFFSETS, DEFAULT_ARP, clearFx, fxAt, fxLabel, fxTitle, setFxField } from './fx.js';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
 export const noteName = (m) => `${NOTE_NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
@@ -116,7 +117,7 @@ export class PatternEditor {
     this.effectDlg = h('dialog.effect-dialog', { 'aria-label': 'Effect', onkeydown: (e) => e.stopPropagation() }, // typing in it must not drive the roll
       effectHead,
       this.effectInfo,
-      h('p.muted', 'Placeholder: the effect settings for the selected steps will be edited here.'));
+      this.buildEffectControls());
     dragByHandle(this.effectDlg, effectHead);
     this.main = h('div.pattern-main', { tabindex: '0', onkeydown: (e) => this.onKey(e) }, this.roll, this.effectDlg); // takes the keyboard
     this.main.classList.toggle('paint-mode', this.paintMode);
@@ -329,12 +330,16 @@ export class PatternEditor {
 
   /** Keyed by instrument id, so undo/redo still lands on the right track after tracks were reordered. */
   snap() {
-    return JSON.stringify(this.orders.lanes.map((l) => [l.instrument, l.steps]));
+    return JSON.stringify(this.orders.lanes.map((l) => [l.instrument, l.steps, l.fx ?? []]));
   }
 
   restore(snapshot) {
-    const saved = new Map(JSON.parse(snapshot));
-    this.orders.lanes.forEach((l) => { l.steps = saved.get(l.instrument) ?? []; });
+    const saved = new Map(JSON.parse(snapshot).map(([id, steps, fx]) => [id, { steps, fx }]));
+    this.orders.lanes.forEach((l) => {
+      const v = saved.get(l.instrument);
+      l.steps = v?.steps ?? [];
+      if (v?.fx?.length) l.fx = v.fx; else delete l.fx;
+    });
   }
 
   pushUndo() {
@@ -575,6 +580,93 @@ export class PatternEditor {
     });
   }
 
+  /** The effect cells covered by the selection (the cursor cell when nothing is dragged out). */
+  effectCells() {
+    const rc = this.rect();
+    const cells = [];
+    for (const lane of this.lanesOf(rc)) for (let row = rc.r0; row <= rc.r1; row++) cells.push({ lane, row });
+    return cells;
+  }
+
+  /**
+   * Controls for the selected effect cells. Every control writes its own field (volume, arpeggio) into all the selected
+   * cells right away; the dialog shows the cell under the cursor. One gesture (a drag, a typing session) is one undo step.
+   */
+  buildEffectControls() {
+    const ui = (this.fxUi = {});
+    this.fxGesture = false;
+    const field = (name, chk, ...rest) => h('div.fx-field', h('label.check.fx-head', chk, name), ...rest);
+    ui.volChk = h('input', { type: 'checkbox', onchange: () => this.applyVolume() });
+    ui.volRange = h('input', { type: 'range', min: '0', max: '100', step: '1', value: '100', 'aria-label': 'Volume',
+      oninput: () => { ui.volOut.textContent = `${ui.volRange.value}%`; ui.volChk.checked = true; this.applyVolume(); } });
+    ui.volOut = h('output', '100%');
+    ui.arpChk = h('input', { type: 'checkbox', onchange: () => this.applyArp() });
+    ui.arpOffsets = h('input.fx-offsets', { type: 'text', value: DEFAULT_ARP.offsets.join(' '), spellcheck: 'false', 'aria-label': 'Arpeggio offsets in semitones',
+      title: `Semitones above the note, up to ${ARP_MAX_OFFSETS}, for example "0 4 7" for a major chord. The pitch steps through them six times per row.`,
+      oninput: () => { if (this.parseArpOffsets()) ui.arpChk.checked = true; this.applyArp(); } });
+    ui.clear = h('button.small', { type: 'button', onclick: () => this.clearEffects() }, 'Clear effects');
+    const wrap = h('div.fx-controls',
+      field('Volume', ui.volChk, ui.volRange, ui.volOut),
+      field('Arpeggio', ui.arpChk, ui.arpOffsets),
+      h('div.fx-actions', ui.clear));
+    // One gesture = one undo step: the first change pushes the undo snapshot, the end of the gesture re-arms it.
+    for (const ev of ['change', 'focusout']) wrap.addEventListener(ev, () => { this.fxGesture = false; });
+    return wrap;
+  }
+
+  /** The offsets typed in the dialog, or null (and a red outline) when they are not 1-4 whole numbers within ±48. */
+  parseArpOffsets() {
+    const parts = this.fxUi.arpOffsets.value.split(/[\s,]+/).filter(Boolean);
+    const nums = parts.map(Number);
+    const ok = parts.length >= 1 && parts.length <= ARP_MAX_OFFSETS && nums.every((n) => Number.isInteger(n) && n >= -48 && n <= 48);
+    this.fxUi.arpOffsets.classList.toggle('bad', !ok);
+    return ok ? nums : null;
+  }
+
+  /** Write (or, with `null`, remove) one effect field on every selected cell; the roll redraws and the change is saved. */
+  applyFxField(field, value) {
+    if (!this.fxGesture) {
+      this.pushUndo();
+      this.fxGesture = true;
+    }
+    for (const { lane, row } of this.effectCells()) setFxField(this.orders.lanes[lane], row, field, value);
+    this.changed();
+  }
+
+  applyVolume() {
+    const ui = this.fxUi;
+    this.applyFxField('volume', ui.volChk.checked ? Number(ui.volRange.value) / 100 : null);
+  }
+
+  applyArp() {
+    const ui = this.fxUi;
+    if (!ui.arpChk.checked) return this.applyFxField('arp', null);
+    const offsets = this.parseArpOffsets();
+    if (offsets) this.applyFxField('arp', { offsets });
+  }
+
+  clearEffects() {
+    this.pushUndo();
+    this.fxGesture = false;
+    const cells = this.effectCells();
+    for (const lane of new Set(cells.map((c) => c.lane))) clearFx(this.orders.lanes[lane], cells.filter((c) => c.lane === lane).map((c) => c.row));
+    this.syncEffectDialog();
+    this.changed();
+  }
+
+  /** Show the cursor cell's effects in the dialog controls. */
+  syncEffectDialog() {
+    const ui = this.fxUi;
+    const lane = this.orders.lanes[this.cur.lane];
+    const cell = lane && fxAt(lane, this.cur.row);
+    ui.volChk.checked = cell?.volume !== undefined;
+    ui.volRange.value = String(Math.round((cell?.volume ?? 1) * 100));
+    ui.volOut.textContent = `${ui.volRange.value}%`;
+    ui.arpChk.checked = !!cell?.arp;
+    ui.arpOffsets.value = (cell?.arp?.offsets ?? DEFAULT_ARP.offsets).join(' ');
+    ui.arpOffsets.classList.remove('bad');
+  }
+
   /** Switch the layer the cursor lives in. Leaving the effect layer closes its dialog. */
   setDomain(domain) {
     if (this.domain === domain) return;
@@ -588,6 +680,7 @@ export class PatternEditor {
     const rc = this.rect();
     const lanes = this.lanesOf(rc).map((l) => `${l + 1} ${this.nameOf(this.orders.lanes[l])}`).join(', ');
     this.effectInfo.textContent = `Track ${lanes} · steps ${rc.r0}–${rc.r1} (${rc.r1 - rc.r0 + 1})`;
+    this.syncEffectDialog();
     if (!this.effectDlg.open) {
       this.effectDlg.show();
       this.main.focus({ preventScroll: true }); // show() moves focus into the dialog; the roll keeps the keyboard
@@ -1013,6 +1106,7 @@ export class PatternEditor {
       const autoLabel = h('div.roll-auto-label', { title: 'Automation lane' }, 'auto');
       autoLabel.dataset.lane = String(li);
       this.rollLabels.append(autoLabel, label);
+      const fxByRow = new Map((lane.fx ?? []).map((f) => [f.row, f]));
       const autoRow = h('div', { class: `roll-row auto${state}` });
       autoRow.dataset.lane = String(li);
       stepsOf(autoRow, (group, r, _b, _bb, groupEnd, barEnd) => {
@@ -1021,9 +1115,15 @@ export class PatternEditor {
         if (barEnd) acls += ' bend';
         if (this.domain === 'auto' && li === this.cur.lane && r === this.cur.row) acls += ' cur';
         if (this.inSel(li, r, 'auto')) acls += ' sel';
+        const fxCell = fxByRow.get(r);
+        if (fxCell) acls += ' has';
         const cell = h('div', { class: acls });
         cell.dataset.lane = String(li);
         cell.dataset.row = String(r);
+        if (fxCell) {
+          cell.title = fxTitle(fxCell);
+          cell.append(h('div.rc-text', h('span', fxLabel(fxCell))));
+        }
         this.rollCols[r].push(cell);
         group.append(cell);
       });
@@ -1104,7 +1204,7 @@ export class PatternEditor {
     this.renderRoll();
     this.renderStatus();
     this.updateBar();
-    if (hadFocus && document.activeElement !== this.main) this.main.focus({ preventScroll: true });
+    if (hadFocus && document.activeElement !== this.main && !this.effectDlg.contains(document.activeElement)) this.main.focus({ preventScroll: true });
     this.roll.querySelector('.roll-cell.cur')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }

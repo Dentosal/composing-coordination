@@ -147,9 +147,10 @@ function envRelease(p, e, t0, tg) {
 
 /**
  * Start one voice of `inst` at `t0`. Returns `{ release(tg) }`: call it with the gate-end time (now or in the
- * future) to let the note go. `noise` maps node id -> AudioBuffer.
+ * future) to let the note go. `noise` maps node id -> AudioBuffer. `plan` (optional, from fx.js `notePlan`) automates the
+ * voice: its volumes multiply the output level and its pitches offset the (non-fixed) oscillators, in semitones.
  */
-export function startVoice(ctx, bus, inst, noise, note, vel, t0) {
+export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
   const hz = midiHz(note);
   const nodes = new Map(); // id -> { node, params }
   const sources = [];
@@ -163,6 +164,8 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0) {
         node.type = n.wave;
         node.frequency.value = n.fixed_hz ?? hz * 2 ** ((n.semitones ?? 0) / 12);
         node.detune.value = n.detune ?? 0;
+        // Arpeggio ticks: the detune param carries the semitone offset (in cents) on top of the oscillator's own detune.
+        if (n.fixed_hz == null) for (const [dt, semis] of plan?.pitches ?? []) node.detune.setValueAtTime((n.detune ?? 0) + semis * 100, t0 + dt);
         node.start(t0);
         sources.push(node);
         params = { freq: node.frequency, detune: node.detune };
@@ -199,6 +202,7 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0) {
         break;
       case 'out':
         node = gain(ctx, vel / 127);
+        for (const [dt, v] of plan?.volumes ?? []) node.gain.setValueAtTime((vel / 127) * v, t0 + dt);
         node.connect(bus);
         break;
       default:

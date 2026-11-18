@@ -146,7 +146,33 @@ pub struct Edge {
 pub struct Lane {
     pub instrument: String,
     pub steps: Vec<Step>,
+    /// Effect cells (the lane above the notes in the editor): per-row effects, see `FxStep`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fx: Vec<FxStep>,
 }
+
+/// One effect cell: it applies to the notes sounding during its row, nothing carries over to the next row.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FxStep {
+    pub row: u32,
+    /// Volume for this row, a 0..=1 multiplier on the notes' velocity gain (absent: unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<f32>,
+    /// Substep arpeggio: the pitch cycles through `offsets` (semitones) once per tick, `ARP_TICKS_PER_ROW` ticks per
+    /// row, restarting at the start of the row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arp: Option<Arp>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Arp {
+    pub offsets: Vec<i32>,
+}
+
+/// Every row is split into this many ticks (the classic tracker speed).
+pub const ARP_TICKS_PER_ROW: u32 = 6;
 
 /// One pattern event. `note: Some(midi)` starts a note (replacing any note still playing in
 /// the lane); `note: None` is a note-off. A note lasts until the next step in its lane or the
@@ -183,6 +209,7 @@ pub struct Limits {
 pub const MAX_NODES_PER_INSTRUMENT: usize = 32;
 pub const MAX_EDGES_PER_INSTRUMENT: usize = 96;
 pub const MAX_ID_LEN: usize = 32;
+pub const MAX_ARP_OFFSETS: usize = 4;
 
 pub fn valid_ports(kind: &NodeKind) -> &'static [&'static str] {
     match kind {
@@ -262,6 +289,33 @@ impl Orders {
                 }
                 if s.vel == 0 || s.vel > 127 {
                     err(format!("{sp}.vel"), "velocity must be 1..=127".into());
+                }
+            }
+        }
+        for (i, lane) in self.lanes.iter().enumerate() {
+            let p = format!("lanes[{i}].fx");
+            if lane.fx.len() > limits.total_rows as usize {
+                err(p.clone(), "too many effect cells".into());
+            }
+            let mut rows = HashSet::new();
+            for (j, f) in lane.fx.iter().enumerate() {
+                let fp = format!("{p}[{j}]");
+                if f.row >= limits.total_rows {
+                    err(format!("{fp}.row"), format!("row {} is outside the loop (0..{})", f.row, limits.total_rows));
+                }
+                if !rows.insert(f.row) {
+                    err(format!("{fp}.row"), format!("duplicate effect cell at row {}", f.row));
+                }
+                if let Some(v) = f.volume {
+                    range(v, 0.0, 1.0, &format!("{fp}.volume"), &mut err);
+                }
+                if let Some(a) = &f.arp {
+                    if a.offsets.is_empty() || a.offsets.len() > MAX_ARP_OFFSETS {
+                        err(format!("{fp}.arp.offsets"), format!("1..={MAX_ARP_OFFSETS} offsets"));
+                    }
+                    if a.offsets.iter().any(|o| !(-48..=48).contains(o)) {
+                        err(format!("{fp}.arp.offsets"), "offsets must be within -48..=48 semitones".into());
+                    }
                 }
             }
         }
@@ -428,11 +482,36 @@ mod tests {
     #[test]
     fn tracks_are_one_instrument_one_lane() {
         let mut o: Orders = serde_json::from_str(GOOD).unwrap();
-        o.lanes.push(Lane { instrument: "b".into(), steps: vec![] });
+        o.lanes.push(Lane { instrument: "b".into(), steps: vec![], fx: vec![] });
         assert!(o.validate(&limits()).iter().any(|e| e.message.contains("already has a lane")));
         let mut o: Orders = serde_json::from_str(GOOD).unwrap();
         o.lanes.clear();
         assert!(o.validate(&limits()).iter().any(|e| e.message.contains("has no lane")));
+    }
+
+    #[test]
+    fn effect_cells_are_validated() {
+        let mut o: Orders = serde_json::from_str(GOOD).unwrap();
+        o.lanes[0].fx = vec![
+            FxStep { row: 3, volume: Some(0.5), arp: None },
+            FxStep { row: 4, volume: None, arp: Some(Arp { offsets: vec![0, 4, 7] }) },
+        ];
+        assert!(o.validate(&limits()).is_empty());
+        let again: Orders = serde_json::from_str(&serde_json::to_string(&o).unwrap()).unwrap();
+        assert_eq!(again.lanes[0].fx.len(), 2);
+        let bad = |f: FxStep| {
+            let mut o: Orders = serde_json::from_str(GOOD).unwrap();
+            o.lanes[0].fx = vec![f];
+            o.validate(&limits())
+        };
+        assert!(!bad(FxStep { row: 9999, volume: Some(0.5), arp: None }).is_empty(), "row outside the loop");
+        assert!(!bad(FxStep { row: 1, volume: Some(1.5), arp: None }).is_empty(), "volume above 1");
+        assert!(!bad(FxStep { row: 1, volume: None, arp: Some(Arp { offsets: vec![] }) }).is_empty(), "no offsets");
+        assert!(!bad(FxStep { row: 1, volume: None, arp: Some(Arp { offsets: vec![0; 5] }) }).is_empty(), "too many offsets");
+        assert!(!bad(FxStep { row: 1, volume: None, arp: Some(Arp { offsets: vec![60] }) }).is_empty(), "offset out of range");
+        assert!(serde_json::from_str::<Arp>(r#"{"offsets":[0],"ticks":4}"#).is_err(), "the tick count is fixed, not a setting");
+        o.lanes[0].fx.push(FxStep { row: 3, volume: Some(0.2), arp: None });
+        assert!(o.validate(&limits()).iter().any(|e| e.message.contains("duplicate effect cell")));
     }
 
     #[test]
