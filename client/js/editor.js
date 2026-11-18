@@ -23,6 +23,16 @@ export async function loadPresets() {
  * Normalise orders to exactly `n` tracks: track i = lanes[i] + the instrument it names (one-to-one). Orphans and
  * duplicates are dropped, missing tracks get a copy of the init preset and an empty lane.
  */
+/** A fresh track: a copy of the Init preset and an empty lane, with an instrument id that no track in `orders` uses. */
+export function newTrack(orders, presets) {
+  const taken = new Set(orders.instruments.map((i) => i.id));
+  let k = 1;
+  while (taken.has(`track${k}`)) k++;
+  const id = `track${k}`;
+  const base = presets.get('init')?.instrument;
+  return { instrument: { ...structuredClone(base), id, name: presets.get('init')?.label ?? 'Init' }, lane: { instrument: id, steps: [] } };
+}
+
 export function ensureTracks(orders, n, presets) {
   const byId = new Map(orders.instruments.map((i) => [i.id, i]));
   const instruments = [];
@@ -34,14 +44,10 @@ export function ensureTracks(orders, n, presets) {
     instruments.push(inst);
     lanes.push(lane);
   }
-  const taken = new Set(instruments.map((i) => i.id));
-  for (let k = 1; lanes.length < n; k++) {
-    const id = `track${k}`;
-    if (taken.has(id)) continue;
-    taken.add(id);
-    const base = presets.get('init')?.instrument;
-    instruments.push({ ...structuredClone(base), id, name: presets.get('init')?.label ?? 'Init' });
-    lanes.push({ instrument: id, steps: [] });
+  while (lanes.length < n) {
+    const t = newTrack({ instruments }, presets);
+    instruments.push(t.instrument);
+    lanes.push(t.lane);
   }
   orders.instruments = instruments;
   orders.lanes = lanes;
@@ -367,6 +373,11 @@ export class InstrumentPanel {
         this.o.onChange();
         this.o.onMode?.();
       } }), 'Piano roll');
+    // Sessions with unlimited tracks can delete one (never the last): the button sits left of "Load preset".
+    const deleteBtn = this.o.onDeleteTrack
+      ? h('button.icon-btn', { type: 'button', title: 'Delete this track', 'aria-label': 'Delete this track', disabled: !this.o.canDeleteTrack?.(),
+        onclick: () => this.o.onDeleteTrack(this.o.getActive()) }, icon('trash'))
+      : null;
     const loader = presetPicker(this.o.presets, (key) => this.loadPreset(key));
     // An untouched Init patch is a blank slate: nudge towards presets until the patch is edited.
     const hintLoad = () => loader.querySelector('button').classList.toggle('hint', isDefaultPatch(this.orders.instruments[idx()] ?? inst));
@@ -387,7 +398,7 @@ export class InstrumentPanel {
     const exportBtn = h('button.icon-btn', { type: 'button', title: exportTitle, 'aria-label': exportTitle, onclick: () => this.exportPatch() }, icon('download'));
     const importBtn = h('button.icon-btn', { type: 'button', title: importTitle, 'aria-label': importTitle, onclick: () => fileIn.click() }, icon('upload'));
     const head = h('div.track-head', h('strong', `Track ${this.o.getActive() + 1}`), nameIn, pianoChk,
-      h('div.loader-group', ioMsg, loader, exportBtn, importBtn, fileIn,
+      h('div.loader-group', ioMsg, deleteBtn, loader, exportBtn, importBtn, fileIn,
         helpButton({ title: 'Shaping a sound', label: 'Help: the patch editor', body: patchHelp() })));
 
     if (!patch) {

@@ -77,12 +77,22 @@ function showHome() {
   const form = h('form.config', { onsubmit: onCreate });
   for (const [name, label, def, type] of FIELDS) {
     inputs[name] = h('input', { name, type, value: String(def), step: 'any' });
-    form.append(h('label', h('span', label), inputs[name]));
+    if (name !== 'max_tracks') { form.append(h('label', h('span', label), inputs[name])); continue; }
+    // "Unlimited tracks" sits beside "Tracks per player" and replaces it: players start with the default number and
+    // add or delete tracks themselves, so the field is switched off.
+    inputs.unlimited_tracks = h('input', { name: 'unlimited_tracks', type: 'checkbox',
+      onchange: (e) => { inputs.max_tracks.disabled = e.target.checked; } });
+    inputs.max_tracks.id = 'max-tracks';
+    form.append(h('div.config-pair', h('label.name', { for: 'max-tracks' }, h('span', label)),
+      h('label.check', { title: 'Players add and delete tracks themselves (up to 64) instead of having a fixed number. Everyone starts with 4.' },
+        inputs.unlimited_tracks, h('span', 'Unlimited')),
+      inputs.max_tracks)); // the field stays in the right-hand column with the others
   }
   inputs.timeout_policy = h('select', { name: 'timeout_policy' },
     h('option', { value: 'Wait' }, 'Wait for everyone'),
     h('option', { value: 'RepeatLast' }, 'Repeat last orders on timeout'));
   form.append(h('label', h('span', 'When the timer runs out'), inputs.timeout_policy));
+
   const msg = h('p.error');
   form.append(h('button.primary', { type: 'submit' }, 'Create session'), msg);
 
@@ -90,6 +100,7 @@ function showHome() {
     e.preventDefault();
     const cfg = {};
     for (const [name, , , type] of FIELDS) {
+      if (inputs[name].disabled) continue; // "Tracks per player" while unlimited tracks is on
       const v = inputs[name].value.trim();
       if (v === '') continue;
       cfg[name] = Number(v);
@@ -97,6 +108,7 @@ function showHome() {
     if (cfg.max_tracks != null) cfg.max_lanes = cfg.max_instruments = cfg.max_tracks;
     delete cfg.max_tracks;
     cfg.timeout_policy = inputs.timeout_policy.value;
+    if (inputs.unlimited_tracks.checked) cfg.unlimited_tracks = true;
     try {
       await unlock();
       const { session_id, host_token } = await api.createSession(cfg);

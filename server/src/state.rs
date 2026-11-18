@@ -34,6 +34,9 @@ pub enum TimeoutPolicy {
     RepeatLast,
 }
 
+/// "Unlimited" tracks still have a ceiling: every track costs render time for the whole band.
+pub const UNLIMITED_TRACK_CAP: usize = 64;
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -42,6 +45,9 @@ pub struct Config {
     pub rows_per_bar: u32,
     pub max_lanes: u32,
     pub max_instruments: u32,
+    /// Players may add and delete tracks themselves (up to `UNLIMITED_TRACK_CAP`); `max_lanes` / `max_instruments`
+    /// are then only the number of tracks everyone starts with.
+    pub unlimited_tracks: bool,
     pub rounds: Option<u32>,
     pub round_timer_secs: Option<u32>,
     pub timeout_policy: TimeoutPolicy,
@@ -56,6 +62,7 @@ impl Default for Config {
             rows_per_bar: 16,
             max_lanes: 4,
             max_instruments: 4,
+            unlimited_tracks: false,
             rounds: None,
             round_timer_secs: None,
             timeout_policy: TimeoutPolicy::Wait,
@@ -88,11 +95,12 @@ impl Config {
     }
 
     pub fn limits(&self) -> Limits {
-        Limits {
-            max_lanes: self.max_lanes as usize,
-            max_instruments: self.max_instruments as usize,
-            total_rows: self.bars * self.rows_per_bar,
-        }
+        let (max_lanes, max_instruments) = if self.unlimited_tracks {
+            (UNLIMITED_TRACK_CAP, UNLIMITED_TRACK_CAP)
+        } else {
+            (self.max_lanes as usize, self.max_instruments as usize)
+        };
+        Limits { max_lanes, max_instruments, total_rows: self.bars * self.rows_per_bar }
     }
 }
 

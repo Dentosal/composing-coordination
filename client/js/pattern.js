@@ -74,6 +74,7 @@ export class PatternEditor {
    *   getOrders:()=>import('./types.js').Orders, onChange:()=>void, onSpace?:()=>void,
    *   onSelect?:()=>void, onVolume?:()=>void,
    *   onAudition?:(lane:number, note:number, vel:number)=>void,
+   *   onAddTrack?:()=>void, canAddTrack?:()=>boolean,
    *   isMuted?:(id:string)=>boolean, isSolo?:(id:string)=>boolean, isAudible?:(id:string)=>boolean,
    *   onToggleMute?:(id:string)=>void, onToggleSolo?:(id:string)=>void,
    *    *   onPlay?:(kind:'cursor'|'region', fromRow:number, toRow?:number)=>void}} opts
@@ -350,7 +351,8 @@ export class PatternEditor {
     const saved = new Map(JSON.parse(snapshot).map(([id, steps, fx]) => [id, { steps, fx }]));
     this.orders.lanes.forEach((l) => {
       const v = saved.get(l.instrument);
-      l.steps = v?.steps ?? [];
+      if (!v) return; // a track added after the snapshot keeps what it has
+      l.steps = v.steps;
       if (v?.fx?.length) l.fx = v.fx; else delete l.fx;
     });
   }
@@ -1103,7 +1105,12 @@ export class PatternEditor {
     clear(this.rollLabels);
     clear(this.rollScroll);
     this.roll.style.setProperty('--beat', String(beat));
-    this.rollLabels.append(h('div.roll-title', 'Tracks'));
+    const title = h('div.roll-title', h('span', 'Tracks'));
+    if (this.o.onAddTrack) { // sessions with unlimited tracks
+      title.append(h('button.roll-add', { type: 'button', title: 'Add a track', 'aria-label': 'Add a track', disabled: !(this.o.canAddTrack?.() ?? true),
+        onmousedown: (e) => e.stopPropagation(), onclick: () => this.o.onAddTrack() }, icon('plus')));
+    }
+    this.rollLabels.append(title);
     // Bars hold beat groups of `beat` steps: the groups and bars get the gaps, so every cell has the same width.
     const stepsOf = (row, fn) => {
       const body = h('div.roll-body');

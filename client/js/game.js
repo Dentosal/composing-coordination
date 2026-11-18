@@ -2,7 +2,7 @@
 import * as api from './api.js';
 import { LoopPlayer, decode, getCtx, unlock } from './audio.js';
 import { h, clear } from './dom.js';
-import { InstrumentPanel, ensureTracks, loadPresets } from './editor.js';
+import { InstrumentPanel, ensureTracks, loadPresets, newTrack } from './editor.js';
 import { LiveSequencer } from './live.js';
 import { PatternEditor } from './pattern.js';
 import { helpButton } from './help.js';
@@ -13,6 +13,9 @@ const fmtTime = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
+
+/** The most tracks a player can have in an unlimited session (the server enforces the same ceiling). */
+const MAX_UNLIMITED_TRACKS = 64;
 
 export class Game {
   /** @param {HTMLElement} root @param {{sid:string,seat:string|null,host:string|null,onLeave:()=>void}} o */
@@ -272,7 +275,8 @@ export class Game {
 
   buildGame() {
     const tracks = Math.min(this.st.config.max_lanes, this.st.config.max_instruments);
-    ensureTracks(this.orders, tracks, this.presets); // every player always has the full set of tracks
+    // Every player always has the full set of tracks; with unlimited tracks that is "at least the starting number".
+    ensureTracks(this.orders, this.unlimited ? Math.max(tracks, this.orders.lanes.length) : tracks, this.presets);
     const r = this.refs;
     const cfg = this.st.config;
     const totalRows = cfg.bars * cfg.rows_per_bar;
@@ -336,6 +340,8 @@ export class Game {
       isAudible: (id) => this.isAudible(id),
       onToggleMute: (id) => this.toggleMute(id),
       onToggleSolo: (id) => this.toggleSolo(id),
+      onAddTrack: this.unlimited ? () => this.addTrack() : null,
+      canAddTrack: () => this.orders.lanes.length < MAX_UNLIMITED_TRACKS,
       getLoop: () => this.loop,
       onLoop: (loop, final) => this.setLoop(loop, final),
     });
@@ -344,6 +350,8 @@ export class Game {
       getOrders: () => this.orders, onChange: () => { this.touch(); this.pattern.syncHeads(); },
       onRename: () => this.pattern.syncHeads(),
       onMode: () => this.pattern.render(), // piano roll on/off changes how the roll draws the track
+      onDeleteTrack: this.unlimited ? (lane) => this.deleteTrack(lane) : null,
+      canDeleteTrack: () => this.orders.lanes.length > 1,
     });
 
     this.root.append(r.top, r.errors,
@@ -416,6 +424,44 @@ export class Game {
     if (this.solo.size) listenText = 'Solo: the band mix is silenced; you hear only the soloed track(s) of your draft.';
     else if (this.muted.size) listenText = 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
     r.mixInfo.textContent = [mixText, previewText, listenText].filter(Boolean).join(' ');
+  }
+
+  /** Sessions where players add and delete tracks themselves. */
+  get unlimited() {
+    return !!this.st?.config.unlimited_tracks;
+  }
+
+  addTrack() {
+    if (!this.unlimited || this.orders.lanes.length >= MAX_UNLIMITED_TRACKS) return;
+    const { instrument, lane } = newTrack(this.orders, this.presets);
+    this.orders.instruments.push(instrument);
+    this.orders.lanes.push(lane);
+    this.pattern.setDomain('note');
+    this.pattern.anchor = null;
+    this.pattern.cur = { lane: this.orders.lanes.length - 1, row: this.pattern.cur.row }; // the new track becomes the active one
+    this.touch();
+    this.pattern.render();
+    this.panel.render();
+  }
+
+  /** Delete a track (its instrument, notes and effects). Never the last one. */
+  deleteTrack(index) {
+    const lane = this.orders.lanes[index];
+    if (!this.unlimited || !lane || this.orders.lanes.length <= 1) return;
+    const inst = this.orders.instruments.find((i) => i.id === lane.instrument);
+    if (!confirm(`Delete track ${index + 1} "${inst?.name || lane.instrument}"? Its patch, notes and effects are lost.`)) return;
+    this.orders.lanes.splice(index, 1);
+    this.orders.instruments = this.orders.instruments.filter((i) => i.id !== lane.instrument);
+    this.muted.delete(lane.instrument);
+    this.solo.delete(lane.instrument);
+    this.pattern.setDomain('note');
+    this.pattern.anchor = null;
+    this.pattern.cur = { lane: Math.min(index, this.orders.lanes.length - 1), row: this.pattern.cur.row };
+    this.touch();
+    this.pattern.render();
+    this.panel.render();
+    this.applyMixMute();
+    this.updateMix();
   }
 
   /** With a track soloed only that track is heard, otherwise everything not muted. */

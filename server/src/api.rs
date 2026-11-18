@@ -39,7 +39,7 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
         .route("/api/sessions/{id}/song.wav", get(song))
         .route("/api/sessions/{id}/events", get(events))
-        .layer(axum::extract::DefaultBodyLimit::max(512 * 1024))
+        .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)) // 64 tracks with every row filled is about 450 KB
         .with_state(shared)
 }
 
