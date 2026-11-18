@@ -326,7 +326,9 @@ export class Game {
     const st = this.st;
     r.round.textContent = `Round ${st.round?.n ?? '–'}${st.config.rounds ? ` / ${st.config.rounds}` : ''}`;
     r.ready.textContent = `ready ${st.ready_count} / ${st.eligible_count}`;
-    r.seats.textContent = `${st.seat_count} seated`;
+    const waiting = st.seat_count - st.eligible_count; // seated, but their first round is the next one
+    r.seats.textContent = waiting > 0 ? `${waiting} joining next round` : '';
+    r.seats.hidden = waiting <= 0;
     if (st.end_requested) r.round.textContent += ' (last)';
     this.tick();
   }
