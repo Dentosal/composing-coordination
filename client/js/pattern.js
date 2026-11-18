@@ -16,7 +16,7 @@ const KEYMAP = {
 };
 
 /** Shared by every editor instance, so a copy survives switching tracks and rebuilding the screen. */
-let clipboard = null; // {rows, domain: 'note'|'auto', lanes: [[item]]}: the copied steps or effect cells, rows relative to the copied block
+let clipboard = null; // {rows, domain: 'note'|'auto'|'both', lanes: [[item]], fx?: [[item]]}: the copied steps or effect cells (domain 'both': steps in `lanes`, effect cells in `fx`), rows relative to the copied block
 
 const UNDO_LIMIT = 200;
 
@@ -66,6 +66,7 @@ const rollHelp = () => [
     h('li', 'Click a cell to put the cursor there; drag to select a block of cells.'),
     h('li', 'Hold ', key('Shift'), ' while clicking or dragging to paint notes (drag across tracks too). Clicking an existing note erases it. The "quick paint" box swaps what plain and shifted clicks do.'),
     h('li', key('Alt'), ' + click places an off (✕) on a cell, or removes it. Offs end the note that is sounding.'),
+    h('li', 'Hold ', key('Alt'), ' while you drag (or ', key('Alt'), ' + ', key('Shift'), ' + click, or ', key('Alt'), ' + click an effect cell) to select the notes and the effect cells together. Delete, copy, cut, paste, duplicate and repeat then work on both. A copy holding both always pastes both, wherever you paste it; copy plain note cells or plain effect cells to paste just those.'),
     h('li', 'Drag a track label up or down to reorder the tracks. The speaker and headphones buttons on a label mute and solo the track.'),
     h('li', 'In sessions with unlimited tracks, the + beside "Tracks" adds a track, and the trash button next to "Load preset" deletes the selected one.')),
   h('h3', 'Entering notes'),
@@ -83,7 +84,7 @@ const rollHelp = () => [
   h('h3', 'Selecting and editing'),
   h('ul',
     h('li', key('Shift'), ' + arrows extend the selection; arrows otherwise move left and right in time and up and down between tracks. ', key('PageUp'), ' / ', key('PageDown'), ' jump a bar, ', key('Home'), ' / ', key('End'), ' go to the start and end, ', key('Ctrl'), ' + ', key('A'), ' selects the track (again: all tracks).'),
-    h('li', key('Ctrl'), ' + ', key('C'), ' / ', key('X'), ' / ', key('V'), ' copy, cut, paste. ', key('Ctrl'), ' + ', key('Z'), ' undoes, ', key('Ctrl'), ' + ', key('Shift'), ' + ', key('Z'), ' redoes.'),
+    h('li', key('Ctrl'), ' + ', key('C'), ' / ', key('X'), ' / ', key('V'), ' copy, cut, paste (copy one cell, select several and paste to fill them all). ', key('Ctrl'), ' + ', key('Z'), ' undoes, ', key('Ctrl'), ' + ', key('Shift'), ' + ', key('Z'), ' redoes.'),
     h('li', key('Ctrl'), ' + ', key('D'), ' duplicates the selection (or this bar) after itself; ', key('Ctrl'), ' + ', key('E'), ' repeats it to the end of the song.'),
     h('li', key('Alt'), ' + ', key('↑'), ' / ', key('↓'), ' transposes a semitone (add ', key('Shift'), ' for an octave).'),
     h('li', 'All of this works on the layer you selected: note cells, or effect cells. Copied effects can only be pasted onto effect cells, and transposing is for notes only.')),
@@ -443,58 +444,80 @@ export class PatternEditor {
     this.cur = { lane: l1, row: r1 };
   }
 
-  /** Is the cell in the selection? Only cells of the layer (note / effect) the selection lives in can be. */
+  /** Is the cell in the selection? Only cells of the layer (note / effect) the selection lives in can be; a 'both' selection (Alt) has both. */
   inSel(lane, row, domain = 'note') {
-    if (this.domain !== domain || !this.hasSel) return false;
+    if ((this.domain !== domain && this.domain !== 'both') || !this.hasSel) return false;
     const { l0, l1, r0, r1 } = this.rect();
     return lane >= l0 && lane <= l1 && row >= r0 && row <= r1;
   }
 
   // ---- block operations
 
-  /** What the selection works on: the notes (steps) or the effect cells of a lane, depending on the layer the cursor is in. */
-  items(lane) {
-    return this.domain === 'auto' ? (lane.fx ?? []) : lane.steps;
+  /** The layers the selection works on: 'note' (steps) and/or 'auto' (effect cells). Alt selects both. */
+  get layers() {
+    return this.domain === 'both' ? ['note', 'auto'] : [this.domain];
   }
 
-  setItems(lane, items) {
-    if (this.domain === 'auto') {
+  /** The items of one layer of a lane: its steps or its effect cells. */
+  itemsOf(lane, layer) {
+    return layer === 'auto' ? (lane.fx ?? []) : lane.steps;
+  }
+
+  setItemsOf(lane, layer, items) {
+    if (layer === 'auto') {
       if (items.length) lane.fx = items; else delete lane.fx;
     } else lane.steps = items;
   }
 
-  /** "notes" or "effects": for messages. */
+  /** "notes", "effects" or "notes and effects": for messages. */
   get layerName() {
-    return this.domain === 'auto' ? 'effects' : 'notes';
+    return this.domain === 'both' ? 'notes and effects' : this.domain === 'auto' ? 'effects' : 'notes';
   }
 
+  /** The block's items, rows relative to its first row. With notes and effects together the clipboard holds both. */
   capture({ l0, l1, r0, r1 }) {
-    const lanes = this.lanesOf({ l0, l1 }).map((l) => {
+    const layer = (name) => this.lanesOf({ l0, l1 }).map((l) => {
       const lane = this.orders.lanes[l];
-      return lane ? this.items(lane).filter((it) => it.row >= r0 && it.row <= r1).map((it) => ({ ...structuredClone(it), row: it.row - r0 })) : [];
+      return lane ? this.itemsOf(lane, name).filter((it) => it.row >= r0 && it.row <= r1).map((it) => ({ ...structuredClone(it), row: it.row - r0 })) : [];
     });
-    return { rows: r1 - r0 + 1, lanes, domain: this.domain };
+    const clip = { rows: r1 - r0 + 1, lanes: layer(this.domain === 'auto' ? 'auto' : 'note'), domain: this.domain };
+    if (this.domain === 'both') clip.fx = layer('auto');
+    return clip;
+  }
+
+  /** Does the clipboard (or a captured block) hold anything? */
+  clipHasItems(clip) {
+    return clip.lanes.some((l) => l.length) || !!clip.fx?.some((l) => l.length);
   }
 
   clearRect({ l0, l1, r0, r1 }) {
     for (const l of this.lanesOf({ l0, l1 })) {
       const lane = this.orders.lanes[l];
-      if (lane) this.setItems(lane, this.items(lane).filter((it) => it.row < r0 || it.row > r1));
+      if (!lane) continue;
+      for (const layer of this.layers) this.setItemsOf(lane, layer, this.itemsOf(lane, layer).filter((it) => it.row < r0 || it.row > r1));
     }
   }
 
-  /** Paste overwrites: the destination block is cleared first, then the copied items go in (clipped to the song). */
+  /**
+   * Paste overwrites: the destination block is cleared first, then the copied items go in (clipped to the song). A clipboard
+   * with notes and effects together pastes both, wherever it is pasted (onto note cells, effect cells or a combined selection).
+   */
   pasteAt(clip, lane0, row0) {
+    const held = clip.domain === 'both' ? { note: clip.lanes, auto: clip.fx } : { [clip.domain]: clip.lanes };
+    for (const [layer, items] of Object.entries(held)) this.pasteLayer(layer, items, clip.rows, lane0, row0);
+  }
+
+  pasteLayer(layer, laneItems, rows, lane0, row0) {
     const total = this.o.totalRows;
-    clip.lanes.forEach((items, i) => {
+    laneItems.forEach((items, i) => {
       const lane = this.orders.lanes[lane0 + i];
       if (!lane) return;
-      const end = Math.min(row0 + clip.rows, total);
-      const next = this.items(lane).filter((it) => it.row < row0 || it.row >= end);
+      const end = Math.min(row0 + rows, total);
+      const next = this.itemsOf(lane, layer).filter((it) => it.row < row0 || it.row >= end);
       for (const it of items) {
         if (row0 + it.row >= total) continue;
         const copy = { ...structuredClone(it), row: row0 + it.row };
-        if (this.domain === 'auto' && copy.params) { // a parameter the target track's instrument does not have cannot be kept
+        if (layer === 'auto' && copy.params) { // a parameter the target track's instrument does not have cannot be kept
           const inst = this.instOf(lane);
           copy.params = copy.params.filter((e) => accepts(inst, e));
           if (!copy.params.length) delete copy.params;
@@ -502,7 +525,7 @@ export class PatternEditor {
         }
         next.push(copy);
       }
-      this.setItems(lane, next.sort((a, b) => a.row - b.row));
+      this.setItemsOf(lane, layer, next.sort((a, b) => a.row - b.row));
     });
   }
 
@@ -521,11 +544,23 @@ export class PatternEditor {
 
   paste() {
     if (!clipboard) return this.flash('Nothing copied yet');
-    if (clipboard.domain !== this.domain) {
+    // A combined selection takes anything, and a combined clipboard goes anywhere (it pastes both layers).
+    if (clipboard.domain !== this.domain && clipboard.domain !== 'both' && this.domain !== 'both') {
       return this.flash(`That clipboard holds ${clipboard.domain === 'auto' ? 'effects' : 'notes'}: select ${clipboard.domain === 'auto' ? 'effect' : 'note'} cells to paste it`);
     }
-    const { l0, r0 } = this.rect();
+    const rc = this.rect();
+    const { l0, r0 } = rc;
     const clip = clipboard;
+    // One copied cell pastes into every selected cell (also into an empty one: that clears them). The selection stays, so it
+    // can be pasted again, or the selection changed. A larger clipboard pastes at the selection's first cell, as before.
+    if (clip.rows === 1 && clip.lanes.length === 1 && (rc.l1 > rc.l0 || rc.r1 > rc.r0)) {
+      const lanes = this.lanesOf(rc);
+      this.edit(() => {
+        for (const l of lanes) for (let r = rc.r0; r <= rc.r1; r++) this.pasteAt(clip, l, r);
+      });
+      this.flash(`Pasted into ${lanes.length * (rc.r1 - rc.r0 + 1)} cells`);
+      return;
+    }
     this.anchor = null;
     this.cur = { lane: l0, row: clamp(r0 + clip.rows, 0, this.o.totalRows - 1) };
     this.edit(() => this.pasteAt(clip, l0, r0));
@@ -545,11 +580,11 @@ export class PatternEditor {
   /** Remove every note (or, in the effect layer, every effect) of the cursor's track. Undoable, so no confirmation. */
   clearTrack() {
     const lane = this.orders.lanes[this.cur.lane];
-    const n = lane ? this.items(lane).length : 0;
+    const n = lane ? this.layers.reduce((sum, layer) => sum + this.itemsOf(lane, layer).length, 0) : 0;
     if (!n) return this.flash(`Track ${this.cur.lane + 1} has no ${this.layerName} to clear`);
     this.anchor = null;
-    this.edit(() => this.setItems(lane, []));
-    this.flash(`Cleared ${n} ${this.layerName === 'notes' ? 'step(s)' : 'effect cell(s)'} of track ${this.cur.lane + 1}. Ctrl+Z to undo`);
+    this.edit(() => { for (const layer of this.layers) this.setItemsOf(lane, layer, []); });
+    this.flash(`Cleared ${n} ${this.layerName === 'notes' ? 'step(s)' : this.layerName === 'effects' ? 'effect cell(s)' : 'step(s) and effect cell(s)'} of track ${this.cur.lane + 1}. Ctrl+Z to undo`);
   }
 
   /** The block as text for messages: "track 1, rows 00-15". */
@@ -566,12 +601,12 @@ export class PatternEditor {
     const rc = this.blockRect();
     const clip = this.capture(rc);
     if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Duplicate: no room after the block');
-    if (!clip.lanes.some((l) => l.length)) return this.flash(`Duplicate: ${this.describe(rc)} is empty, nothing to copy`);
+    if (!this.clipHasItems(clip)) return this.flash(`Duplicate: ${this.describe(rc)} is empty, nothing to copy`);
     const to = rc.r1 + 1;
     this.pushUndo();
     this.pasteAt(clip, rc.l0, to);
     this.setSel(rc.l0, to, rc.l1, Math.min(this.o.totalRows - 1, rc.r1 + clip.rows));
-    this.flash(`Duplicated ${this.layerName === 'effects' ? 'effects of ' : ''}${this.describe(rc)} to rows ${String(to).padStart(2, '0')}-${String(Math.min(this.o.totalRows - 1, rc.r1 + clip.rows)).padStart(2, '0')}`);
+    this.flash(`Duplicated ${this.layerName === 'notes' ? '' : `${this.layerName} of `}${this.describe(rc)} to rows ${String(to).padStart(2, '0')}-${String(Math.min(this.o.totalRows - 1, rc.r1 + clip.rows)).padStart(2, '0')}`);
     this.changed();
   }
 
@@ -583,7 +618,7 @@ export class PatternEditor {
     const rc = this.blockRect();
     const clip = this.capture(rc);
     if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Repeat to end: the block already reaches the end of the song');
-    if (!clip.lanes.some((l) => l.length)) return this.flash(`Repeat to end: ${this.describe(rc)} is empty, nothing to repeat`);
+    if (!this.clipHasItems(clip)) return this.flash(`Repeat to end: ${this.describe(rc)} is empty, nothing to repeat`);
     this.pushUndo();
     let copies = 0;
     for (let r = rc.r0 + clip.rows; r < this.o.totalRows; r += clip.rows) { this.pasteAt(clip, rc.l0, r); copies++; }
@@ -963,7 +998,7 @@ export class PatternEditor {
 
   /** Block operations edit notes only; with an effect selection they say so instead of touching the notes. */
   notesOnly() {
-    if (this.domain === 'note') return true;
+    if (this.domain !== 'auto') return true; // note cells, or notes and effects together
     this.flash('That works on notes: select some note cells first');
     return false;
   }
@@ -1114,7 +1149,7 @@ export class PatternEditor {
       const c = e.target instanceof Element ? e.target.closest('.roll-cell') : null;
       return c ? { lane: Number(c.dataset.lane), row: Number(c.dataset.row) } : null;
     };
-    // Effect cells: click / shift+click / drag select them like note cells, but never together with notes.
+    // Effect cells: click / shift+click / drag select them like note cells, but not together with notes, unless Alt is held.
     const effectCellAt = (e) => {
       const c = e.target instanceof Element ? e.target.closest('.roll-acell') : null;
       return c ? { lane: Number(c.dataset.lane), row: Number(c.dataset.row) } : null;
@@ -1124,14 +1159,15 @@ export class PatternEditor {
       if (!c || e.button !== 0) return;
       e.preventDefault();
       const moved = c.lane !== this.cur.lane;
-      if (this.domain !== 'auto') { this.domain = 'auto'; this.anchor = null; }
+      const both = e.altKey; // Alt: the note cells and the effect cells together
+      this.setDomain(both ? 'both' : 'auto');
       if (e.shiftKey && this.anchor === null) this.anchor = { ...this.cur };
-      else if (!e.shiftKey) { this.anchor = null; this.adrag = c; }
+      else if (!e.shiftKey) { this.anchor = null; if (both) this.bdrag = c; else this.adrag = c; }
       this.cur = { ...c };
       this.render();
       this.main.focus({ preventScroll: true });
       if (moved) this.o.onSelect?.();
-      if (e.shiftKey) this.openEffectDialog();
+      if (e.shiftKey && !both) this.openEffectDialog();
     });
     this.roll.addEventListener('mouseover', (e) => {
       const c = this.adrag && effectCellAt(e); // notes under the pointer are ignored: the selection stays in the effect layer
@@ -1186,6 +1222,22 @@ export class PatternEditor {
       if (!c || e.button !== 0) return;
       e.preventDefault(); // render() replaces the cell mid-click
       const moved = c.lane !== this.cur.lane;
+      if (e.altKey && this.showFx) {
+        // Alt with the effect lane showing: notes and effects are selected together. Shift+click extends the selection; a drag
+        // makes one (see the mouseover below); a plain click that does not move is still the off note (on mouse up).
+        if (e.shiftKey) {
+          this.setDomain('both');
+          this.anchor ??= { ...this.cur };
+          this.cur = { ...c };
+          this.render();
+          this.main.focus({ preventScroll: true });
+          if (moved) this.o.onSelect?.();
+        } else {
+          this.bdrag = c;
+          this.pendingOff = c;
+        }
+        return;
+      }
       this.setDomain('note');
       if (e.altKey) { // an off note
         this.toggleOff(c);
@@ -1218,6 +1270,18 @@ export class PatternEditor {
       this.render();
       if (moved) this.o.onSelect?.();
     });
+    this.roll.addEventListener('mouseover', (e) => { // an Alt drag over note cells and effect cells: the block of both layers
+      const d = this.bdrag;
+      const c = d && (rollCellAt(e) ?? effectCellAt(e));
+      if (!c || (c.lane === d.lane && c.row === d.row && this.pendingOff)) return; // still on the cell the press began on: not a drag yet
+      this.pendingOff = null; // it is a drag, not a click
+      const moved = c.lane !== this.cur.lane;
+      this.setDomain('both');
+      this.anchor = { ...d };
+      this.cur = { ...c };
+      this.render();
+      if (moved) this.o.onSelect?.();
+    });
     this.onMouseMove = (e) => this.onHeadDrag(e);
     window.addEventListener('mousemove', this.onMouseMove);
     this.onMouseUp = () => {
@@ -1241,6 +1305,16 @@ export class PatternEditor {
       if (this.paint && !this.paint.changed) this.undoStack.pop(); // a press that changed nothing is not an undo step
       this.paint = null;
       this.drag = null;
+      this.bdrag = null;
+      if (this.pendingOff) { // an Alt click on a note cell that did not turn into a drag: the off note
+        const c = this.pendingOff;
+        this.pendingOff = null;
+        const moved = c.lane !== this.cur.lane;
+        this.setDomain('note');
+        this.toggleOff(c);
+        this.main.focus({ preventScroll: true });
+        if (moved) this.o.onSelect?.();
+      }
       if (this.adrag) { // a click or drag on effect cells ended: open the (placeholder) effect dialog for the selection
         this.adrag = null;
         this.openEffectDialog();
@@ -1429,7 +1503,7 @@ export class PatternEditor {
         if (span && r + 1 < span.end) cls += ' cont';
         if (groupEnd) cls += ' gend';
         if (barEnd) cls += ' bend';
-        if (this.domain === 'note' && li === this.cur.lane && r === this.cur.row) cls += ' cur';
+        if (this.domain !== 'auto' && li === this.cur.lane && r === this.cur.row) cls += ' cur';
         if (this.inSel(li, r)) cls += ' sel';
         if (lp && r >= lp.from && r <= lp.to) cls += ' in-loop';
         const cell = h('div', { class: cls });
@@ -1463,7 +1537,7 @@ export class PatternEditor {
     const cs = this.stepAt(this.cur.lane, this.cur.row);
     const at = this.domain === 'auto'
       ? `effect lane of track ${this.cur.lane + 1}, row ${this.cur.row}`
-      : `track ${this.cur.lane + 1}, row ${this.cur.row}: ${cs ? (cs.note == null ? 'note off' : `${noteName(cs.note)} vel ${cs.vel}`) : 'empty'}`;
+      : `track ${this.cur.lane + 1}, row ${this.cur.row}: ${cs ? (cs.note == null ? 'note off' : `${noteName(cs.note)} vel ${cs.vel}`) : 'empty'}${this.domain === 'both' ? ' (notes and effects)' : ''}`;
     const base = `${at} · octave ${this.octave} · velocity ${this.vel} · step ${this.step}${sel}`;
     this.status.textContent = this.msg ? `${this.msg} · ${base}` : base; // a transient message never hides the selection
   }
