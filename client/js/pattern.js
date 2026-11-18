@@ -38,7 +38,7 @@ export class PatternEditor {
     this.vel = 100;
     this.step = 1; // rows the cursor advances after entering a note
     this.hear = true; // sound the active track's patch while entering notes
-    // Mouse: by default click/drag selects and shift paints; "direct paint" swaps the two.
+    // Mouse: by default click/drag selects and shift paints; "quick paint" swaps the two.
     this.paintMode = false;
     try { this.paintMode = localStorage.getItem('directPaint') === '1'; } catch {}
     this.drag = null; // selecting with the mouse: the cell the drag started on
@@ -87,14 +87,14 @@ export class PatternEditor {
       STEPS.map((n) => h('option', { value: n, selected: n === this.step }, String(n))));
     const hear = h('label.check', h('input', { type: 'checkbox', checked: this.hear,
       onchange: (e) => { this.hear = e.target.checked; } }), 'hear notes');
-    const direct = h('label.check', { title: 'Off: click or drag selects cells, shift+click or shift+drag paints hits. On: the other way round.' },
+    const direct = h('label.check', { title: 'Off: click or drag selects cells, shift+click or shift+drag paints hits (across steps and tracks). On: the other way round.' },
       h('input', { type: 'checkbox', checked: this.paintMode, onchange: (e) => {
         this.paintMode = e.target.checked;
         try { localStorage.setItem('directPaint', this.paintMode ? '1' : '0'); } catch {}
         this.main.classList.toggle('paint-mode', this.paintMode);
         this.renderStatus();
         this.main.focus({ preventScroll: true });
-      } }), 'direct paint');
+      } }), 'quick paint');
     return h('div.pattern-bar',
       h('label', 'step', stepSel), hear, direct,
       h('span.sep'), this.undoBtn, this.redoBtn,
@@ -157,46 +157,50 @@ export class PatternEditor {
     this.hearNote(lane, note, this.vel);
   }
 
-  /** Start painting pad hits: pressing on a hit erases (and drags erase), on an empty pad adds; alt+click toggles an accent. */
+  /**
+   * Start painting hits: pressing on a hit erases (and the drag erases), on an empty cell adds; alt+click toggles an
+   * accent. The drag may run across steps and tracks alike.
+   */
   startPaint(c, accent) {
     const s = this.stepAt(c.lane, c.row);
     this.pushUndo();
-    this.paint = { lane: c.lane, last: c.row, changed: false, mode: accent ? 'accent' : s && s.note != null ? 'erase' : 'paint' };
-    this.paintCell(c.row, true);
+    this.paint = { last: { ...c }, changed: false, mode: accent ? 'accent' : s && s.note != null ? 'erase' : 'paint' };
+    this.paintCell(c.lane, c.row, true);
   }
 
-  /** Continue a paint drag onto cell `c` (same track only), filling any rows a fast drag skipped. */
+  /** Continue a paint drag onto cell `c`, filling the cells a fast drag skipped on the straight line from the last one. */
   paintTo(c) {
     const p = this.paint;
-    if (c.lane !== p.lane || c.row === p.last || p.mode === 'accent') return;
-    const dir = Math.sign(c.row - p.last);
-    for (let r = p.last + dir; ; r += dir) {
-      this.paintCell(r, false);
-      if (r === c.row) break;
-    }
-    p.last = c.row;
-    this.cur = { lane: p.lane, row: c.row };
+    if (p.mode === 'accent' || (c.lane === p.last.lane && c.row === p.last.row)) return;
+    const dl = c.lane - p.last.lane;
+    const dr = c.row - p.last.row;
+    const n = Math.max(Math.abs(dl), Math.abs(dr));
+    for (let i = 1; i <= n; i++) this.paintCell(Math.round(p.last.lane + (dl * i) / n), Math.round(p.last.row + (dr * i) / n), false);
+    const moved = c.lane !== this.cur.lane;
+    p.last = { ...c };
+    this.cur = { ...c };
     this.render();
+    if (moved) this.o.onSelect?.();
   }
 
-  paintCell(row, first) {
+  paintCell(lane, row, first) {
     const p = this.paint;
-    const s = this.stepAt(p.lane, row);
+    const s = this.stepAt(lane, row);
     const on = !!s && s.note != null;
-    const note = this.hitNote(p.lane);
+    const note = this.hitNote(lane);
     if (p.mode === 'erase') {
-      if (s) { this.clearStep(p.lane, row); p.changed = true; }
+      if (s) { this.clearStep(lane, row); p.changed = true; }
     } else if (p.mode === 'paint') {
       if (!on) {
-        this.setStep(p.lane, row, note, this.vel);
+        this.setStep(lane, row, note, this.vel);
         p.changed = true;
-        if (first) this.hearNote(p.lane, note, this.vel);
+        if (first) this.hearNote(lane, note, this.vel);
       }
     } else if (first) {
       if (on) s.vel = s.vel >= 127 ? this.vel : 127;
-      else this.setStep(p.lane, row, note, 127);
+      else this.setStep(lane, row, note, 127);
       p.changed = true;
-      this.hearNote(p.lane, s?.note ?? note, 127);
+      this.hearNote(lane, s?.note ?? note, 127);
     }
     if (p.changed) this.o.onChange();
   }
@@ -617,10 +621,10 @@ export class PatternEditor {
       if (!c || e.button !== 0) return;
       e.preventDefault(); // render() replaces the cell mid-click
       const moved = c.lane !== this.cur.lane;
-      if (this.paintMode !== e.shiftKey) { // painting: plain click in direct paint mode, shift+click otherwise
+      if (this.paintMode !== e.shiftKey) { // painting: plain click in quick paint mode, shift+click otherwise
         this.anchor = null;
         this.startPaint(c, e.altKey);
-      } else if (e.shiftKey) { // direct paint mode + shift: extend the selection from the cursor to here
+      } else if (e.shiftKey) { // quick paint mode + shift: extend the selection from the cursor to here
         this.anchor ??= { ...this.cur };
       } else { // selecting: the click puts the cursor here, dragging grows a rectangle from it
         this.anchor = null;
@@ -828,7 +832,7 @@ export class PatternEditor {
     this.help.textContent =
       'keys: z s x d c v … piano, q 2 w 3 e … upper octave · ` or 1 note-off · ⌫ clear · [ ] octave · - = velocity · ' +
       'shift+arrows select · ctrl+c/x/v copy/cut/paste · ctrl+z undo · ctrl+d duplicate · ctrl+e repeat to end · ' +
-      'drag a track label to reorder · click or drag selects, shift+click or shift+drag paints hits ("direct paint" swaps them), alt+click accent · arrows: left/right in time, up/down between tracks · a toggle hit at cursor · ' +
+      'drag a track label to reorder · click or drag selects, shift+click or shift+drag paints hits ("quick paint" swaps them), alt+click accent · arrows: left/right in time, up/down between tracks · a toggle hit at cursor · ' +
       'alt+↑↓ transpose (+shift: octave) · enter play from cursor · shift+enter loop selection · space play/stop';
   }
 
