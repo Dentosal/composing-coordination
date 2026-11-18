@@ -100,7 +100,7 @@ export class PatternEditor {
    *   getOrders:()=>import('./types.js').Orders, onChange:()=>void, onSpace?:()=>void,
    *   onSelect?:()=>void, onVolume?:()=>void,
    *   onAudition?:(lane:number, note:number, vel:number)=>void,
-   *   onAddTrack?:()=>void, canAddTrack?:()=>boolean,
+   *   onAddTrack?:()=>void, canAddTrack?:()=>boolean, onBars?:(delta:number)=>void, getBars?:()=>number,
    *   isMuted?:(id:string)=>boolean, isSolo?:(id:string)=>boolean, isAudible?:(id:string)=>boolean,
    *   onToggleMute?:(id:string)=>void, onToggleSolo?:(id:string)=>void,
    *    *   onPlay?:(kind:'cursor'|'region', fromRow:number, toRow?:number)=>void}} opts
@@ -774,6 +774,19 @@ export class PatternEditor {
     ui.retrigN.value = String(cell?.retrig ?? 2);
   }
 
+  /** The song got longer or shorter (freeform): keep the cursor inside it and drop the undo history, which holds rows beyond the new end. */
+  setTotalRows(total, revealEnd = false) {
+    this.o.totalRows = total;
+    this.cur.row = Math.min(this.cur.row, total - 1);
+    if (this.anchor) this.anchor.row = Math.min(this.anchor.row, total - 1);
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.keepScroll = true; // the cursor may be far from where you are looking (the buttons at the end): don't jump to it
+    this.render();
+    this.keepScroll = false;
+    if (revealEnd) this.rollScroll.scrollLeft = this.rollScroll.scrollWidth; // show the bar that was just added
+  }
+
   /** Switch the layer the cursor lives in. Leaving the effect layer closes its dialog. */
   setDomain(domain) {
     if (this.domain === domain) return;
@@ -1191,6 +1204,15 @@ export class PatternEditor {
         body.append(bar);
       }
       row.append(body);
+      // Freeform: the end of the song carries the buttons that add or remove a bar. Every row reserves the same room, so
+      // the cells of all rows (and the bar numbers) stay lined up.
+      if (this.o.onBars) row.append(row.classList.contains('head') ? lengthButtons() : h('div.roll-len-spacer'));
+    };
+    const lengthButtons = () => {
+      const bars = this.o.getBars?.() ?? 0;
+      const btn = (delta, text, title, off) => h('button.roll-len-btn', { type: 'button', title, 'aria-label': title, disabled: off,
+        onmousedown: (e) => e.stopPropagation(), onclick: () => this.o.onBars(delta) }, text);
+      return h('div.roll-len', btn(-1, '−', 'Remove the last bar', bars <= 1), btn(1, '+', 'Add a bar at the end', bars >= 64));
     };
     const head = h('div.roll-row.head');
     const lp = this.loop;
@@ -1325,6 +1347,6 @@ export class PatternEditor {
     this.renderStatus();
     this.updateBar();
     if (hadFocus && document.activeElement !== this.main && !this.effectDlg.contains(document.activeElement)) this.main.focus({ preventScroll: true });
-    this.roll.querySelector('.roll-cell.cur')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (!this.keepScroll) this.roll.querySelector('.roll-cell.cur')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 }

@@ -17,6 +17,8 @@ const fmtTime = (ms) => {
 
 /** The most tracks a player can have in an unlimited session (the server enforces the same ceiling). */
 const MAX_UNLIMITED_TRACKS = 64;
+/** The longest freeform song, in bars (the server enforces the same). */
+const MAX_FREEFORM_BARS = 64;
 
 export class Game {
   /** @param {HTMLElement} root @param {{sid:string,seat:string|null,host:string|null,onLeave:()=>void}} o */
@@ -134,6 +136,7 @@ export class Game {
     const on = (name, fn) => es.addEventListener(name, (e) => fn(JSON.parse(e.data || '{}')));
     on('seat_count', (d) => { this.st.seat_count = d.count; this.updateTop(); this.updateLobby(); });
     on('ready_count', (d) => { this.st.ready_count = d.ready; this.st.eligible_count = d.total; this.updateTop(); });
+    on('config', (d) => this.applyBars(d.bars)); // freeform: the song's length changed (another tab, or this one)
     on('round_opened', () => this.refresh().catch(() => {}));
     on('round_resolved', (d) => this.loadMix(d.n));
     on('session_ended', () => this.refresh().catch(() => {}));
@@ -366,6 +369,9 @@ export class Game {
       onToggleMute: (id) => this.toggleMute(id),
       onToggleSolo: (id) => this.toggleSolo(id),
       onAddTrack: this.unlimited ? () => this.addTrack() : null,
+      // Freeform: the buttons at the right end of the roll make the song one bar longer or shorter.
+      onBars: this.freeform ? (delta) => this.setBars(this.st.config.bars + delta) : null,
+      getBars: () => this.st.config.bars,
       canAddTrack: () => this.orders.lanes.length < MAX_UNLIMITED_TRACKS,
       getLoop: () => this.loop,
       onLoop: (loop, final) => this.setLoop(loop, final),
@@ -469,6 +475,52 @@ export class Game {
     };
     const stamp = file.exported.slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
     downloadText(`band-game-tracks-${stamp}.json`, JSON.stringify(file, null, 1) + '\n');
+  }
+
+  /** Freeform: ask for a different length (asking before it drops anything), then apply it. */
+  async setBars(value) {
+    const cfg = this.st.config;
+    const bars = Math.round(Number(value));
+    if (!this.freeform || !Number.isFinite(bars) || bars < 1 || bars > MAX_FREEFORM_BARS || bars === cfg.bars) return;
+    const total = bars * cfg.rows_per_bar;
+    const loses = this.orders.lanes.some((l) => l.steps.some((s) => s.row >= total) || (l.fx ?? []).some((f) => f.row >= total));
+    if (loses && !confirm(`Shorten the song to ${bars} bar${bars === 1 ? '' : 's'}? The notes and effects after the end are deleted.`)) return;
+    try {
+      await this.enqueue(() => this.saveNow()); // the server drops what is past the end from its copy; make sure it has the latest
+      await api.setBars(this.sid, this.token, bars);
+    } catch (e) {
+      alert(e.message);
+      return;
+    }
+    this.applyBars(bars);
+  }
+
+  /** The song length changed: trim the draft, resize the roll and stop playback (it was cut to the old length). */
+  applyBars(bars) {
+    const cfg = this.st.config;
+    if (bars === cfg.bars) return;
+    const grew = bars > cfg.bars;
+    cfg.bars = bars;
+    const total = bars * cfg.rows_per_bar;
+    for (const lane of this.orders.lanes) {
+      lane.steps = lane.steps.filter((s) => s.row < total);
+      if (lane.fx) {
+        lane.fx = lane.fx.filter((f) => f.row < total);
+        if (!lane.fx.length) delete lane.fx;
+      }
+    }
+    if (this.loop && this.loop.from >= total) this.loop = null;
+    else if (this.loop) this.loop = { from: this.loop.from, to: Math.min(this.loop.to, total - 1) };
+    if (this.playing) {
+      this.playing = false;
+      this.player.stop();
+      this.livePlayer.stop();
+      this.serverPlayer.stop();
+    }
+    if (this.pattern) this.pattern.loop = this.loop; // the editor keeps its own copy of the loop
+    this.pattern?.setTotalRows(total, grew);
+    if (this.previewOn && this.serverPreview) this.schedulePreview(0);
+    this.updateMix();
   }
 
   /** Sessions where players add and delete tracks themselves. */

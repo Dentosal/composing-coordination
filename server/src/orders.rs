@@ -243,6 +243,14 @@ fn produces_audio(kind: &NodeKind) -> bool {
 }
 
 impl Orders {
+    /// Drop every step and effect cell at or after row `total_rows` (the song was shortened).
+    pub fn truncate_rows(&mut self, total_rows: u32) {
+        for lane in &mut self.lanes {
+            lane.steps.retain(|s| s.row < total_rows);
+            lane.fx.retain(|f| f.row < total_rows);
+        }
+    }
+
     pub fn validate(&self, limits: &Limits) -> Vec<ValidationError> {
         let mut errs = Vec::new();
         let mut err = |path: String, message: String| errs.push(ValidationError { path, message });
@@ -513,6 +521,19 @@ mod tests {
         let mut o: Orders = serde_json::from_str(GOOD).unwrap();
         o.lanes.clear();
         assert!(o.validate(&limits()).iter().any(|e| e.message.contains("has no lane")));
+    }
+
+    #[test]
+    fn shortening_drops_steps_and_effects_past_the_end() {
+        let mut o: Orders = serde_json::from_str(GOOD).unwrap();
+        o.lanes[0].steps = vec![Step { row: 3, note: Some(60), vel: 100 }, Step { row: 40, note: None, vel: 100 }];
+        o.lanes[0].fx = vec![
+            FxStep { row: 5, volume: Some(0.5), arp: None, slide: None, cut: None, retrig: None },
+            FxStep { row: 41, volume: Some(0.5), arp: None, slide: None, cut: None, retrig: None },
+        ];
+        o.truncate_rows(32);
+        assert_eq!(o.lanes[0].steps.iter().map(|s| s.row).collect::<Vec<_>>(), vec![3]);
+        assert_eq!(o.lanes[0].fx.iter().map(|f| f.row).collect::<Vec<_>>(), vec![5]);
     }
 
     #[test]

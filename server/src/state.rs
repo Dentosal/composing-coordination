@@ -34,6 +34,9 @@ pub enum TimeoutPolicy {
     RepeatLast,
 }
 
+/// A freeform session can make its loop longer than a game's 16 bars, up to this many.
+pub const MAX_FREEFORM_BARS: u32 = 64;
+
 /// "Unlimited" tracks still have a ceiling: every track costs render time for the whole band.
 pub const UNLIMITED_TRACK_CAP: usize = 64;
 
@@ -78,7 +81,8 @@ impl Config {
     pub fn validate(&self) -> Result<(), String> {
         let chk = |ok: bool, m: &str| if ok { Ok(()) } else { Err(m.to_string()) };
         chk(self.bpm.is_finite() && (40.0..=240.0).contains(&self.bpm), "bpm must be 40..=240")?;
-        chk((1..=16).contains(&self.bars), "bars must be 1..=16")?;
+        let max_bars = if self.freeform { MAX_FREEFORM_BARS } else { 16 };
+        chk((1..=max_bars).contains(&self.bars), &format!("bars must be 1..={max_bars}"))?;
         chk(
             (4..=32).contains(&self.rows_per_bar) && self.rows_per_bar % 4 == 0,
             "rows_per_bar must be a multiple of 4 within 4..=32",
@@ -339,6 +343,26 @@ impl Session {
             self.emit_ready_count();
         }
         Ok(Ok(()))
+    }
+
+    /// Freeform sessions only: make the song longer or shorter (nobody else is waiting on it). Shortening drops the
+    /// notes and effects past the new end from every stored draft.
+    pub fn set_bars(&mut self, bars: u32) -> Result<(), ApiError> {
+        if !self.config.freeform {
+            return err(StatusCode::CONFLICT, "only a freeform session can change its length");
+        }
+        if !(1..=MAX_FREEFORM_BARS).contains(&bars) {
+            return err(StatusCode::UNPROCESSABLE_ENTITY, format!("bars must be 1..={MAX_FREEFORM_BARS}"));
+        }
+        self.config.bars = bars;
+        let total = bars * self.config.rows_per_bar;
+        for round in &mut self.rounds {
+            for orders in round.orders.values_mut() {
+                orders.truncate_rows(total);
+            }
+        }
+        self.emit("config", json!({"bars": bars}));
+        Ok(())
     }
 
     /// Returns true when the round should now resolve.

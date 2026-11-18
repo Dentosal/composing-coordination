@@ -29,6 +29,8 @@ export const join = (sid) => req('POST', `/${sid}/join`);
 export const start = (sid, token) => req('POST', `/${sid}/start`, { token });
 export const end = (sid, token) => req('POST', `/${sid}/end`, { token });
 export const getState = (sid, token) => req('GET', `/${sid}/state`, { token });
+/** Freeform sessions: change the number of bars. */
+export const setBars = (sid, token, bars) => req('PUT', `/${sid}/bars`, { token, body: { bars } });
 export const setReady = (sid, token, ready) => req('POST', `/${sid}/ready`, { token, body: { ready } });
 
 /** @returns {Promise<{ok:true}|{ok:false,errors:{path:string,message:string}[]}>} */

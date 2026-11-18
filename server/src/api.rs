@@ -35,6 +35,7 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/state", get(get_state))
         .route("/api/sessions/{id}/orders", put(put_orders))
         .route("/api/sessions/{id}/ready", post(ready))
+        .route("/api/sessions/{id}/bars", put(set_bars))
         .route("/api/sessions/{id}/preview", post(preview))
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
         .route("/api/sessions/{id}/song.wav", get(song))
@@ -184,6 +185,26 @@ async fn put_orders(
         Ok(()) => Json(json!({"ok": true})).into_response(),
         Err(errors) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"ok": false, "errors": errors}))).into_response(),
     })
+}
+
+#[derive(Deserialize)]
+struct BarsBody {
+    bars: u32,
+}
+
+/// Freeform sessions: change the length of the song.
+async fn set_bars(
+    State(sh): State<Shared>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+    q: Q,
+    Json(body): Json<BarsBody>,
+) -> Result<Json<Value>, ApiError> {
+    let mut g = sh.write().await;
+    let s = session_mut(&mut g, &id)?;
+    seat_of(s, &h, &q)?;
+    s.set_bars(body.bars)?;
+    Ok(Json(json!({"ok": true, "bars": s.config.bars})))
 }
 
 #[derive(Deserialize)]
