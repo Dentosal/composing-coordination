@@ -1,5 +1,6 @@
 {
  "label": "Pluck",
+ "category": "Lead & Keys",
  "instrument": {
   "id": "pluck",
   "gain": 0.8,

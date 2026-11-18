@@ -1,5 +1,6 @@
 {
  "label": "Pad",
+ "category": "Pads & FX",
  "instrument": {
   "id": "pad",
   "gain": 0.6,

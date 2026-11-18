@@ -1,5 +1,6 @@
 {
  "label": "Hat",
+ "category": "Drums",
  "instrument": {
   "id": "hat",
   "gain": 0.6,

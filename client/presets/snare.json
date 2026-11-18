@@ -1,5 +1,6 @@
 {
  "label": "Snare",
+ "category": "Drums",
  "instrument": {
   "id": "snare",
   "gain": 0.8,

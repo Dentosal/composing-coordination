@@ -200,8 +200,10 @@ input[type=range] { accent-color: var(--accent); }
 .lfo-row .knob .val { flex: none; width: calc(5ch + 10px); } /* fits four digits (e.g. 4000) plus padding */
 
 .loader { position: relative; }
-.preset-dialog { position: absolute; top: calc(100% + 6px); right: 0; left: auto; margin: 0; z-index: 20; min-width: 170px; padding: 6px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
-.preset-list { display: grid; gap: 2px; }
+.preset-dialog { position: absolute; top: calc(100% + 6px); right: 0; left: auto; margin: 0; z-index: 20; width: min(540px, calc(100vw - 32px)); padding: 8px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.preset-list { columns: 3 150px; column-gap: 14px; }
+.preset-group { display: grid; gap: 2px; break-inside: avoid; margin-bottom: 10px; }
+.preset-cat { padding: 2px 8px; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8a8f99); }
 .preset-item { text-align: left; background: none; border-color: transparent; }
 .preset-item:hover { background: var(--panel); }
 .preset-cancel { width: 100%; margin-top: 6px; }

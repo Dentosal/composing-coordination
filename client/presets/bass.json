@@ -1,5 +1,6 @@
 {
  "label": "Bass",
+ "category": "Bass",
  "instrument": {
   "id": "bass",
   "gain": 0.9,

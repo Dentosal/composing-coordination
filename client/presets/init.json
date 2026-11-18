@@ -1,5 +1,6 @@
 {
  "label": "Init",
+ "category": "Basic",
  "instrument": {
   "id": "init",
   "gain": 0.8,

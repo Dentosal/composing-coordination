@@ -1,5 +1,6 @@
 {
  "label": "Lead",
+ "category": "Lead & Keys",
  "instrument": {
   "id": "lead",
   "gain": 0.7,

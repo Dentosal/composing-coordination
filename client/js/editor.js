@@ -483,6 +483,17 @@ export class InstrumentPanel {
   }
 }
 
+/** Presets grouped by `category` (a preset without one goes under "Other"), in order of first appearance. */
+function categories(presets) {
+  const groups = new Map();
+  for (const e of presets) {
+    const cat = e[1].category ?? 'Other';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(e);
+  }
+  return [...groups];
+}
+
 /**
  * A "Load preset" button that opens a small non-modal list of presets with a Cancel button. Picking a preset calls
  * `onPick(key)` and closes the list; Cancel, Escape or a click anywhere outside the list closes it without picking.
@@ -501,8 +512,9 @@ function presetPicker(presets, onPick) {
   }
   function open() {
     dlg.replaceChildren(
-      h('div.preset-list', [...presets].map(([key, p]) =>
-        h('button.preset-item', { onclick: () => { close(); onPick(key); } }, p.label ?? key))),
+      h('div.preset-list', categories(presets).map(([cat, items]) => h('div.preset-group',
+        h('div.preset-cat', cat),
+        items.map(([key, p]) => h('button.preset-item', { onclick: () => { close(); onPick(key); } }, p.label ?? key))))),
       h('button.preset-cancel', { onclick: close }, 'Cancel'));
     dlg.show(); // show(), not showModal(): the rest of the page stays interactive
     document.addEventListener('pointerdown', onDown, true);
