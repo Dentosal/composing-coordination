@@ -15,7 +15,7 @@ const KEYMAP = {
 };
 
 /** Shared by every editor instance, so a copy survives switching tracks and rebuilding the screen. */
-let clipboard = null; // {rows, lanes: [[{row, note, vel}]]}, rows relative to the copied block
+let clipboard = null; // {rows, domain: 'note'|'auto', lanes: [[item]]}: the copied steps or effect cells, rows relative to the copied block
 
 const UNDO_LIMIT = 200;
 
@@ -58,7 +58,8 @@ const rollHelp = () => [
     h('li', key('Shift'), ' + arrows extend the selection; arrows otherwise move left/right in time and up/down between tracks.'),
     h('li', key('Ctrl'), ' + ', key('C'), ' / ', key('X'), ' / ', key('V'), ' copy, cut, paste; ', key('Ctrl'), ' + ', key('Z'), ' undoes.'),
     h('li', key('Ctrl'), ' + ', key('D'), ' duplicates the selection (or this bar) after itself; ', key('Ctrl'), ' + ', key('E'), ' repeats it to the end of the song.'),
-    h('li', key('Alt'), ' + ', key('↑'), ' / ', key('↓'), ' transposes a semitone (add ', key('Shift'), ' for an octave).')),
+    h('li', key('Alt'), ' + ', key('↑'), ' / ', key('↓'), ' transposes a semitone (add ', key('Shift'), ' for an octave).'),
+    h('li', 'All of this works on the layer you selected: note cells, or effect cells (the lane above each track). Copied effects can only be pasted onto effect cells. Transposing is for notes only.')),
   h('h3', 'Playback'),
   h('ul',
     h('li', key('Space'), ' plays or stops; ', key('Enter'), ' plays from the cursor; ', key('Shift'), ' + ', key('Enter'), ' loops the selection or this bar.')),
@@ -324,6 +325,8 @@ export class PatternEditor {
   changed() {
     this.o.onChange();
     this.render();
+    // An edit made outside the dialog (paste, delete, undo ...) can change what is selected or under the cursor.
+    if (this.domain === 'auto' && this.effectDlg.open && !this.effectDlg.contains(document.activeElement)) this.refreshEffectDialog();
   }
 
   // ---- undo / redo (note data only; instruments have their own controls)
@@ -407,50 +410,68 @@ export class PatternEditor {
 
   // ---- block operations
 
+  /** What the selection works on: the notes (steps) or the effect cells of a lane, depending on the layer the cursor is in. */
+  items(lane) {
+    return this.domain === 'auto' ? (lane.fx ?? []) : lane.steps;
+  }
+
+  setItems(lane, items) {
+    if (this.domain === 'auto') {
+      if (items.length) lane.fx = items; else delete lane.fx;
+    } else lane.steps = items;
+  }
+
+  /** "notes" or "effects": for messages. */
+  get layerName() {
+    return this.domain === 'auto' ? 'effects' : 'notes';
+  }
+
   capture({ l0, l1, r0, r1 }) {
-    const lanes = this.lanesOf({ l0, l1 }).map((l) => (this.orders.lanes[l]?.steps ?? [])
-      .filter((s) => s.row >= r0 && s.row <= r1).map((s) => ({ row: s.row - r0, note: s.note, vel: s.vel })));
-    return { rows: r1 - r0 + 1, lanes };
+    const lanes = this.lanesOf({ l0, l1 }).map((l) => {
+      const lane = this.orders.lanes[l];
+      return lane ? this.items(lane).filter((it) => it.row >= r0 && it.row <= r1).map((it) => ({ ...structuredClone(it), row: it.row - r0 })) : [];
+    });
+    return { rows: r1 - r0 + 1, lanes, domain: this.domain };
   }
 
   clearRect({ l0, l1, r0, r1 }) {
     for (const l of this.lanesOf({ l0, l1 })) {
       const lane = this.orders.lanes[l];
-      if (lane) lane.steps = lane.steps.filter((s) => s.row < r0 || s.row > r1);
+      if (lane) this.setItems(lane, this.items(lane).filter((it) => it.row < r0 || it.row > r1));
     }
   }
 
-  /** Paste overwrites: the destination block is cleared first, then the copied steps go in (clipped to the song). */
+  /** Paste overwrites: the destination block is cleared first, then the copied items go in (clipped to the song). */
   pasteAt(clip, lane0, row0) {
     const total = this.o.totalRows;
-    clip.lanes.forEach((steps, i) => {
+    clip.lanes.forEach((items, i) => {
       const lane = this.orders.lanes[lane0 + i];
       if (!lane) return;
       const end = Math.min(row0 + clip.rows, total);
-      lane.steps = lane.steps.filter((s) => s.row < row0 || s.row >= end);
-      for (const st of steps) if (row0 + st.row < total) lane.steps.push({ row: row0 + st.row, note: st.note, vel: st.vel });
-      lane.steps.sort((a, b) => a.row - b.row);
+      const next = this.items(lane).filter((it) => it.row < row0 || it.row >= end);
+      for (const it of items) if (row0 + it.row < total) next.push({ ...structuredClone(it), row: row0 + it.row });
+      this.setItems(lane, next.sort((a, b) => a.row - b.row));
     });
   }
 
   copy() {
-    if (!this.notesOnly()) return;
     const rc = this.rect();
     clipboard = this.capture(rc);
-    this.flash(`Copied ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)`);
+    this.flash(`Copied ${this.layerName}: ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)`);
   }
 
   cut() {
-    if (!this.notesOnly()) return;
     const rc = this.rect();
     clipboard = this.capture(rc);
-    this.flash(`Cut ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)`);
+    this.flash(`Cut ${this.layerName}: ${rc.r1 - rc.r0 + 1} row(s) × ${this.lanesOf(rc).length} track(s)`);
     this.edit(() => this.clearRect(rc));
   }
 
   paste() {
-    if (!this.notesOnly()) return;
     if (!clipboard) return this.flash('Nothing copied yet');
+    if (clipboard.domain !== this.domain) {
+      return this.flash(`That clipboard holds ${clipboard.domain === 'auto' ? 'effects' : 'notes'}: select ${clipboard.domain === 'auto' ? 'effect' : 'note'} cells to paste it`);
+    }
     const { l0, r0 } = this.rect();
     const clip = clipboard;
     this.anchor = null;
@@ -458,15 +479,25 @@ export class PatternEditor {
     this.edit(() => this.pasteAt(clip, l0, r0));
   }
 
-  /** Remove every step of the cursor's track. Undoable, so no confirmation. */
+  /** Delete / Backspace: clear the selected cells (or the cursor cell, then move on by the edit step). */
+  deleteCells() {
+    if (this.hasSel) {
+      const rc = this.rect();
+      this.edit(() => this.clearRect(rc));
+    } else {
+      const { lane, row } = this.cur;
+      this.edit(() => this.clearRect({ l0: lane, l1: lane, r0: row, r1: row }), this.step);
+    }
+  }
+
+  /** Remove every note (or, in the effect layer, every effect) of the cursor's track. Undoable, so no confirmation. */
   clearTrack() {
-    if (!this.notesOnly()) return;
     const lane = this.orders.lanes[this.cur.lane];
-    if (!lane?.steps.length) return this.flash(`Track ${this.cur.lane + 1} is already empty`);
-    const n = lane.steps.length;
+    const n = lane ? this.items(lane).length : 0;
+    if (!n) return this.flash(`Track ${this.cur.lane + 1} has no ${this.layerName} to clear`);
     this.anchor = null;
-    this.edit(() => { lane.steps = []; });
-    this.flash(`Cleared track ${this.cur.lane + 1} (${n} step(s)). Ctrl+Z to undo`);
+    this.edit(() => this.setItems(lane, []));
+    this.flash(`Cleared ${n} ${this.layerName === 'notes' ? 'step(s)' : 'effect cell(s)'} of track ${this.cur.lane + 1}. Ctrl+Z to undo`);
   }
 
   /** The block as text for messages: "track 1, rows 00-15". */
@@ -480,7 +511,6 @@ export class PatternEditor {
    * that copy, so pressing it again lays out consecutive copies.
    */
   duplicate() {
-    if (!this.notesOnly()) return;
     const rc = this.blockRect();
     const clip = this.capture(rc);
     if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Duplicate: no room after the block');
@@ -489,7 +519,7 @@ export class PatternEditor {
     this.pushUndo();
     this.pasteAt(clip, rc.l0, to);
     this.setSel(rc.l0, to, rc.l1, Math.min(this.o.totalRows - 1, rc.r1 + clip.rows));
-    this.flash(`Duplicated ${this.describe(rc)} to rows ${String(to).padStart(2, '0')}-${String(Math.min(this.o.totalRows - 1, rc.r1 + clip.rows)).padStart(2, '0')}`);
+    this.flash(`Duplicated ${this.layerName === 'effects' ? 'effects of ' : ''}${this.describe(rc)} to rows ${String(to).padStart(2, '0')}-${String(Math.min(this.o.totalRows - 1, rc.r1 + clip.rows)).padStart(2, '0')}`);
     this.changed();
   }
 
@@ -498,7 +528,6 @@ export class PatternEditor {
    * overwriting what is there. The whole filled span ends up selected.
    */
   repeatToEnd() {
-    if (!this.notesOnly()) return;
     const rc = this.blockRect();
     const clip = this.capture(rc);
     if (rc.r1 + 1 >= this.o.totalRows) return this.flash('Repeat to end: the block already reaches the end of the song');
@@ -530,7 +559,6 @@ export class PatternEditor {
   }
 
   selectAll() {
-    if (!this.notesOnly()) return;
     const rows = this.o.totalRows;
     const lanes = this.orders.lanes.length;
     const laneOnly = this.hasSel && this.rect().l0 === this.cur.lane && this.rect().l1 === this.cur.lane
@@ -676,11 +704,15 @@ export class PatternEditor {
   }
 
   /** Placeholder dialog for the selected effect steps (non-modal: the roll stays usable while it is open). */
-  openEffectDialog() {
+  refreshEffectDialog() {
     const rc = this.rect();
     const lanes = this.lanesOf(rc).map((l) => `${l + 1} ${this.nameOf(this.orders.lanes[l])}`).join(', ');
     this.effectInfo.textContent = `Track ${lanes} · steps ${rc.r0}–${rc.r1} (${rc.r1 - rc.r0 + 1})`;
     this.syncEffectDialog();
+  }
+
+  openEffectDialog() {
+    this.refreshEffectDialog();
     if (!this.effectDlg.open) {
       this.effectDlg.show();
       this.main.focus({ preventScroll: true }); // show() moves focus into the dialog; the roll keeps the keyboard
@@ -746,6 +778,8 @@ export class PatternEditor {
         Escape: () => { this.anchor = null; this.closeEffectDialog(); this.render(); },
         ' ': () => this.o.onSpace?.(),
         Enter: () => this.playFromCursor(),
+        Delete: () => this.deleteCells(),
+        Backspace: () => this.deleteCells(),
       }[e.key];
       if (nav) {
         nav();
@@ -793,8 +827,7 @@ export class PatternEditor {
       case 'Enter': if (e.shiftKey) this.playRegion(); else this.playFromCursor(); break;
       case 'Backspace':
       case 'Delete':
-        if (!hasLane) break;
-        if (this.hasSel) { const rc = this.rect(); this.edit(() => this.clearRect(rc)); } else this.edit(() => this.clearStep(lane, row), this.step);
+        if (hasLane) this.deleteCells();
         break;
       case '`':
       case '1':
