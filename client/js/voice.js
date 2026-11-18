@@ -16,7 +16,7 @@ const DELAY_FEEDBACK = 0.4;
 const DELAY_LP_HZ = 3000;
 const DELAY_RETURN = 0.7;
 const REVERB_RETURN = 0.8;
-const OUTPUT_TRIM = 0.25;
+const OUTPUT_TRIM = 0.7; // see OUTPUT_TRIM in server/src/render/master.rs
 // The server's limiter is a DynamicsCompressor (threshold -6 dB, ratio 20) whose automatic makeup gain works out to
 // roughly +4 dB for the sounds this game makes. Browsers' own DynamicsCompressor implementations differ a lot from
 // that crate's (quiet transients come out up to 12 dB lower), so the live master uses a static curve with the same

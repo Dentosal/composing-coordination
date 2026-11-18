@@ -14,8 +14,9 @@ pub const DELAY_FEEDBACK: f32 = 0.4;
 pub const DELAY_LP_HZ: f32 = 3000.0;
 pub const DELAY_RETURN: f32 = 0.7;
 pub const REVERB_RETURN: f32 = 0.8;
-/// DynamicsCompressorNode applies automatic makeup gain, so trim after the limiter.
-pub const OUTPUT_TRIM: f32 = 0.25;
+/// Trim after the limiter (which has automatic makeup gain). A lone instrument at velocity 100 peaks around -13 dBFS;
+/// eight seats stacked on the same beats at full velocity still stay just under 0 dBFS (0.8 clipped there).
+pub const OUTPUT_TRIM: f32 = 0.7;
 
 pub struct Master {
     /// Dry input (everything ends up here).
