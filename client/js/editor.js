@@ -4,6 +4,7 @@ import { Auditioner } from './audition.js';
 import { adsrControl } from './adsr.js';
 import { icon } from './icons.js';
 import { helpButton } from './help.js';
+import { downloadText } from './download.js';
 import { routingDiagram } from './routing.js';
 import { FILTER_MODES, WAVES, buildInstrument, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
 
@@ -208,12 +209,7 @@ export class InstrumentPanel {
     if (!cur) return;
     const text = JSON.stringify(patchToFile(cur), null, 1) + '\n';
     const slug = (cur.name || cur.id).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'patch';
-    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-    const a = h('a', { href: url, download: `${slug}.json` });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadText(`${slug}.json`, text);
   }
 
   /** Load a patch file into the active track. Throws a readable Error for files that aren't patches. */

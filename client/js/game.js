@@ -6,6 +6,7 @@ import { InstrumentPanel, ensureTracks, loadPresets, newTrack } from './editor.j
 import { LiveSequencer } from './live.js';
 import { PatternEditor } from './pattern.js';
 import { helpButton } from './help.js';
+import { downloadText } from './download.js';
 import { icon } from './icons.js';
 import { Spectrum } from './spectrum.js';
 
@@ -309,7 +310,9 @@ export class Game {
     this.onFullscreen = () => this.updateFullscreenBtn();
     document.addEventListener('fullscreenchange', this.onFullscreen);
     this.updateFullscreenBtn();
-    r.top = h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.help);
+    r.exportBtn = h('button.icon-btn', { type: 'button', title: 'Export everything as one file: all patches, notes and effects', 'aria-label': 'Export all tracks',
+      onclick: () => this.exportAll() }, icon('download'));
+    r.top = h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
@@ -424,6 +427,23 @@ export class Game {
     if (this.solo.size) listenText = 'Solo: the band mix is silenced; you hear only the soloed track(s) of your draft.';
     else if (this.muted.size) listenText = 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
     r.mixInfo.textContent = [mixText, previewText, listenText].filter(Boolean).join(' ');
+  }
+
+  /**
+   * Save the whole draft as one file: every patch (with its piano-roll setting), all notes and all effects, exactly as
+   * the orders format holds them, plus the loop's tempo and size for context.
+   */
+  exportAll() {
+    const cfg = this.st.config;
+    const file = {
+      format: 'band-game-tracks',
+      version: 1,
+      exported: new Date().toISOString(),
+      config: { bpm: cfg.bpm, bars: cfg.bars, rows_per_bar: cfg.rows_per_bar },
+      orders: { instruments: this.orders.instruments, lanes: this.orders.lanes },
+    };
+    const stamp = file.exported.slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
+    downloadText(`band-game-tracks-${stamp}.json`, JSON.stringify(file, null, 1) + '\n');
   }
 
   /** Sessions where players add and delete tracks themselves. */
