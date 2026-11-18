@@ -166,7 +166,7 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 /* Its toggle lives on the audition row too (see detailsToggle): no summary line, and nothing at all while closed. */
 .routing > summary { display: none; }
 .routing:not([open]) { margin: 0; padding: 0; display: none; }
-.rd { display: block; width: 100%; max-width: 940px; height: auto; margin-top: 8px; font-family: system-ui, sans-serif; }
+.rd { display: block; width: 100%; max-width: 1190px; height: auto; margin-top: 8px; font-family: system-ui, sans-serif; }
 .rd-box rect, .rd-box circle { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
 .rd-box.mod rect { stroke-dasharray: 4 3; }
 .rd-box.bypass rect { fill: none; stroke-dasharray: 2 3; }

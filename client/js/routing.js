@@ -67,6 +67,13 @@ export function routingDiagram(p) {
     layers.labels.push(label(x + 40, (src[1].cy + src[2].cy) / 2 + 4, `FM ${num(p.fm.depth)}`));
   }
 
+  // ---- note in: every note (its pitch, and the gate that starts the envelopes) goes into each source. It sits left of
+  // the sources, at negative x, so the whole drawing is shifted right (see the translate on the final group).
+  const NOTE_X = -92;
+  const NOTE_W = 78;
+  layers.boxes.push(box(NOTE_X, 14, NOTE_W, 192, 'Note in', 'pitch + gate', { cls: 'mod' }));
+  for (const s_ of src) wireTo(NOTE_X + NOTE_W, s_.cy, SRC_X, s_.cy, { mod: true, on: s_.on });
+
   // ---- filter / bypass sinks. Filter 2 sits under filter 1, shifted right, so filter 1's bottom edge stays reachable from below.
   const SINK_X = 290;
   const SINK_W = 150;
@@ -118,7 +125,23 @@ export function routingDiagram(p) {
   }
   if (f2On) wireTo(sinkOut, F2_CY, SUM[0] - 14, SUM[1]);
   layers.boxes.push(box(690, 78, 110, 44, 'Amp', 'volume', { node: 'amp' }));
-  layers.boxes.push(box(830, 78, 90, 44, 'Output + FX', null, { node: 'amp' })); // level and the delay/reverb sends
+  // The instrument's output level; from it the dry signal goes straight to the master mix, and the delay and reverb sends go
+  // through their effects and come back into the same mix. The mix goes through the master limiter to the audio output (the
+  // delay and reverb, and the limiter, are shared by all tracks).
+  const fxOn = p.send_delay > 0 || p.send_reverb > 0;
+  layers.boxes.push(box(830, 78, 110, 44, 'Output', `level ${num(p.gain)}`, { node: 'amp' }));
+  layers.boxes.push(box(830, 148, 110, 44, 'FX', `dly ${num(p.send_delay)} · rev ${num(p.send_reverb)}`, { on: fxOn, node: 'fx' }));
+  wireTo(885, 122, 885, 148, { vertical: true, on: fxOn });
+  layers.labels.push(s('text', { x: 893, y: 139, class: 'rd-note' }, 'sends'));
+  const MIX = [980, 135];
+  layers.boxes.push(s('g', { class: 'rd-box sum' }, s('circle', { cx: MIX[0], cy: MIX[1], r: 14 }),
+    s('text', { x: MIX[0], y: MIX[1] + 5, 'text-anchor': 'middle', class: 'rd-title' }, 'Σ')));
+  wireTo(940, 100, MIX[0] - 14, MIX[1]); // dry
+  wireTo(940, 170, MIX[0] - 14, MIX[1], { on: fxOn }); // wet: the effect returns
+  layers.boxes.push(box(1012, 115, 72, 40, 'Audio out', 'limiter', {}));
+  wireTo(MIX[0] + 14, MIX[1], 1012, MIX[1]);
+
+  // The sum feeds the amp, through the waveshaper unless that sits earlier (in the middle of the filters).
   if (atMid) {
     wireTo(SUM[0] + 14, SUM[1], 690, 100);
   } else {
@@ -173,11 +196,12 @@ export function routingDiagram(p) {
 
   const arrow = (id, cls) => s('marker', { id, viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse' },
     s('path', { d: 'M0,0 L10,5 L0,10 z', class: cls }));
-  return s('svg', { viewBox: '0 0 930 330', class: 'rd', role: 'img', 'aria-label': 'Signal routing of this instrument' },
+  return s('svg', { viewBox: '0 0 1190 330', class: 'rd', role: 'img', 'aria-label': 'Signal routing of this instrument' },
     s('defs', null, arrow('rd-arrow-audio', 'rd-head audio'), arrow('rd-arrow-mod', 'rd-head mod')),
-    layers.wires, layers.boxes, layers.labels,
-    s('g', { class: 'rd-legend', transform: 'translate(600 18)' },
-      s('line', { x1: 0, y1: 0, x2: 28, y2: 0, class: 'rd-wire audio' }), s('text', { x: 34, y: 4, class: 'rd-note' }, 'audio'),
-      s('line', { x1: 90, y1: 0, x2: 118, y2: 0, class: 'rd-wire mod' }), s('text', { x: 124, y: 4, class: 'rd-note' }, 'modulation'),
-      s('text', { x: 0, y: 22, class: 'rd-note' }, 'dimmed = switched off')));
+    s('g', { transform: 'translate(104 0)' },
+      layers.wires, layers.boxes, layers.labels,
+      s('g', { class: 'rd-legend', transform: 'translate(600 18)' },
+        s('line', { x1: 0, y1: 0, x2: 28, y2: 0, class: 'rd-wire audio' }), s('text', { x: 34, y: 4, class: 'rd-note' }, 'audio'),
+        s('line', { x1: 90, y1: 0, x2: 118, y2: 0, class: 'rd-wire mod' }), s('text', { x: 124, y: 4, class: 'rd-note' }, 'modulation / control'),
+        s('text', { x: 0, y: 22, class: 'rd-note' }, 'dimmed = switched off'))));
 }

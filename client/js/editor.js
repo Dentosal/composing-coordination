@@ -745,7 +745,7 @@ export class InstrumentPanel {
         // Right-hand column: routing, effect sends, then the amplifier (the part the LFO's volume depth modulates) at the bottom.
         h('div.col-stack.sink',
           routingBox,
-          node('amp', module('Effects',
+          node('fx', module('Effects',
             knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
             knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change))),
           target(node('amp', module(null,
