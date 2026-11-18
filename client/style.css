@@ -240,11 +240,19 @@ input[type=range] { accent-color: var(--accent); }
 .roll-hcell { position: relative; min-width: 0; height: 18px; border-radius: 3px; background: #2d3550; cursor: pointer; overflow: hidden; font: 7px/1 var(--mono); color: #b9c1d9; user-select: none; }
 .roll-hcell.bar { color: #fff; font-weight: 700; }
 .roll-hcell.in-loop { background: var(--solo); color: #04202b; cursor: grab; }
-.roll-cell.in-loop:not(.hit):not(.off) { background: #2a3350; }
-.roll-cell { position: relative; min-width: 0; height: 32px; border-radius: 3px; background: #232838; cursor: pointer; overflow: hidden; font: 7px/1.15 var(--mono); user-select: none; }
+.roll-cell.in-loop:not(.hit):not(.hold):not(.off) { background: #2a3350; }
+.roll-cell { position: relative; min-width: 0; height: 32px; border-radius: 3px; background: #232838; cursor: pointer; font: 7px/1.15 var(--mono); user-select: none; }
 /* The text is taken out of the flow, so whatever its size (browser minimum font size, zoom) it can never widen a cell. */
 .rc-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
-.roll-cell.hit { background: color-mix(in srgb, var(--accent) var(--a, 100%), #232838); color: var(--accent-ink); }
+.roll-cell.hit, .roll-cell.hold { background: color-mix(in srgb, var(--accent) var(--a, 100%), #232838); color: var(--accent-ink); }
+/* Piano roll tracks: a note and the cells it holds are one box; a strip over the gap to the next cell joins them. */
+.roll-cell.cont::after { content: ''; position: absolute; top: 0; bottom: 0; left: 100%; width: 2px; background: inherit; }
+.roll-cell.cont.gend::after { width: 5px; }
+.roll-cell.cont.bend::after { width: 12px; }
+.roll-cell.hit.cont { border-radius: 3px 0 0 3px; }
+.roll-cell.hold { border-radius: 0 3px 3px 0; }
+.roll-cell.hold.cont { border-radius: 0; }
+.track-head .piano-roll { margin-left: 4px; color: var(--text); }
 .roll-cell.hit.soft { color: var(--text); }
 .rc-v { opacity: .75; }
 .roll-cell.off { background: transparent; border: 1px dashed var(--muted); box-sizing: border-box; color: var(--muted); }

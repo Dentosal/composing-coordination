@@ -35,6 +35,10 @@ pub struct Instrument {
     /// Optional display name chosen by the player (the id stays the stable key lanes refer to).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Editor hint: show this track as a piano roll (a note drawn as a bar until the next step) instead of single
+    /// steps. It does not change how the track sounds.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub piano_roll: bool,
     /// Bus level, 0..=1.
     #[serde(default = "default_gain")]
     pub gain: f32,
@@ -429,6 +433,17 @@ mod tests {
         let mut o: Orders = serde_json::from_str(GOOD).unwrap();
         o.lanes.clear();
         assert!(o.validate(&limits()).iter().any(|e| e.message.contains("has no lane")));
+    }
+
+    #[test]
+    fn piano_roll_is_an_optional_editor_flag() {
+        let mut o: Orders = serde_json::from_str(GOOD).unwrap();
+        assert!(!o.instruments[0].piano_roll);
+        assert!(!serde_json::to_string(&o).unwrap().contains("piano_roll"), "false is not written out");
+        o.instruments[0].piano_roll = true;
+        assert!(o.validate(&limits()).is_empty());
+        let again: Orders = serde_json::from_str(&serde_json::to_string(&o).unwrap()).unwrap();
+        assert!(again.instruments[0].piano_roll);
     }
 
     #[test]

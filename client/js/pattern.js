@@ -17,6 +17,24 @@ let clipboard = null; // {rows, lanes: [[{row, note, vel}]]}, rows relative to t
 
 const UNDO_LIMIT = 200;
 
+/**
+ * For a piano-roll track: the cells a note holds after its first one. A note lasts until the next step of the track
+ * (a note or an off) or the end of the song. Returns Map row -> {span}, with `.spans` (start row -> span) for the
+ * first cells; a span is {start, end, note, vel} with `end` exclusive.
+ */
+function heldCells(lane, totalRows) {
+  const steps = lane.steps.filter((s) => s.row < totalRows).sort((a, b) => a.row - b.row);
+  const held = new Map();
+  held.spans = new Map();
+  steps.forEach((s, i) => {
+    if (s.note == null) return;
+    const span = { start: s.row, end: steps[i + 1]?.row ?? totalRows, note: s.note, vel: s.vel };
+    held.spans.set(s.row, span);
+    for (let r = s.row + 1; r < span.end; r++) held.set(r, { span });
+  });
+  return held;
+}
+
 const key = (t) => h('kbd', t);
 /** Contents of the roll's help dialog: what the mouse and keyboard do. */
 const rollHelp = () => [
@@ -25,6 +43,7 @@ const rollHelp = () => [
     h('li', 'Click a cell to put the cursor there; drag to select a block of cells.'),
     h('li', 'Hold ', key('Shift'), ' while clicking or dragging to paint hits (drag across tracks too). Click a hit to erase it. The "quick paint" box swaps these two.'),
     h('li', key('Alt'), ' + click places an off (✕) on a cell, or removes it. A note keeps sounding through empty cells until the next note or off.'),
+    h('li', 'Piano-roll tracks: painting a run of cells draws one note with an off after it; typing a note adds an off after it (one edit step) unless that cell already has a note or an off.'),
     h('li', 'Drag a track label up or down to reorder the tracks.'),
     h('li', 'Drag across the bar numbers to loop a region: click the loop to clear it, drag it to move it, double-click a bar to loop that bar.')),
   h('h3', 'Entering notes'),
@@ -180,8 +199,19 @@ export class PatternEditor {
     this.anchor = null;
     if (s && s.note != null) return this.edit(() => this.clearStep(lane, row), this.step);
     const note = this.hitNote(lane);
-    this.edit(() => this.setStep(lane, row, note, this.vel), this.step);
+    this.edit(() => { this.setStep(lane, row, note, this.vel); this.offAfterStep(lane, row); }, this.step);
     this.hearNote(lane, note, this.vel);
+  }
+
+  /**
+   * Piano-roll tracks, typed notes: the note lasts as long as the edit step (at least one row), so an off goes there,
+   * unless that cell already has a note or an off. The next note typed at the cursor then simply replaces the off.
+   */
+  offAfterStep(lane, row) {
+    const l = this.orders.lanes[lane];
+    const at = row + Math.max(1, this.step);
+    if (!this.isPianoRoll(l) || at >= this.o.totalRows || l.steps.some((s) => s.row === at)) return;
+    this.setStep(lane, at, null, this.vel);
   }
 
   /**
@@ -191,7 +221,8 @@ export class PatternEditor {
   startPaint(c) {
     const s = this.stepAt(c.lane, c.row);
     this.pushUndo();
-    this.paint = { last: { ...c }, changed: false, mode: s && s.note != null ? 'erase' : 'paint' };
+    // cells/base: piano-roll tracks, see paintPianoRoll
+    this.paint = { last: { ...c }, changed: false, mode: s && s.note != null ? 'erase' : 'paint', cells: new Map(), base: new Map() };
     this.paintCell(c.lane, c.row, true);
   }
 
@@ -221,12 +252,45 @@ export class PatternEditor {
     });
   }
 
+  /**
+   * Painting on a piano-roll track draws notes, not single steps: each unbroken run of painted cells becomes ONE note
+   * at its first cell, with an off right after its last cell (unless that cell already has a note or an off).
+   * The track's steps are rebuilt from how they were when the drag began, so extending a run never leaves stale offs.
+   */
+  paintPianoRoll(lane, row) {
+    const p = this.paint;
+    const l = this.orders.lanes[lane];
+    if (!p.base.has(lane)) { p.base.set(lane, l.steps.map((s) => ({ ...s }))); p.cells.set(lane, new Set()); }
+    p.cells.get(lane).add(row);
+    const note = this.hitNote(lane);
+    const total = this.o.totalRows;
+    const runs = [];
+    for (const r of [...p.cells.get(lane)].sort((a, b) => a - b)) {
+      const last = runs[runs.length - 1];
+      if (last && r === last.hi + 1) last.hi = r;
+      else runs.push({ lo: r, hi: r });
+    }
+    let steps = p.base.get(lane).map((s) => ({ ...s }));
+    for (const { lo, hi } of runs) {
+      steps = steps.filter((s) => s.row < lo || s.row > hi); // painting overwrites what was there
+      steps.push({ row: lo, note, vel: this.vel });
+    }
+    for (const { hi } of runs) {
+      if (hi + 1 < total && !steps.some((s) => s.row === hi + 1)) steps.push({ row: hi + 1, note: null, vel: this.vel });
+    }
+    l.steps = steps.sort((a, b) => a.row - b.row);
+  }
+
   paintCell(lane, row, first) {
     const p = this.paint;
     const s = this.stepAt(lane, row);
     const on = !!s && s.note != null;
     const note = this.hitNote(lane);
-    if (p.mode === 'erase') {
+    if (p.mode === 'paint' && this.isPianoRoll(this.orders.lanes[lane])) {
+      this.paintPianoRoll(lane, row);
+      p.changed = true;
+      if (first) this.hearNote(lane, note, this.vel);
+    } else if (p.mode === 'erase') {
       if (s) { this.clearStep(lane, row); p.changed = true; }
     } else if (p.mode === 'paint') {
       if (!on) {
@@ -466,6 +530,11 @@ export class PatternEditor {
 
   // ------------------------------------------------------------ view helpers
 
+  /** True when the track is shown as a piano roll (a setting of its patch; the sound is the same). */
+  isPianoRoll(lane) {
+    return this.instOf(lane)?.piano_roll === true;
+  }
+
   instOf(lane) {
     return this.orders.instruments.find((i) => i.id === lane.instrument);
   }
@@ -595,7 +664,7 @@ export class PatternEditor {
           const note = Math.min(127, (this.octave + 1) * 12 + off);
           this.anchor = null;
           this.lastNote.set(this.orders.lanes[lane].instrument, note);
-          this.edit(() => this.setStep(lane, row, note, this.vel), this.step);
+          this.edit(() => { this.setStep(lane, row, note, this.vel); this.offAfterStep(lane, row); }, this.step);
           this.hearNote(lane, note, this.vel);
         } else handled = false;
       }
@@ -798,7 +867,7 @@ export class PatternEditor {
         const bar = h('div.roll-bar');
         for (let g = 0; g < 4; g++) {
           const group = h('div.roll-group');
-          for (let c = 0; c < beat; c++) fn(group, b * rpb + g * beat + c, c === 0, g === 0 && c === 0);
+          for (let c = 0; c < beat; c++) fn(group, b * rpb + g * beat + c, c === 0, g === 0 && c === 0, c === beat - 1, g === 3 && c === beat - 1);
           bar.append(group);
         }
         body.append(bar);
@@ -819,6 +888,7 @@ export class PatternEditor {
     });
     this.rollScroll.append(head);
     for (const { lane, li } of tracks) {
+      const held = this.isPianoRoll(lane) ? heldCells(lane, this.o.totalRows) : null;
       const id = lane.instrument;
       const audible = this.o.isAudible ? this.o.isAudible(id) : true;
       const state = `${li === this.cur.lane ? ' active' : ''}${audible ? '' : ' silent'}`;
@@ -834,16 +904,28 @@ export class PatternEditor {
       this.rollLabels.append(label);
       const row = h('div', { class: `roll-row${state}` });
       row.dataset.lane = String(li);
-      stepsOf(row, (group, r) => {
+      stepsOf(row, (group, r, _beatStart, _barStart, groupEnd, barEnd) => {
         const s = lane.steps.find((x) => x.row === r);
         let cls = 'roll-cell';
         if (s) cls += s.note == null ? ' off' : ' hit';
+        // Piano roll tracks: the note's bar runs on through the cells until the next step (note or off), joined into one box.
+        const hold = held?.get(r);
+        if (hold) cls += ' hold';
+        const span = s && s.note != null ? held?.spans.get(r) : hold?.span;
+        if (span && r + 1 < span.end) cls += ' cont';
+        if (groupEnd) cls += ' gend';
+        if (barEnd) cls += ' bend';
         if (li === this.cur.lane && r === this.cur.row) cls += ' cur';
         if (this.inSel(li, r)) cls += ' sel';
         if (lp && r >= lp.from && r <= lp.to) cls += ' in-loop';
         const cell = h('div', { class: cls });
         cell.dataset.lane = String(li);
         cell.dataset.row = String(r);
+        if (hold) {
+          cell.title = `${noteName(hold.span.note)} · held from row ${hold.span.start} (to ${hold.span.end >= this.o.totalRows ? 'the end of the song' : `row ${hold.span.end}`})`;
+          cell.style.setProperty('--a', `${Math.round((0.3 + 0.7 * hold.span.vel / 127) * 100)}%`);
+          if (hold.span.vel < 70) cell.classList.add('soft');
+        }
         if (s) {
           cell.title = s.note == null ? 'Off: ends the note (alt+click to remove)' : `${noteName(s.note)} · velocity ${s.vel}`;
           if (s.note == null) cell.append(h('div.rc-text', h('span.off-mark', '✕')));

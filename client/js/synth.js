@@ -39,7 +39,7 @@ const env = (id, e, amount) => ({
 const gainNode = (id, gain) => ({ id, type: 'gain', gain });
 
 /** Patch -> orders instrument. */
-export function buildInstrument(id, p, name) {
+export function buildInstrument(id, p, name, pianoRoll = false) {
   const nodes = [];
   const edges = [];
   const edge = (from, to, port) => edges.push(port ? { from, to, port } : { from, to });
@@ -84,7 +84,7 @@ export function buildInstrument(id, p, name) {
   edge('lfo', 'lfo_a');
   edge('vca', 'out');
 
-  return { id, ...(name ? { name } : {}), gain: p.gain, send_delay: p.send_delay, send_reverb: p.send_reverb, nodes, edges };
+  return { id, ...(name ? { name } : {}), ...(pianoRoll ? { piano_roll: true } : {}), gain: p.gain, send_delay: p.send_delay, send_reverb: p.send_reverb, nodes, edges };
 }
 
 // ------------------------------------------------------------------ parsing
@@ -207,5 +207,5 @@ export function readPatchFile(text) {
   const bad = validatePatch(patch);
   if (bad) throw new Error(`Invalid patch: ${bad}.`);
   const label = typeof raw.label === 'string' && raw.label.trim() ? raw.label.trim().slice(0, 32) : (inst.name ?? 'Imported');
-  return { label, patch };
+  return { label, patch, pianoRoll: inst.piano_roll === true };
 }

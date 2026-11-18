@@ -12,7 +12,7 @@
  *  | {id:string,type:'out'}} OrdersNode
  */
 /** @typedef {{from:string,to:string,port?:string|null}} OrdersEdge */
-/** @typedef {{id:string,name?:string,gain:number,send_delay:number,send_reverb:number,nodes:OrdersNode[],edges:OrdersEdge[]}} OrdersInstrument */
+/** @typedef {{id:string,name?:string,piano_roll?:boolean,gain:number,send_delay:number,send_reverb:number,nodes:OrdersNode[],edges:OrdersEdge[]}} OrdersInstrument */
 /** @typedef {{row:number,note:number|null,vel:number}} OrdersStep  note null = note-off */
 /** @typedef {{instrument:string,steps:OrdersStep[]}} OrdersLane */
 /** @typedef {{instruments:OrdersInstrument[],lanes:OrdersLane[]}} Orders */

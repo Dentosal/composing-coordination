@@ -3,6 +3,7 @@
  "category": "Bass",
  "instrument": {
   "id": "wobble",
+  "piano_roll": true,
   "gain": 0.6,
   "send_delay": 0,
   "send_reverb": 0.05,

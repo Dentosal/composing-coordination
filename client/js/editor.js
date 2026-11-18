@@ -185,6 +185,7 @@ export class InstrumentPanel {
     const i = this.orders.instruments.indexOf(cur);
     this.orders.instruments[i] = { ...inst, id: cur.id, name };
     this.o.onRename?.();
+    this.o.onMode?.(); // a preset or file can switch the track between steps and piano roll
     this.o.onChange();
     this.render();
   }
@@ -211,10 +212,10 @@ export class InstrumentPanel {
 
   /** Load a patch file into the active track. Throws a readable Error for files that aren't patches. */
   async importPatchFile(file) {
-    const { label, patch } = readPatchFile(await file.text());
+    const { label, patch, pianoRoll } = readPatchFile(await file.text());
     const cur = this.active;
     if (!cur) return;
-    this.replaceActive(buildInstrument(cur.id, patch, label), label);
+    this.replaceActive(buildInstrument(cur.id, patch, label, pianoRoll), label);
   }
 
   destroy() {
@@ -354,6 +355,13 @@ export class InstrumentPanel {
         this.o.onChange();
         this.o.onRename?.();
       } });
+    const pianoChk = h('label.check.piano-roll', { title: 'Show this track as a piano roll: each note is drawn as a bar from its start to the next note or off (the sound is the same)' },
+      h('input', { type: 'checkbox', checked: inst.piano_roll === true, onchange: (e) => {
+        const cur = this.orders.instruments[idx()];
+        if (e.target.checked) cur.piano_roll = true; else delete cur.piano_roll;
+        this.o.onChange();
+        this.o.onMode?.();
+      } }), 'Piano roll');
     const loader = presetPicker(this.o.presets, (key) => this.loadPreset(key));
     // An untouched Init patch is a blank slate: nudge towards presets until the patch is edited.
     const hintLoad = () => loader.querySelector('button').classList.toggle('hint', isDefaultPatch(this.orders.instruments[idx()] ?? inst));
@@ -373,7 +381,7 @@ export class InstrumentPanel {
     const importTitle = 'Import: load a patch file into this track (replaces its patch)';
     const exportBtn = h('button.icon-btn', { type: 'button', title: exportTitle, 'aria-label': exportTitle, onclick: () => this.exportPatch() }, icon('download'));
     const importBtn = h('button.icon-btn', { type: 'button', title: importTitle, 'aria-label': importTitle, onclick: () => fileIn.click() }, icon('upload'));
-    const head = h('div.track-head', h('strong', `Track ${this.o.getActive() + 1}`), nameIn,
+    const head = h('div.track-head', h('strong', `Track ${this.o.getActive() + 1}`), nameIn, pianoChk,
       h('div.loader-group', ioMsg, loader, exportBtn, importBtn, fileIn,
         helpButton({ title: 'Shaping a sound', label: 'Help: the patch editor', body: patchHelp() })));
 
@@ -394,7 +402,8 @@ export class InstrumentPanel {
     pairDefaults(patch, defaultPatch());
     const routing = this.section('routing', 'Signal routing', 'routingOpen', routingDiagram(patch));
     const change = () => {
-      this.orders.instruments[idx()] = buildInstrument(inst.id, patch, this.orders.instruments[idx()].name);
+      const prev = this.orders.instruments[idx()];
+      this.orders.instruments[idx()] = buildInstrument(inst.id, patch, prev.name, prev.piano_roll === true);
       hintLoad();
       routing.lastElementChild.replaceWith(routingDiagram(patch));
       this.highlight(this.hlKey, this.hlDiagramOnly);

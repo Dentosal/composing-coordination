@@ -140,6 +140,8 @@ const CATEGORIES = ['Basic', 'Drums', 'Bass', 'Lead & Keys', 'Pads & FX'];
 const sorted = Object.entries(presets).sort((a, b) => CATEGORIES.indexOf(a[1][1]) - CATEGORIES.indexOf(b[1][1]));
 const dir = new URL('../client/presets/', import.meta.url);
 for (const [key, [label, category, over]] of sorted) {
-  writeFileSync(new URL(`${key}.json`, dir), JSON.stringify({ label, category, instrument: buildInstrument(key, patch(over)) }, null, 1) + '\n');
+  // Sustained, pitched sounds are written as piano-roll tracks (notes drawn until the next note or off); drums, noise hits and Init as steps.
+  const pianoRoll = ['Bass', 'Lead & Keys', 'Pads & FX'].includes(category);
+  writeFileSync(new URL(`${key}.json`, dir), JSON.stringify({ label, category, instrument: buildInstrument(key, patch(over), undefined, pianoRoll) }, null, 1) + '\n');
 }
 writeFileSync(new URL('index.json', dir), JSON.stringify(sorted.map(([k]) => k)) + '\n');

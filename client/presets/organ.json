@@ -3,6 +3,7 @@
  "category": "Lead & Keys",
  "instrument": {
   "id": "organ",
+  "piano_roll": true,
   "gain": 0.8,
   "send_delay": 0,
   "send_reverb": 0.25,

@@ -13,7 +13,7 @@ test('every shipped preset parses as a template instrument and rebuilds identica
     const inst = JSON.parse(readFileSync(new URL(`${key}.json`, presetDir))).instrument;
     const patch = parseInstrument(inst);
     assert.ok(patch, `${key} should be editable`);
-    assert.deepEqual(buildInstrument(inst.id, patch), inst, key);
+    assert.deepEqual(buildInstrument(inst.id, patch, undefined, inst.piano_roll === true), inst, key);
   }
 });
 
@@ -80,4 +80,14 @@ test('patch files: bad input is rejected with a message', async () => {
   const bad = { ...buildInstrument('t', defaultPatch()) };
   bad.nodes = bad.nodes.map((n) => (n.id === 'lp' ? { ...n, freq: 'high' } : n));
   assert.throws(() => readPatchFile(JSON.stringify({ instrument: bad })), /filter/);
+});
+
+test('the piano roll flag is part of the instrument, not of the sound', () => {
+  const p = defaultPatch();
+  const on = buildInstrument('t', p, 'x', true);
+  const off = buildInstrument('t', p, 'x');
+  assert.equal(on.piano_roll, true);
+  assert.equal('piano_roll' in off, false);
+  assert.deepEqual({ ...on, piano_roll: undefined }, { ...off, piano_roll: undefined }); // same graph either way
+  assert.ok(parseInstrument(on), 'a piano-roll instrument is still a template instrument');
 });

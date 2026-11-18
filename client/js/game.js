@@ -343,6 +343,7 @@ export class Game {
       presets: this.presets, bpm: cfg.bpm, seed: cfg.seed, getActive: () => this.pattern.cur.lane,
       getOrders: () => this.orders, onChange: () => { this.touch(); this.pattern.syncHeads(); },
       onRename: () => this.pattern.syncHeads(),
+      onMode: () => this.pattern.render(), // piano roll on/off changes how the roll draws the track
     });
 
     this.root.append(r.top, r.errors,
