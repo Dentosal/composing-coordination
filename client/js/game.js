@@ -44,6 +44,7 @@ export class Game {
     this.previewMsg = '';
     // Local-only listening state per track (keyed by instrument id). Never part of the orders, so it can't be committed.
     this.muted = new Set();
+    this.loop = null; // loop region {from, to} (rows, inclusive) chosen on the bar numbers; null: play the whole song
     this.solo = new Set();
     this.playing = false;
     this.mixRound = null;
@@ -304,6 +305,8 @@ export class Game {
       isAudible: (id) => this.isAudible(id),
       onToggleMute: (id) => this.toggleMute(id),
       onToggleSolo: (id) => this.toggleSolo(id),
+      getLoop: () => this.loop,
+      onLoop: (loop, final) => this.setLoop(loop, final),
     });
     this.panel = new InstrumentPanel(instRoot, {
       presets: this.presets, bpm: cfg.bpm, seed: cfg.seed, getActive: () => this.pattern.cur.lane,
@@ -409,6 +412,26 @@ export class Game {
     else this.updateMix();
   }
 
+  /** Playback region for the current loop, starting at `fromRow` if that is inside it (else at the loop's start). No loop: undefined, or the whole song from `fromRow`. */
+  transportRegion(fromRow) {
+    const cfg = this.st.config;
+    const rowSecs = 60 / (cfg.bpm * (cfg.rows_per_bar / 4));
+    const lp = this.loop;
+    if (!lp) return fromRow ? { offset: fromRow * rowSecs, loopStart: 0, loopEnd: cfg.bars * cfg.rows_per_bar * rowSecs } : undefined;
+    const inside = fromRow != null && fromRow >= lp.from && fromRow <= lp.to;
+    return { offset: (inside ? fromRow : lp.from) * rowSecs, loopStart: lp.from * rowSecs, loopEnd: (lp.to + 1) * rowSecs };
+  }
+
+  /** The loop was set, moved or cleared. When it is released while playing, carry on inside it (or the whole song). */
+  setLoop(loop, final) {
+    this.loop = loop;
+    if (!final || !this.playing) return;
+    const pos = this.player.position() ?? this.previewPlayer.position();
+    const cfg = this.st.config;
+    const rowSecs = 60 / (cfg.bpm * (cfg.rows_per_bar / 4));
+    this.playPattern('cursor', pos == null ? 0 : Math.floor(pos / rowSecs) % (cfg.bars * cfg.rows_per_bar));
+  }
+
   /** Start or stop the whole transport: the band mix and, if on, the preview, started on the same tick. */
   async togglePlay() {
     if (!this.playing && this.needsPreview()) return this.playWhenPreviewReady({ kind: 'full' });
@@ -420,23 +443,23 @@ export class Game {
       const c = await unlock();
       const when = c.currentTime + 0.05;
       this.playing = true;
-      await Promise.all([this.player.play(when), this.previewOn ? this.previewPlayer.play(when) : null]);
+      const region = this.transportRegion();
+      await Promise.all([this.player.play(when, region), this.previewOn ? this.previewPlayer.play(when, region) : null]);
       if (!this.player.playing && !this.previewPlayer.playing) this.playing = false;
     }
     this.updateMix();
   }
 
   /**
-   * Play from a pattern position: 'cursor' starts at row `a` and loops the whole mix; 'region' loops rows a..b.
+   * Play from a pattern position: 'cursor' starts at row `a` and loops the loop region (or the whole mix when there is
+   * none); 'region' loops rows a..b.
    * Restarts if already playing. The preview, if on, follows the same region.
    */
   async playPattern(kind, a, b) {
     if (this.needsPreview()) return this.playWhenPreviewReady({ kind, a, b });
-    const cfg = this.st.config;
-    const rowSecs = 60 / (cfg.bpm * (cfg.rows_per_bar / 4));
-    const total = cfg.bars * cfg.rows_per_bar * rowSecs;
+    const rowSecs = 60 / (this.st.config.bpm * (this.st.config.rows_per_bar / 4));
     const region = kind === 'cursor'
-      ? { offset: a * rowSecs, loopStart: 0, loopEnd: total }
+      ? this.transportRegion(a) ?? { offset: 0, loopStart: 0, loopEnd: this.st.config.bars * this.st.config.rows_per_bar * rowSecs }
       : { offset: a * rowSecs, loopStart: a * rowSecs, loopEnd: (b + 1) * rowSecs };
     if (this.playing) {
       this.player.stop();

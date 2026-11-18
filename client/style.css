@@ -218,9 +218,11 @@ input[type=range] { accent-color: var(--accent); }
 .roll-body { flex: 1 0 auto; display: flex; gap: 12px; }
 .roll-bar { flex: 1 0 auto; display: flex; gap: 5px; }
 .roll-group { flex: 1 0 auto; display: grid; grid-template-columns: repeat(var(--beat), minmax(0, 1fr)); gap: 2px; min-width: calc(var(--beat) * 26px - 2px); } /* cells are at least 24px wide (+2px gap) */
-.roll-num { position: relative; min-width: 0; height: 18px; font-size: .7rem; line-height: 1.2; }
-.roll-num > span { position: absolute; left: 0; white-space: nowrap; } /* the label overhangs its cell but never changes the column widths */
-.roll-num.bar { color: var(--text); }
+/* Bar numbers: cells like the step cells, on a different background. Drag to set a loop; the loop lights up. */
+.roll-hcell { position: relative; min-width: 0; height: 18px; border-radius: 3px; background: #2d3550; cursor: pointer; overflow: hidden; font: 7px/1 var(--mono); color: #b9c1d9; user-select: none; }
+.roll-hcell.bar { color: #fff; font-weight: 700; }
+.roll-hcell.in-loop { background: var(--solo); color: #04202b; cursor: grab; }
+.roll-cell.in-loop:not(.hit):not(.off) { background: #2a3350; }
 .roll-cell { position: relative; min-width: 0; height: 32px; border-radius: 3px; background: #232838; cursor: pointer; overflow: hidden; font: 7px/1.15 var(--mono); user-select: none; }
 /* The text is taken out of the flow, so whatever its size (browser minimum font size, zoom) it can never widen a cell. */
 .rc-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }

@@ -42,6 +42,8 @@ export class PatternEditor {
     this.paintMode = false;
     try { this.paintMode = localStorage.getItem('directPaint') === '1'; } catch {}
     this.drag = null; // selecting with the mouse: the cell the drag started on
+    this.loop = this.o.getLoop?.() ?? null; // the loop region {from, to} (rows, inclusive), set by dragging on the bar numbers
+    this.loopDrag = null; // a gesture on the bar numbers: {mode: 'new'|'move', start, orig, moved}
     this.undoStack = [];
     this.redoStack = [];
     this.headDrag = null; // reordering a track by its label: {from, y, active, ins}
@@ -106,8 +108,7 @@ export class PatternEditor {
       btn('+1', 'Transpose up a semitone (Alt+↑)', () => this.transpose(1)),
       btn('+12', 'Transpose up an octave (Alt+Shift+↑)', () => this.transpose(12)),
       h('span.sep'),
-      btn('▶ From cursor', 'Play the mix starting at the cursor row (Enter)', () => this.playFromCursor()),
-      btn('↻ Loop selection', 'Loop the selected rows, or this bar (Shift+Enter)', () => this.playRegion()));
+      btn('▶ From cursor', 'Play the mix starting at the cursor row (Enter). With a loop set (drag on the bar numbers), it loops that region.', () => this.playFromCursor()));
   }
 
   updateBar() {
@@ -572,6 +573,45 @@ export class PatternEditor {
       const c = e.target instanceof Element ? e.target.closest('.roll-cell') : null;
       return c ? { lane: Number(c.dataset.lane), row: Number(c.dataset.row) } : null;
     };
+    // The bar numbers: drag to set a loop, click the loop to clear it, drag the loop to move it.
+    const headRowAt = (e) => {
+      const c = e.target instanceof Element ? e.target.closest('.roll-hcell') : null;
+      return c ? Number(c.dataset.row) : null;
+    };
+    this.roll.addEventListener('mousedown', (e) => {
+      const hr = headRowAt(e);
+      if (hr == null || e.button !== 0) return;
+      e.preventDefault();
+      const lp = this.loop;
+      const inside = !!lp && hr >= lp.from && hr <= lp.to;
+      // Was a loop active before this click (or double-click)? The first click of a double-click may clear it.
+      if (e.detail <= 1) this.loopBeforeClick = !!lp; // detail: 1 = first click, 2 = the second click of a double-click
+      this.loopDrag = { mode: inside ? 'move' : 'new', start: hr, orig: lp && { ...lp }, moved: false };
+      this.main.focus({ preventScroll: true });
+    });
+    this.roll.addEventListener('dblclick', (e) => { // double-click with no loop: loop the bar that was clicked
+      const hr = headRowAt(e);
+      if (hr == null || this.loopBeforeClick) return;
+      const rpb = this.o.rowsPerBar;
+      this.loop = { from: Math.floor(hr / rpb) * rpb, to: Math.min(Math.floor(hr / rpb) * rpb + rpb, this.o.totalRows) - 1 };
+      this.o.onLoop?.(this.loop, true);
+      this.render();
+    });
+    this.roll.addEventListener('mouseover', (e) => {
+      const d = this.loopDrag;
+      const hr = d && headRowAt(e);
+      if (hr == null || hr === d.start) return;
+      d.moved = true;
+      if (d.mode === 'move') {
+        const len = d.orig.to - d.orig.from;
+        const from = clamp(d.orig.from + hr - d.start, 0, this.o.totalRows - 1 - len);
+        this.loop = { from, to: from + len };
+      } else {
+        this.loop = { from: Math.min(d.start, hr), to: Math.max(d.start, hr) };
+      }
+      this.o.onLoop?.(this.loop, false);
+      this.render();
+    });
     this.roll.addEventListener('mousedown', (e) => {
       const c = rollCellAt(e);
       if (!c || e.button !== 0) return;
@@ -605,6 +645,15 @@ export class PatternEditor {
     this.onMouseMove = (e) => this.onHeadDrag(e);
     window.addEventListener('mousemove', this.onMouseMove);
     this.onMouseUp = () => {
+      const ld = this.loopDrag;
+      this.loopDrag = null;
+      if (ld) {
+        if (ld.mode === 'move' && !ld.moved) this.loop = null; // clicking the loop again turns it off
+        if (ld.moved || ld.mode === 'move') {
+          this.o.onLoop?.(this.loop, true);
+          this.render();
+        }
+      }
       const d = this.headDrag;
       this.headDrag = null;
       if (d?.active) {
@@ -714,10 +763,16 @@ export class PatternEditor {
       row.append(body);
     };
     const head = h('div.roll-row.head');
+    const lp = this.loop;
     stepsOf(head, (group, r, beatStart, barStart) => {
       const bar = Math.floor(r / rpb) + 1;
       const n = (r % rpb) / beat + 1;
-      group.append(h('div', { class: `roll-num${barStart ? ' bar' : ''}` }, beatStart ? h('span', barStart ? `${bar}` : `${bar}.${n}`) : null));
+      const inLoop = !!lp && r >= lp.from && r <= lp.to;
+      const cell = h('div', { class: `roll-hcell${barStart ? ' bar' : ''}${inLoop ? ' in-loop' : ''}`,
+        title: inLoop ? 'Loop: click to clear it, drag to move it' : 'Drag across these to loop that region, double-click to loop the bar' },
+        beatStart ? h('div.rc-text', h('span', barStart ? `${bar}` : `${bar}.${n}`)) : null);
+      cell.dataset.row = String(r);
+      group.append(cell);
     });
     this.rollScroll.append(head);
     for (const { lane, li } of tracks) {
@@ -742,6 +797,7 @@ export class PatternEditor {
         if (s) cls += s.note == null ? ' off' : ' hit';
         if (li === this.cur.lane && r === this.cur.row) cls += ' cur';
         if (this.inSel(li, r)) cls += ' sel';
+        if (lp && r >= lp.from && r <= lp.to) cls += ' in-loop';
         const cell = h('div', { class: cls });
         cell.dataset.lane = String(li);
         cell.dataset.row = String(r);
