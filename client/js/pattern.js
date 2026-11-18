@@ -90,6 +90,8 @@ export class PatternEditor {
     // Mouse: by default click/drag selects and shift paints; "quick paint" swaps the two.
     this.paintMode = false;
     try { this.paintMode = localStorage.getItem('directPaint') === '1'; } catch {}
+    this.showFx = true; // the effect (automation) lane above each track; the "FX" checkbox shows and hides them
+    try { this.showFx = localStorage.getItem('showFx') !== '0'; } catch {}
     this.drag = null; // selecting with the mouse: the cell the drag started on
     // The cursor and selection live in one layer at a time: the note cells or the effect (automation) cells. A selection
     // that starts in one layer only ever covers cells of that layer.
@@ -139,14 +141,22 @@ export class PatternEditor {
 
   buildBar() {
     const act = (fn) => () => { fn(); this.main.focus({ preventScroll: true }); };
-    const btn = (label, title, fn) => h('button.small', { type: 'button', title, onclick: act(fn) }, label);
-    this.undoBtn = btn('↶ Undo', 'Undo (Ctrl+Z)', () => this.undo());
-    this.redoBtn = btn('↷ Redo', 'Redo (Ctrl+Shift+Z)', () => this.redo());
+    const btn = (label, title, fn, aria = null) => h('button.small', { type: 'button', title, 'aria-label': aria, onclick: act(fn) }, label);
+    this.undoBtn = btn('↶', 'Undo (Ctrl+Z)', () => this.undo(), 'Undo');
+    this.redoBtn = btn('↷', 'Redo (Ctrl+Shift+Z)', () => this.redo(), 'Redo');
     const stepSel = h('select', { title: 'Rows the cursor advances after each note',
       onchange: (e) => { this.step = Number(e.target.value); this.renderStatus(); this.main.focus({ preventScroll: true }); } },
       STEPS.map((n) => h('option', { value: n, selected: n === this.step }, String(n))));
     const hear = h('label.check', h('input', { type: 'checkbox', checked: this.hear,
       onchange: (e) => { this.hear = e.target.checked; } }), 'hear notes');
+    const fxChk = h('label.check', { title: 'Show the effect lane above each track' },
+      h('input', { type: 'checkbox', checked: this.showFx, onchange: (e) => {
+        this.showFx = e.target.checked;
+        try { localStorage.setItem('showFx', this.showFx ? '1' : '0'); } catch {}
+        if (!this.showFx) this.setDomain('note'); // a selection of hidden cells would be invisible: back to the notes
+        this.render();
+        this.main.focus({ preventScroll: true });
+      } }), 'FX');
     const direct = h('label.check', { title: 'Off: click or drag selects cells, shift+click or shift+drag paints hits (across steps and tracks). On: the other way round.' },
       h('input', { type: 'checkbox', checked: this.paintMode, onchange: (e) => {
         this.paintMode = e.target.checked;
@@ -156,7 +166,7 @@ export class PatternEditor {
         this.main.focus({ preventScroll: true });
       } }), 'quick paint');
     return h('div.pattern-bar',
-      h('label', 'step', stepSel), hear, direct,
+      h('label', 'step', stepSel), hear, fxChk, direct,
       h('span.sep'), this.undoBtn, this.redoBtn,
       h('span.sep'),
       btn('Duplicate', 'Copy the selection (default: this bar of the track) to directly after it, to the right. Press again for the next copy (Ctrl+D)', () => this.duplicate()),
@@ -1136,13 +1146,16 @@ export class PatternEditor {
         h('strong', String(li + 1)), h('span.roll-name', this.nameOf(lane)), h('span.roll-btns', this.muteSoloBtns(id)));
       label.dataset.lane = String(li);
       // An automation / effect lane above each track: cells like the note cells, half as high and dimmer (no data yet).
-      const autoLabel = h('div.roll-auto-label', { title: 'Automation lane' }, 'auto');
-      autoLabel.dataset.lane = String(li);
-      this.rollLabels.append(autoLabel, label);
       const fxByRow = new Map((lane.fx ?? []).map((f) => [f.row, f]));
+      if (this.showFx) {
+        const autoLabel = h('div.roll-auto-label', { title: 'Automation lane' }, 'auto');
+        autoLabel.dataset.lane = String(li);
+        this.rollLabels.append(autoLabel);
+      }
+      this.rollLabels.append(label);
       const autoRow = h('div', { class: `roll-row auto${state}` });
       autoRow.dataset.lane = String(li);
-      stepsOf(autoRow, (group, r, _b, _bb, groupEnd, barEnd) => {
+      if (this.showFx) stepsOf(autoRow, (group, r, _b, _bb, groupEnd, barEnd) => {
         let acls = 'roll-acell';
         if (groupEnd) acls += ' gend';
         if (barEnd) acls += ' bend';
@@ -1160,7 +1173,7 @@ export class PatternEditor {
         this.rollCols[r].push(cell);
         group.append(cell);
       });
-      this.rollScroll.append(autoRow);
+      if (this.showFx) this.rollScroll.append(autoRow);
       const row = h('div', { class: `roll-row${state}` });
       row.dataset.lane = String(li);
       stepsOf(row, (group, r, _beatStart, _barStart, groupEnd, barEnd) => {
