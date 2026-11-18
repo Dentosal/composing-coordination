@@ -1,6 +1,7 @@
 :root {
   color-scheme: dark;
   --bg: #14161b;
+  --audition-bg: #293146; /* the audition row: a touch lighter and bluer than the panels below it */
   --bar-bg: #0e1013; /* header and footer: a little darker than the page */
   --panel: #1c1f27;
   --panel2: #232733;
@@ -57,13 +58,13 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .bottombar { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; padding: 10px 0; position: sticky; bottom: 0; background: var(--bar-bg); z-index: 5; }
 .bottombar label { display: flex; align-items: center; gap: 6px; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
-.track-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 5px 14px; }
+.track-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 8px; }
 .track-name { width: 14em; max-width: 100%; }
 .track-head .loader { margin: 0; }
 .loader-group { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
 .io-msg { color: var(--bad); font-size: .8rem; max-width: 28em; }
-.audition { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 12px; padding: 8px 12px; background: var(--panel2); border-radius: 8px; font-size: .85rem; color: var(--muted); }
+.audition { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 8px; padding: 5px 12px; background: var(--audition-bg); border-radius: 8px; font-size: .85rem; color: var(--muted); }
 .audition label { display: flex; align-items: center; gap: 6px; }
 .audition output { font-family: var(--mono); color: var(--text); min-width: 2.2em; }
 .audition input[type=range] { width: 90px; padding: 0; }
@@ -77,11 +78,13 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 /* The LFO row: one tinted band over all four columns (controls above Misc, then a depth slider per column). */
 .lfo-row { align-items: center; padding: 8px 0; border-radius: 8px; background: var(--panel2); }
 .lfo-ctl { display: grid; gap: 4px; padding: 0 12px; font-size: .85rem; }
-.lfo-head { display: flex; align-items: center; gap: 10px; }
-.lfo-head .knob { display: block; flex: 1; }
-.lfo-head select { width: 100%; }
+.lfo-head { display: flex; align-items: center; gap: 6px; }
+/* One row: name, wave shape, and the rate slider with its value. Neither label is shown (the fields keep theirs as aria-labels). */
+.lfo-head > .knob > span:first-child { display: none; }
+.lfo-head > .knob:first-of-type { display: block; flex: none; } /* the wave select */
+.lfo-head > .knob:last-of-type { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(40px, 1fr) auto; gap: 4px; } /* the rate */
+.lfo-head select { width: auto; padding: 2px 2px; font-size: .8rem; }
 .lfo-ctl strong { font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-.lfo-ctl .knob { grid-template-columns: 74px 1fr 76px; }
 @media (max-width: 1100px) {
   .patch-cols, .lfo-row { grid-template-columns: 1fr; }
 }
@@ -128,9 +131,13 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .osc-head { display: grid; grid-template-columns: 74px 1fr; align-items: center; gap: 6px; font-size: .85rem; }
 .osc-head .knob { display: block; }
 .osc-head select { width: 100%; }
-.nodes { margin-bottom: 12px; }
-.nodes > summary { cursor: pointer; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
-.routing { margin-top: 12px; margin-bottom: 12px; background: var(--panel2); border-radius: 8px; padding: 8px 12px; }
+.nodes { margin-bottom: 0; }
+/* The toggle for this section lives on the audition row (see nodesToggle), so its own summary line is hidden. */
+.nodes > summary { display: none; }
+.node-toggle { padding: 0; border: 0; background: none; color: var(--muted); font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; white-space: nowrap; }
+.node-toggle:hover { color: var(--text); }
+.audition .sep { align-self: stretch; width: 1px; margin: 2px 0; background: var(--line); }
+.routing { margin-top: 12px; margin-bottom: 0; background: var(--panel2); border-radius: 8px; padding: 0px 12px 0; }
 .routing summary { cursor: pointer; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .rd { display: block; width: 100%; max-width: 940px; height: auto; margin-top: 8px; font-family: system-ui, sans-serif; }
 .rd-box rect, .rd-box circle { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
@@ -164,8 +171,8 @@ input[type=range] { accent-color: var(--accent); }
 .adsr-line { fill: none; stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .adsr-sliders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .adsr-col { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: .8rem; font-weight: 600; color: var(--muted); }
-.adsr-col input[type=range] { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 88px; padding: 0; margin: 0; }
-.module h5.sub { margin: 10px 0 2px; padding-top: 8px; border-top: 1px solid var(--line); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.adsr-col input[type=range] { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 50px; padding: 0; margin: 0; }
+.module h5.sub { margin: 1px; padding: 0; border-top: 1px solid var(--line); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 
 .osc.off > :not(.osc-head), .osc.off .osc-head select { opacity: .4; }
 .osc.off .osc-head strong { opacity: .5; }

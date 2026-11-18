@@ -1,5 +1,5 @@
-// Reusable ADSR envelope control: a shape preview on top of four vertical sliders (A D S R), each labelled with
-// a single letter. Edits `env` ({attack, decay, sustain, release}) in place and calls `change` on every input.
+// Reusable ADSR envelope control: a shape preview on top of four vertical sliders (attack, decay, sustain, release;
+// hover one for its name and value). Edits `env` ({attack, decay, sustain, release}) in place and calls `change` on every input.
 // Double-click a slider to reset it to `defaults`; hover for the exact value.
 import { h } from './dom.js';
 
@@ -8,10 +8,10 @@ const T_MIN = 0.001;
 const T_MAX = 5;
 
 const STAGES = [
-  { key: 'attack', letter: 'A', name: 'Attack', log: true },
-  { key: 'decay', letter: 'D', name: 'Decay', log: true },
-  { key: 'sustain', letter: 'S', name: 'Sustain', log: false },
-  { key: 'release', letter: 'R', name: 'Release', log: true },
+  { key: 'attack', name: 'Attack', log: true },
+  { key: 'decay', name: 'Decay', log: true },
+  { key: 'sustain', name: 'Sustain', log: false },
+  { key: 'release', name: 'Release', log: true },
 ];
 
 const fmtVal = (key, v) => (key === 'sustain' ? `${Math.round(v * 100)}%` : v < 1 ? `${Math.round(v * 1000)} ms` : `${Number(v.toPrecision(3))} s`);
@@ -89,7 +89,7 @@ export function adsrControl(env, change, opts = {}) {
         change();
       },
     });
-    return h('div.adsr-col', input, h('span', { title: st.name }, st.letter));
+    return h('div.adsr-col', input);
   });
   return h('div.adsr', svg, h('div.adsr-sliders', cols));
 }

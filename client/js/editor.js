@@ -266,7 +266,19 @@ export class InstrumentPanel {
   }
 
   /** Note picker, velocity, and three ways to play it: once, held while pressed, or looped at a BPM multiple. */
-  auditionBar(inst) {
+  /** A toggle ("Patch") for the node configuration details, so it can live on the audition row instead of its own summary line. */
+  nodesToggle(details) {
+    const btn = h('button.node-toggle', { type: 'button', title: 'Show or hide the patch: the nodes that make up this sound', onclick: () => { details.open = !details.open; sync(); } });
+    const sync = () => {
+      btn.textContent = `${details.open ? '▼' : '▶'} Patch`;
+      btn.setAttribute('aria-expanded', String(details.open));
+    };
+    details.addEventListener('toggle', sync);
+    sync();
+    return btn;
+  }
+
+  auditionBar(inst, extra = null) {
     const st = this.audition;
     const current = () => this.orders.instruments.find((i) => i.id === inst.id);
     const noteSel = h('select', { title: 'Note to play', onchange: (e) => { st.note = Number(e.target.value); } },
@@ -315,6 +327,7 @@ export class InstrumentPanel {
     sync();
 
     return h('div.audition',
+      extra, extra && h('span.sep'),
       h('strong', 'Audition'),
       h('label', 'note', noteSel),
       h('label', 'velocity', vel, velOut),
@@ -368,12 +381,13 @@ export class InstrumentPanel {
       // Not a template instrument (e.g. hand-written orders): only the output levels can be edited here.
       const change = () => this.o.onChange();
       pairDefaults(inst, defaultPatch());
-      return h('div.patch', head, this.auditionBar(inst),
+      const nodes = this.section('nodes', 'Node configuration', 'nodesOpen', h('div.patch-grid', module('Output',
+        knob('level', inst, 'gain', { min: 0, max: 1 }, change),
+        knob('delay', inst, 'send_delay', { min: 0, max: 1 }, change),
+        knob('reverb', inst, 'send_reverb', { min: 0, max: 1 }, change))));
+      return h('div.patch', head, this.auditionBar(inst, this.nodesToggle(nodes)),
         h('p.muted', 'This instrument has a custom signal graph that this editor cannot show. Load a preset to replace it and edit it here.'),
-        this.section('nodes', 'Node configuration', 'nodesOpen', h('div.patch-grid', module('Output',
-          knob('level', inst, 'gain', { min: 0, max: 1 }, change),
-          knob('delay', inst, 'send_delay', { min: 0, max: 1 }, change),
-          knob('reverb', inst, 'send_reverb', { min: 0, max: 1 }, change)))));
+        nodes);
     }
 
     // Every edit rebuilds the graph from the patch and swaps it in; lanes refer to the id, which never changes.
@@ -449,13 +463,13 @@ export class InstrumentPanel {
 
     const lfoRow = node('lfo', h('div.lfo-row',
       h('div.lfo-ctl',
-        h('div.lfo-head', h('strong', 'LFO'), select('', patch.lfo, 'wave', WAVES, change)),
-        knob('rate', patch.lfo, 'rate', { min: 0.1, max: 20, log: true, unit: ' Hz' }, change)),
+        h('div.lfo-head', h('strong', 'LFO'), select('', patch.lfo, 'wave', WAVES, change),
+          knob('rate', patch.lfo, 'rate', { min: 0.1, max: 20, log: true, unit: ' Hz' }, change))),
       lfoAmount('pitch', { min: 0, max: 200, step: 1, unit: ' ct' }),
       lfoAmount('cutoff', { min: 0, max: 4000, step: 10, unit: ' Hz' }),
       lfoAmount('amp', { min: 0, max: 1 })));
 
-    patchEl = h('div.patch', head, this.auditionBar(inst), this.section('nodes', 'Node configuration', 'nodesOpen', h('div.nodes-body',
+    const nodes = this.section('nodes', 'Node configuration', 'nodesOpen', h('div.nodes-body',
       lfoRow,
       h('div.patch-cols',
         module(null,
@@ -479,7 +493,8 @@ export class InstrumentPanel {
           knob('level', patch, 'gain', { min: 0, max: 1 }, change),
           knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
           knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change),
-          envelope('aenv', 'Amp envelope', patch.aenv))), 'amp')))), routing);
+          envelope('aenv', 'Amp envelope', patch.aenv))), 'amp'))));
+    patchEl = h('div.patch', head, this.auditionBar(inst, this.nodesToggle(nodes)), nodes, routing);
     syncLfo();
     return patchEl;
   }
