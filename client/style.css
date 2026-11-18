@@ -69,7 +69,7 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .audition label { display: flex; align-items: center; gap: 6px; }
 .audition output { font-family: var(--mono); color: var(--text); min-width: 2.2em; }
 .audition input[type=range] { width: 90px; padding: 0; }
-.audition .loop { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.audition .loop { display: flex; align-items: center; gap: 8px; }
 .audition button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .audition button.hold { user-select: none; touch-action: none; }
 .loader { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -138,8 +138,11 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .node-toggle { padding: 0; border: 0; background: none; color: var(--muted); font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; white-space: nowrap; }
 .node-toggle:hover { color: var(--text); }
 .audition .sep { align-self: stretch; width: 1px; margin: 2px 0; background: var(--line); }
+.audition-main { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-left: auto; padding-left: 14px; border-left: 1px solid var(--line); }
 .routing { margin-top: 12px; margin-bottom: 0; background: var(--panel2); border-radius: 8px; padding: 0px 12px 0; }
-.routing summary { cursor: pointer; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+/* Its toggle lives on the audition row too (see detailsToggle): no summary line, and nothing at all while closed. */
+.routing > summary { display: none; }
+.routing:not([open]) { margin: 0; padding: 0; display: none; }
 .rd { display: block; width: 100%; max-width: 940px; height: auto; margin-top: 8px; font-family: system-ui, sans-serif; }
 .rd-box rect, .rd-box circle { fill: var(--panel); stroke: var(--line); stroke-width: 1.2; }
 .rd-box.mod rect { stroke-dasharray: 4 3; }

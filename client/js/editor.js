@@ -267,11 +267,11 @@ export class InstrumentPanel {
   }
 
   /** Note picker, velocity, and three ways to play it: once, held while pressed, or looped at a BPM multiple. */
-  /** A toggle ("Patch") for the node configuration details, so it can live on the audition row instead of its own summary line. */
-  nodesToggle(details) {
-    const btn = h('button.node-toggle', { type: 'button', title: 'Show or hide the patch: the nodes that make up this sound', onclick: () => { details.open = !details.open; sync(); } });
+  /** A toggle for a details section ("Patch", "Signal routing"), so it can live on the audition row instead of its own summary line. */
+  detailsToggle(details, label) {
+    const btn = h('button.node-toggle', { type: 'button', title: `Show or hide: ${label.toLowerCase()}`, onclick: () => { details.open = !details.open; sync(); } });
     const sync = () => {
-      btn.textContent = `${details.open ? '▼' : '▶'} Patch`;
+      btn.textContent = `${details.open ? '▼' : '▶'} ${label}`;
       btn.setAttribute('aria-expanded', String(details.open));
     };
     details.addEventListener('toggle', sync);
@@ -279,7 +279,7 @@ export class InstrumentPanel {
     return btn;
   }
 
-  auditionBar(inst, extra = null) {
+  auditionBar(inst, toggles = []) {
     const st = this.audition;
     const current = () => this.orders.instruments.find((i) => i.id === inst.id);
     const noteSel = h('select', { title: 'Note to play', onchange: (e) => { st.note = Number(e.target.value); } },
@@ -295,7 +295,7 @@ export class InstrumentPanel {
     // Hold: sounds while the pointer (or Space/Enter) is down; released on up, leave or cancel.
     let held = null;
     let wantHold = false;
-    const holdBtn = h('button.hold', { title: 'Hold to sustain the note' }, '● Hold');
+    const holdBtn = h('button.hold', { title: 'Hold: sounds the note while you press and hold', 'aria-label': 'Hold' }, '●');
     const press = async () => {
       if (wantHold) return;
       wantHold = true;
@@ -322,19 +322,24 @@ export class InstrumentPanel {
       sync();
     } });
     const sync = () => {
-      loopBtn.textContent = looping() ? '■ Stop loop' : '↻ Loop';
-      loopBtn.classList.toggle('on', looping());
+      const on = looping();
+      loopBtn.textContent = on ? '■' : '↻';
+      loopBtn.title = on ? 'Stop the loop' : 'Loop: repeat the note at the chosen rate';
+      loopBtn.setAttribute('aria-label', on ? 'Stop loop' : 'Loop');
+      loopBtn.classList.toggle('on', on);
     };
     sync();
 
+    // The toggles stay on the left; the audition controls are one group pushed to the right (it wraps as a unit).
     return h('div.audition',
-      extra, extra && h('span.sep'),
-      h('strong', 'Audition'),
-      h('label', 'note', noteSel),
-      h('label', 'velocity', vel, velOut),
-      h('button', { onclick: () => this.aud.once(current(), st.note, st.vel) }, '▶ Once'),
-      holdBtn,
-      h('span.loop', loopBtn, h('label', 'rate', rateSel)));
+      toggles,
+      h('div.audition-main',
+        h('strong', 'Audition'),
+        h('label', 'note', noteSel),
+        h('label', 'velocity', vel, velOut),
+        h('button', { title: 'Once: play the note one beat long', 'aria-label': 'Once', onclick: () => this.aud.once(current(), st.note, st.vel) }, '▶'),
+        holdBtn, h('span.sep'),
+        h('span.loop', loopBtn, h('label', 'rate', rateSel))));
   }
 
   /** A collapsible section whose open state survives re-renders. */
@@ -393,7 +398,7 @@ export class InstrumentPanel {
         knob('level', inst, 'gain', { min: 0, max: 1 }, change),
         knob('delay', inst, 'send_delay', { min: 0, max: 1 }, change),
         knob('reverb', inst, 'send_reverb', { min: 0, max: 1 }, change))));
-      return h('div.patch', head, this.auditionBar(inst, this.nodesToggle(nodes)),
+      return h('div.patch', head, this.auditionBar(inst, [this.detailsToggle(nodes, 'Patch')]),
         h('p.muted', 'This instrument has a custom signal graph that this editor cannot show. Load a preset to replace it and edit it here.'),
         nodes);
     }
@@ -503,7 +508,7 @@ export class InstrumentPanel {
           knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
           knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change),
           envelope('aenv', 'Amp envelope', patch.aenv))), 'amp'))));
-    patchEl = h('div.patch', head, this.auditionBar(inst, this.nodesToggle(nodes)), nodes, routing);
+    patchEl = h('div.patch', head, this.auditionBar(inst, [this.detailsToggle(nodes, 'Patch'), this.detailsToggle(routing, 'Signal routing')]), nodes, routing);
     syncLfo();
     return patchEl;
   }
