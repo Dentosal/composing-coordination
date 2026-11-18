@@ -286,6 +286,8 @@ input[type=range] { accent-color: var(--accent); }
 .effect-dialog { position: fixed; inset: auto 24px 72px auto; margin: 0; z-index: 6; width: 300px; padding: 12px 14px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
 .effect-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; cursor: grab; user-select: none; touch-action: none; }
 .effect-head.dragging { cursor: grabbing; }
+.effect-head-btns { display: flex; align-items: center; gap: 6px; }
+.effect-head .help-btn { width: 24px; height: 24px; font-size: .8rem; }
 .effect-info { margin: 0 0 8px; font-size: .85rem; }
 /* Automation / effect lane above each track: boxes like the note cells, half as high and dimmer. */
 .roll-acell { position: relative; min-width: 0; height: 16px; border-radius: 3px; background: #232838; opacity: .6; }

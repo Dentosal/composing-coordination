@@ -38,6 +38,24 @@ function heldCells(lane, totalRows) {
 }
 
 const key = (t) => h('kbd', t);
+/** Contents of the effect dialog's help: what each effect does. */
+const effectsHelp = () => [
+  'Effect cells (the thin lane above each track) change the notes that are sounding during their own row. A row is split into six ticks, and the effects below work in ticks.',
+  h('h3', 'Editing'),
+  h('ul',
+    h('li', 'Select cells in an effect lane (click, drag, or shift+click) and this dialog edits them. Every control you change is written into all the selected cells; unticking a box removes that effect from them. "Clear effects" empties the selected cells.'),
+    h('li', 'A cell shows one letter per effect: ', h('strong', 'V'), ' volume, ', h('strong', 'A'), ' arpeggio, ', h('strong', 'S'), ' slide, ', h('strong', 'C'), ' cut, ', h('strong', 'R'), ' retrigger. Hover a cell for the values.'),
+    h('li', 'Cells copy, paste, delete, duplicate and repeat like notes (select effect cells first). Effects are saved with the track and heard in the preview and in the mix.')),
+  h('h3', 'The effects'),
+  h('ul',
+    h('li', h('strong', 'Volume'), ': scales the level of the notes in that row, from 0 (silent) to 100%.'),
+    h('li', h('strong', 'Arpeggio'), ': the pitch steps through up to four offsets in semitones, one per tick, six steps per row, and starts again at the next row. "0 4 7" is a major chord; one offset such as "12" just raises the row an octave.'),
+    h('li', h('strong', 'Slide'), ': moves the pitch by this many semitones over the row (negative: down), reaching it at the last tick. The pitch stays there afterwards, and consecutive slide rows add up. A new note starts from its own pitch again.'),
+    h('li', h('strong', 'Note cut'), ': silences the note sounding in the row at the chosen tick (0 to 5). Tick 0 on the row where a note starts means it is never heard.'),
+    h('li', h('strong', 'Retrigger'), ': restarts the note every N ticks within the row (not at tick 0), each time with a fresh envelope. The previous restart is silenced, so a short interval gives a stuttering, gated sound.')),
+  h('p.muted', 'Effects combine: a cell can hold all five at once, and a slide and an arpeggio add their pitch changes.'),
+];
+
 /** Contents of the roll's help dialog: what the track roll shows and what the mouse and keyboard do. */
 const rollHelp = () => [
   'Each row is a track and time runs left to right: 16 steps to a bar, grouped by beat. A note lasts until the next note or off in its track, or until the end of the song. Above every track is a thinner effect lane.',
@@ -59,10 +77,7 @@ const rollHelp = () => [
     h('li', 'On a piano-roll track, painting a run of cells draws one note with an off after it, and typing a note adds an off one step later, unless that cell already has a note or an off.')),
   h('h3', 'Effects'),
   h('ul',
-    h('li', 'Click or drag across the cells of an effect lane (shift+click extends) to select them. The effect dialog opens; drag it by its header. Each control you change is written into all the selected cells, and unticking a box removes that effect from them.'),
-    h('li', 'An effect cell works on the notes sounding during its own row. A cell shows a letter per effect: ', h('strong', 'V'), ' volume, ', h('strong', 'A'), ' arpeggio, ', h('strong', 'S'), ' slide, ', h('strong', 'C'), ' cut, ', h('strong', 'R'), ' retrigger. Hover a cell for the values.'),
-    h('li', 'Volume scales the level (0–100%). Arpeggio steps the pitch through up to four semitone offsets, six steps per row (for example "0 4 7"). Slide moves the pitch by some semitones over the row and keeps it there, so consecutive slide rows add up. Cut silences the note at a chosen tick of the row. Retrigger restarts the note every few ticks.'),
-    h('li', 'The "FX" box shows or hides the effect lanes. Effects are saved with the track and heard in the preview and in the mix.')),
+    h('li', 'The thin lane above each track holds effects: volume, arpeggio, slide, cut and retrigger. Click or drag across its cells to select them and the effect dialog opens; the ? in that dialog explains each effect. The "FX" box shows or hides the lanes.')),
   h('h3', 'Selecting and editing'),
   h('ul',
     h('li', key('Shift'), ' + arrows extend the selection; arrows otherwise move left and right in time and up and down between tracks. ', key('PageUp'), ' / ', key('PageDown'), ' jump a bar, ', key('Home'), ' / ', key('End'), ' go to the start and end, ', key('Ctrl'), ' + ', key('A'), ' selects the track (again: all tracks).'),
@@ -128,7 +143,8 @@ export class PatternEditor {
     this.initMouse();
     this.effectInfo = h('p.effect-info');
     const effectHead = h('div.effect-head', { title: 'Drag to move' }, h('strong', 'Effect'),
-      h('button.small', { type: 'button', 'aria-label': 'Close the effect dialog', onclick: () => this.closeEffectDialog() }, '✕'));
+      h('span.effect-head-btns', helpButton({ title: 'Effects', label: 'Help: effects', body: effectsHelp() }),
+        h('button.small', { type: 'button', 'aria-label': 'Close the effect dialog', onclick: () => this.closeEffectDialog() }, '✕')));
     this.effectDlg = h('dialog.effect-dialog', { 'aria-label': 'Effect', onkeydown: (e) => e.stopPropagation() }, // typing in it must not drive the roll
       effectHead,
       this.effectInfo,
