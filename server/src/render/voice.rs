@@ -245,10 +245,63 @@ pub fn schedule_part(
         };
         for (note, vel, row, end_row) in lane_notes(lane, total_rows) {
             let t0 = loop_start + row as f64 * row_secs;
-            for seg in fx_plan(&lane.fx, row, end_row, row_secs) {
+            let hz = midi_hz(note);
+            for seg in fx_plan(&lane.fx, row, end_row, row_secs, &|node, port| param_target(inst, hz, node, port)) {
                 build_voice(ctx, cfg, part.seat_index, inst, &bus.input, &noise, note, vel, t0 + seg.start, t0 + seg.end, &seg);
             }
         }
+    }
+}
+
+/// What the plan needs to know about one automatable parameter of the instrument, for one note: see `param_target`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParamTarget {
+    /// The parameter's own value for this note (a filter cutoff includes its key tracking).
+    pub base: f64,
+    /// A cell's value is multiplied by this: the note's key-tracking factor, like the node's own value.
+    pub factor: f64,
+    /// Frequencies move exponentially when they glide, the rest linearly.
+    pub exp: bool,
+    pub lo: f64,
+    pub hi: f64,
+}
+
+/// One automated parameter of a voice: it starts at `initial` and changes at the listed times (seconds after the voice's
+/// start). A `ramp` event moves there from the previous event (the voice's start counts as one) instead of jumping.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParamTrack {
+    pub node: String,
+    pub port: String,
+    pub exp: bool,
+    pub initial: f64,
+    pub events: Vec<ParamEvent>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ParamEvent {
+    pub t: f64,
+    pub value: f64,
+    pub ramp: bool,
+}
+
+/// How an automatable parameter of `inst` behaves for a note at `hz` (None: the instrument has no such parameter, or it
+/// cannot be automated). The values match what `build_voice` sets for the node itself.
+/// Must stay identical to `paramTarget` in client/js/fx.js.
+pub fn param_target(inst: &Instrument, hz: f64, node: &str, port: &str) -> Option<ParamTarget> {
+    let n = inst.nodes.iter().find(|n| n.id == node)?;
+    let tracked = |key_track: f32| (hz / MIDDLE_C_HZ).powf(key_track as f64);
+    match (&n.kind, port) {
+        (NodeKind::Gain { gain, key_track }, "gain") => {
+            let f = tracked(*key_track);
+            Some(ParamTarget { base: *gain as f64 * f, factor: f, exp: false, lo: -1e9, hi: 1e9 })
+        }
+        (NodeKind::Filter { freq, key_track, .. }, "freq") => {
+            let f = tracked(*key_track);
+            Some(ParamTarget { base: (*freq as f64 * f).clamp(10.0, 22000.0), factor: f, exp: true, lo: 10.0, hi: 22000.0 })
+        }
+        (NodeKind::Filter { q, .. }, "q") => Some(ParamTarget { base: *q as f64, factor: 1.0, exp: false, lo: 0.0001, hi: 30.0 }),
+        (NodeKind::Osc { fixed_hz: Some(h), .. }, "freq") => Some(ParamTarget { base: *h as f64, factor: 1.0, exp: true, lo: 0.01, hi: 20000.0 }),
+        _ => None,
     }
 }
 
@@ -263,6 +316,64 @@ pub struct FxSegment {
     pub volumes: Vec<(f64, f32)>,
     /// (time, semitone offset) of the oscillators (slide + arpeggio), whenever it changes; the voice starts at 0.
     pub pitches: Vec<(f64, f64)>,
+    /// Automated node parameters (see `ParamTrack`), only those that differ from the node's own value somewhere in the voice.
+    pub params: Vec<ParamTrack>,
+}
+
+/// One automated parameter over a note's rows, as the plan sees it (see `ParamSet`).
+struct ParamLine {
+    node: String,
+    port: String,
+    target: ParamTarget,
+    /// Per row of the note: (value at the row's start, value at its end, glides). A row without an entry is at the node's own
+    /// value; a row with one is at the entry's value; a glide row moves from the previous row's end value to its own.
+    rows: Vec<(f64, f64, bool)>,
+    /// Value changes along the note: (tick, value, ramp). A glide row has a step at its start (so the ramp has a start)
+    /// and a ramp event at its end.
+    events: Vec<(usize, f64, bool)>,
+}
+
+fn glide_value(a: f64, b: f64, f: f64, exp: bool) -> f64 {
+    if exp && a > 0.0 && b > 0.0 { a * (b / a).powf(f) } else { a + (b - a) * f }
+}
+
+impl ParamLine {
+    fn new(node: &str, port: &str, target: ParamTarget, by_row: &HashMap<u32, &FxStep>, start_row: u32, end_row: u32) -> Self {
+        let tpr = ARP_TICKS_PER_ROW as usize;
+        let entry = |r: u32| by_row.get(&r).and_then(|f| f.params.iter().find(|p| p.node == node && p.port == port));
+        let end_value = |r: u32| entry(r).map_or(target.base, |p| (p.value as f64 * target.factor).clamp(target.lo, target.hi));
+        let mut rows = Vec::new();
+        for r in start_row..end_row {
+            let ve = end_value(r);
+            let glide = entry(r).is_some_and(|p| p.glide);
+            // A glide starts from where the row before left off, even if the note itself starts on this row.
+            let vs = if glide { if r == 0 { target.base } else { end_value(r - 1) } } else { ve };
+            rows.push((vs, ve, glide && vs != ve));
+        }
+        let mut events = Vec::new();
+        let mut cur = rows.first().map_or(target.base, |r| r.0);
+        for (i, &(vs, ve, glide)) in rows.iter().enumerate() {
+            if glide {
+                events.push((i * tpr, vs, false));
+                events.push(((i + 1) * tpr, ve, true));
+            } else if ve != cur {
+                events.push((i * tpr, ve, false));
+            }
+            cur = ve;
+        }
+        ParamLine { node: node.to_string(), port: port.to_string(), target, rows, events }
+    }
+
+    /// The value at the start of tick `tick` of the note (inside a glide row: partway along the glide).
+    fn value_at_tick(&self, tick: usize) -> f64 {
+        let tpr = ARP_TICKS_PER_ROW as usize;
+        let i = (tick / tpr).min(self.rows.len() - 1);
+        let (vs, ve, glide) = self.rows[i];
+        if !glide {
+            return ve;
+        }
+        glide_value(vs, ve, ((tick - i * tpr) as f64 / tpr as f64).min(1.0), self.target.exp)
+    }
 }
 
 /// The voices of one note, from its lane's effect cells. Everything is quantised to ticks (`ARP_TICKS_PER_ROW` per row):
@@ -272,7 +383,7 @@ pub struct FxSegment {
 ///   cut      the note ends (and is silenced) at that tick of the row
 ///   retrig   the note restarts every N ticks within the row (a new voice; the old one is silenced)
 /// Must stay identical to `notePlan` in client/js/fx.js (both are checked against server/tests/fixtures/fx_plan.json).
-pub fn fx_plan(fx: &[FxStep], start_row: u32, end_row: u32, row_secs: f64) -> Vec<FxSegment> {
+pub fn fx_plan(fx: &[FxStep], start_row: u32, end_row: u32, row_secs: f64, target: &dyn Fn(&str, &str) -> Option<ParamTarget>) -> Vec<FxSegment> {
     let tpr = ARP_TICKS_PER_ROW as usize;
     let tick = row_secs / tpr as f64;
     let n_ticks = (end_row - start_row) as usize * tpr;
@@ -281,6 +392,18 @@ pub fn fx_plan(fx: &[FxStep], start_row: u32, end_row: u32, row_secs: f64) -> Ve
         return vec![FxSegment { start: 0.0, end: natural_end, ..Default::default() }];
     }
     let by_row: HashMap<u32, &FxStep> = fx.iter().map(|f| (f.row, f)).collect();
+    // The automated parameters of the note: those with an entry in one of its rows (that the instrument has).
+    let mut lines: Vec<ParamLine> = Vec::new();
+    for r in start_row..end_row {
+        for ps in by_row.get(&r).map_or(&[][..], |f| &f.params[..]) {
+            if lines.iter().any(|l| l.node == ps.node && l.port == ps.port) {
+                continue;
+            }
+            if let Some(t) = target(&ps.node, &ps.port) {
+                lines.push(ParamLine::new(&ps.node, &ps.port, t, &by_row, start_row, end_row));
+            }
+        }
+    }
     let mut vol: Vec<f32> = Vec::with_capacity(n_ticks);
     let mut pitch: Vec<f64> = Vec::with_capacity(n_ticks);
     let mut accum = 0.0f64;
@@ -337,7 +460,26 @@ pub fn fx_plan(fx: &[FxStep], start_row: u32, end_row: u32, row_secs: f64) -> Ve
         if !natural {
             vs.push(((e - s) as f64 * tick, 0.0));
         }
-        segs.push(FxSegment { start: s as f64 * tick, end: if natural { natural_end } else { e as f64 * tick }, volumes: vs, pitches: ps });
+        // Each automated parameter, as it goes in this voice: its value at the voice's start, then the changes inside it.
+        let params = lines
+            .iter()
+            .filter_map(|l| {
+                let initial = l.value_at_tick(s);
+                let mut events: Vec<ParamEvent> = l
+                    .events
+                    .iter()
+                    .filter(|(t, _, ramp)| *t > s && if *ramp { *t <= e } else { *t < e })
+                    .map(|&(t, value, ramp)| ParamEvent { t: (t - s) as f64 * tick, value, ramp })
+                    .collect();
+                // A voice that ends partway through a glide row (a cut or a retrigger) still glides as far as it gets.
+                if l.events.iter().any(|&(t, _, ramp)| ramp && t > e && t - tpr < e) {
+                    events.push(ParamEvent { t: (e - s) as f64 * tick, value: l.value_at_tick(e), ramp: true });
+                }
+                (initial != l.target.base || !events.is_empty())
+                    .then(|| ParamTrack { node: l.node.clone(), port: l.port.clone(), exp: l.target.exp, initial, events })
+            })
+            .collect();
+        segs.push(FxSegment { start: s as f64 * tick, end: if natural { natural_end } else { e as f64 * tick }, volumes: vs, pitches: ps, params });
     }
     segs
 }
@@ -490,6 +632,21 @@ fn build_voice(
                 for param in b.params(p) {
                     a.node().connect(param);
                 }
+            }
+        }
+    }
+    // Parameter automation (effect cells): the value at the voice's start, then the changes (see `ParamTrack`).
+    for track in &plan.params {
+        let Some(v) = nodes.get(track.node.as_str()) else { continue };
+        for param in v.params(&track.port) {
+            param.set_value_at_time(track.initial as f32, t0);
+            for ev in &track.events {
+                let at = t0 + ev.t;
+                match (ev.ramp, track.exp) {
+                    (false, _) => param.set_value_at_time(ev.value as f32, at),
+                    (true, true) => param.exponential_ramp_to_value_at_time(ev.value as f32, at),
+                    (true, false) => param.linear_ramp_to_value_at_time(ev.value as f32, at),
+                };
             }
         }
     }

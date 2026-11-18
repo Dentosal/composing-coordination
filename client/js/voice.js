@@ -237,8 +237,9 @@ function envRelease(p, e, t0, tg) {
 /**
  * Start one voice of `inst` at `t0`. Returns `{ release(tg) }`: call it with the gate-end time (now or in the
  * future) to let the note go. `noise` maps node id -> AudioBuffer. `plan` (optional: one segment of fx.js `notePlan`)
- * automates the voice: its volumes multiply the output level and its pitches offset the (non-fixed) oscillators, in
- * semitones (a slide gives fractions). Times in the plan are seconds after `t0`.
+ * automates the voice: its volumes multiply the output level, its pitches offset the (non-fixed) oscillators, in
+ * semitones (a slide gives fractions), and its params set node parameters (filter cutoff, a gain, ...). Times in the
+ * plan are seconds after `t0`.
  */
 export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
   const hz = midiHz(note);
@@ -322,6 +323,17 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
     if (!a || !b) continue;
     if (!port) a.node.connect(b.node);
     else for (const p of b.params[port] ?? []) a.node.connect(p);
+  }
+  // Parameter automation (effect cells): the value at the voice's start, then the changes (see `notePlan` in fx.js).
+  for (const tr of plan?.params ?? []) {
+    for (const p of nodes.get(tr.node)?.params[tr.port] ?? []) {
+      p.setValueAtTime(tr.initial, t0);
+      for (const [dt, value, ramp] of tr.events) {
+        if (!ramp) p.setValueAtTime(value, t0 + dt);
+        else if (tr.exp) p.exponentialRampToValueAtTime(value, t0 + dt);
+        else p.linearRampToValueAtTime(value, t0 + dt);
+      }
+    }
   }
   const maxRelease = Math.max(0, ...envs.map(({ e }) => e.release));
   let released = false;

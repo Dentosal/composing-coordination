@@ -14,7 +14,8 @@
 /** @typedef {{from:string,to:string,port?:string|null}} OrdersEdge */
 /** @typedef {{id:string,name?:string,piano_roll?:boolean,gain:number,send_delay:number,send_reverb:number,nodes:OrdersNode[],edges:OrdersEdge[]}} OrdersInstrument */
 /** @typedef {{row:number,note:number|null,vel:number}} OrdersStep  note null = note-off */
-/** @typedef {{row:number,volume?:number,arp?:{offsets:number[]},slide?:number,cut?:number,retrig?:number}} OrdersFx  effect cell: applies during its row */
+/** @typedef {{node:string,port:string,value:number,glide?:boolean}} OrdersParam  one automated node parameter of an effect cell (see automation.js) */
+/** @typedef {{row:number,volume?:number,arp?:{offsets:number[]},slide?:number,cut?:number,retrig?:number,params?:OrdersParam[]}} OrdersFx  effect cell: applies during its row */
 /** @typedef {{instrument:string,steps:OrdersStep[],fx?:OrdersFx[]}} OrdersLane */
 /** @typedef {{instruments:OrdersInstrument[],lanes:OrdersLane[]}} Orders */
 

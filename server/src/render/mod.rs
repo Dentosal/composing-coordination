@@ -5,7 +5,7 @@
 mod master;
 pub mod voice;
 pub mod wav;
-pub use voice::{fx_plan, FxSegment};
+pub use voice::{fx_plan, param_target, FxSegment, ParamEvent, ParamTarget, ParamTrack};
 
 use crate::orders::Orders;
 use web_audio_api::context::{BaseAudioContext, OfflineAudioContext};

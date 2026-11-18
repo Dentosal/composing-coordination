@@ -4,6 +4,7 @@ import { icon } from './icons.js';
 import { helpButton } from './help.js';
 import { dragByHandle } from './draggable.js';
 import { ARP_MAX_OFFSETS, ARP_TICKS_PER_ROW, DEFAULT_ARP, MAX_SLIDE, clearFx, fxAt, fxLabel, fxTitle, setFxField } from './fx.js';
+import { MAX_FX_PARAMS, SLIDER_STEPS, accepts, automatable, describeParam, fromPosition, fromShown, ownValue, paramOf, pruneParams, toPosition, toShown } from './automation.js';
 
 const NOTE_NAMES = ['C-', 'C#', 'D-', 'D#', 'E-', 'F-', 'F#', 'G-', 'G#', 'A-', 'A#', 'B-'];
 export const noteName = (m) => `${NOTE_NAMES[m % 12]}${Math.floor(m / 12) - 1}`;
@@ -44,7 +45,7 @@ const effectsHelp = () => [
   h('h3', 'Editing'),
   h('ul',
     h('li', 'Select cells in an effect lane (click, drag, or shift+click) and this dialog edits them. Every control you change is written into all the selected cells; unticking a box removes that effect from them. "Clear effects" empties the selected cells.'),
-    h('li', 'A cell shows one letter per effect: ', h('strong', 'V'), ' volume, ', h('strong', 'A'), ' arpeggio, ', h('strong', 'S'), ' slide, ', h('strong', 'C'), ' cut, ', h('strong', 'R'), ' retrigger. Hover a cell for the values.'),
+    h('li', 'A cell shows one letter per effect: ', h('strong', 'V'), ' volume, ', h('strong', 'A'), ' arpeggio, ', h('strong', 'S'), ' slide, ', h('strong', 'C'), ' cut, ', h('strong', 'R'), ' retrigger, ', h('strong', 'P'), ' parameters. Hover a cell for the values.'),
     h('li', 'Cells copy, paste, delete, duplicate and repeat like notes (select effect cells first). Effects are saved with the track and heard in the preview and in the mix.')),
   h('h3', 'The effects'),
   h('ul',
@@ -52,6 +53,7 @@ const effectsHelp = () => [
     h('li', h('strong', 'Arpeggio'), ': the pitch steps through up to four offsets in semitones, one per tick, six steps per row, and starts again at the next row. "0 4 7" is a major chord; one offset such as "12" just raises the row an octave.'),
     h('li', h('strong', 'Slide'), ': moves the pitch by this many semitones over the row (negative: down), reaching it at the last tick. The pitch stays there afterwards, and consecutive slide rows add up. A new note starts from its own pitch again.'),
     h('li', h('strong', 'Note cut'), ': silences the note sounding in the row at the chosen tick (0 to 5). Tick 0 on the row where a note starts means it is never heard.'),
+    h('li', h('strong', 'Parameters'), ': sets up to three parameters of the track\'s instrument for that row (filter cutoff and resonance, oscillator and noise levels, LFO rate and depths, FM depth). In every row without an entry for a parameter it is back at the instrument\'s own value at once, and the loop starts there too, so give each row you want changed its own entry (select several cells to fill them together). A value is the parameter\'s own setting for the row, so envelopes and the LFO still add to it, and cutoffs follow the note\'s pitch like the instrument\'s own. "Glide" moves to the value over the row, starting where the row before left off. Pasting onto a track whose instrument lacks a parameter drops that entry.'),
     h('li', h('strong', 'Retrigger'), ': restarts the note every N ticks within the row (not at tick 0), each time with a fresh envelope. The previous restart is silenced, so a short interval gives a stuttering, gated sound.')),
   h('p.muted', 'Effects combine: a cell can hold all five at once, and a slide and an arpeggio add their pitch changes.'),
 ];
@@ -382,6 +384,7 @@ export class PatternEditor {
       l.steps = v.steps;
       if (v?.fx?.length) l.fx = v.fx; else delete l.fx;
     });
+    pruneParams(this.orders); // the instruments may have changed since the snapshot: no entries for nodes they no longer have
   }
 
   pushUndo() {
@@ -488,7 +491,17 @@ export class PatternEditor {
       if (!lane) return;
       const end = Math.min(row0 + clip.rows, total);
       const next = this.items(lane).filter((it) => it.row < row0 || it.row >= end);
-      for (const it of items) if (row0 + it.row < total) next.push({ ...structuredClone(it), row: row0 + it.row });
+      for (const it of items) {
+        if (row0 + it.row >= total) continue;
+        const copy = { ...structuredClone(it), row: row0 + it.row };
+        if (this.domain === 'auto' && copy.params) { // a parameter the target track's instrument does not have cannot be kept
+          const inst = this.instOf(lane);
+          copy.params = copy.params.filter((e) => accepts(inst, e));
+          if (!copy.params.length) delete copy.params;
+          if (Object.keys(copy).every((k) => k === 'row')) continue; // nothing left in the cell
+        }
+        next.push(copy);
+      }
       this.setItems(lane, next.sort((a, b) => a.row - b.row));
     });
   }
@@ -686,6 +699,12 @@ export class PatternEditor {
     ui.retrigN = h('select', { 'aria-label': 'Retrigger every', title: 'The note restarts every N ticks within the row',
       onchange: () => { ui.retrigChk.checked = true; this.applyRetrig(); } },
       ticks(ARP_TICKS_PER_ROW - 1).map((i) => h('option', { value: String(i + 1), selected: i + 1 === 2 }, `every ${i + 1} tick${i ? 's' : ''}`)));
+    // Parameters: up to MAX_FX_PARAMS rows, each a parameter of the track's instrument, its value for the row and a glide.
+    ui.paramRows = [];
+    ui.foreign = []; // entries of the cursor cell the editor has no name for (kept untouched)
+    ui.params = h('div.fx-params');
+    ui.addParam = h('button.small', { type: 'button', title: 'Automate another parameter of the instrument in this row', onclick: () => this.addParamRow() }, '+ parameter');
+    ui.paramHint = h('p.muted.fx-hint');
     ui.clear = h('button.small', { type: 'button', onclick: () => this.clearEffects() }, 'Clear effects');
     const wrap = h('div.fx-controls',
       field('Volume', ui.volChk, ui.volRange, ui.volOut),
@@ -693,6 +712,7 @@ export class PatternEditor {
       field('Slide', ui.slideChk, ui.slideRange, ui.slideOut),
       field('Note cut', ui.cutChk, ui.cutTick),
       field('Retrigger', ui.retrigChk, ui.retrigN),
+      h('div.fx-params-field', h('div.fx-head', 'Parameters'), ui.params, h('div.fx-params-add', ui.addParam, ui.paramHint)),
       h('div.fx-actions', ui.clear));
     // One gesture = one undo step: the first change pushes the undo snapshot, the end of the gesture re-arms it.
     for (const ev of ['change', 'focusout']) wrap.addEventListener(ev, () => { this.fxGesture = false; });
@@ -714,7 +734,10 @@ export class PatternEditor {
       this.pushUndo();
       this.fxGesture = true;
     }
-    for (const { lane, row } of this.effectCells()) setFxField(this.orders.lanes[lane], row, field, value);
+    for (const { lane, row } of this.effectCells()) {
+      const l = this.orders.lanes[lane];
+      setFxField(l, row, field, typeof value === 'function' ? value(l, row) : value); // a function: a value that depends on the cell
+    }
     this.changed();
   }
 
@@ -745,6 +768,128 @@ export class PatternEditor {
     this.applyFxField('retrig', ui.retrigChk.checked ? Number(ui.retrigN.value) : null);
   }
 
+  // ---- parameter rows of the effects dialog
+
+  /** The instrument of the track under the cursor: the dialog offers its parameters. */
+  cursorInst() {
+    const lane = this.orders.lanes[this.cur.lane];
+    return lane && this.instOf(lane);
+  }
+
+  /** One row: a parameter menu, a slider with its value, a glide checkbox and a remove button. */
+  makeParamRow(inst, p, shown, glide) {
+    const ui = this.fxUi;
+    const row = { p, el: null };
+    const options = automatable(inst);
+    row.sel = h('select', { 'aria-label': 'Parameter',
+      onchange: () => {
+        row.p = options.find((o) => o.id === row.sel.value);
+        this.setParamSlider(row, ownValue(inst, row.p)); // a new parameter starts at the instrument's own value
+        this.disableUsedParams();
+        this.applyParams();
+      } }, options.map((o) => h('option', { value: o.id, selected: o.id === p.id }, o.label)));
+    row.range = h('input', { type: 'range', min: '0', max: String(SLIDER_STEPS), step: '1', 'aria-label': 'Value', title: 'The parameter\'s value during this row (double-click for the instrument\'s own value)',
+      oninput: () => { row.out.textContent = this.paramText(row); this.applyParams(); },
+      ondblclick: () => { this.setParamSlider(row, ownValue(inst, row.p)); this.applyParams(); } });
+    row.out = h('output');
+    row.glide = h('input', { type: 'checkbox', 'aria-label': 'Glide', onchange: () => this.applyParams() });
+    row.remove = h('button.small.fx-remove', { type: 'button', 'aria-label': 'Remove this parameter', title: 'Remove', onclick: () => {
+      ui.paramRows = ui.paramRows.filter((r) => r !== row);
+      row.el.remove();
+      this.disableUsedParams();
+      this.applyParams();
+      this.updateAddParam();
+    } }, '×');
+    row.el = h('div.fx-param', row.sel, h('div.fx-param-value', row.range, row.out),
+      h('label.check.fx-glide', { title: 'Move to the value over the row, from where the row before left off, instead of jumping' }, row.glide, 'glide'), row.remove);
+    this.setParamSlider(row, shown);
+    row.glide.checked = !!glide;
+    return row;
+  }
+
+  setParamSlider(row, shown) {
+    row.range.value = String(toPosition(row.p, shown));
+    row.out.textContent = this.paramText(row);
+  }
+
+  /** The row's value as shown next to its slider. */
+  paramShown(row) {
+    return fromPosition(row.p, Number(row.range.value));
+  }
+
+  paramText(row) {
+    return `${Number(this.paramShown(row).toPrecision(3))}${row.p.unit}`;
+  }
+
+  updateAddParam() {
+    const ui = this.fxUi;
+    const inst = this.cursorInst();
+    const offered = automatable(inst);
+    ui.addParam.hidden = !offered.length;
+    ui.addParam.disabled = ui.paramRows.length + ui.foreign.length >= MAX_FX_PARAMS || ui.paramRows.length >= offered.length;
+    ui.paramHint.textContent = offered.length ? '' : 'This track\'s instrument has nothing to automate here.';
+  }
+
+  /** Add a row for the first parameter not used yet (or, with a parameter and entry, show that entry). */
+  addParamRow(p, entry) {
+    const ui = this.fxUi;
+    const inst = this.cursorInst();
+    const offered = automatable(inst);
+    const free = p ?? offered.find((o) => !ui.paramRows.some((r) => r.p.id === o.id));
+    if (!free) return;
+    const row = this.makeParamRow(inst, free, entry ? toShown(inst, free, entry.value) : ownValue(inst, free), entry?.glide);
+    ui.paramRows.push(row);
+    ui.params.append(row.el);
+    this.disableUsedParams();
+    if (!entry) this.applyParams();
+    this.updateAddParam();
+  }
+
+  /** A parameter can be in one row of a cell only: each row's menu has the parameters of the other rows greyed out. */
+  disableUsedParams() {
+    for (const row of this.fxUi.paramRows) {
+      for (const opt of row.sel.options) opt.disabled = this.fxUi.paramRows.some((r) => r !== row && r.p.id === opt.value);
+    }
+  }
+
+  /** Show the cursor cell's parameter entries as rows (entries the editor has no name for are kept untouched, out of sight). */
+  syncParamRows() {
+    const ui = this.fxUi;
+    const lane = this.orders.lanes[this.cur.lane];
+    const inst = this.cursorInst();
+    const cell = lane && fxAt(lane, this.cur.row);
+    ui.params.replaceChildren();
+    ui.paramRows = [];
+    ui.foreign = [];
+    for (const e of cell?.params ?? []) {
+      const p = paramOf(inst, e);
+      if (p) this.addParamRow(p, e); else ui.foreign.push(e);
+    }
+    this.updateAddParam();
+  }
+
+  /** Write the rows into every selected cell: each track gets those parameters its own instrument has. */
+  applyParams() {
+    const ui = this.fxUi;
+    const seen = new Set();
+    const entries = [];
+    for (const row of ui.paramRows) {
+      const dup = seen.has(row.p.id);
+      row.el.classList.toggle('bad', dup); // the same parameter twice in one cell: only the first counts
+      if (dup) continue;
+      seen.add(row.p.id);
+      const e = { node: row.p.node, port: row.p.port, value: fromShown(this.cursorInst(), row.p, this.paramShown(row)) };
+      if (row.glide.checked) e.glide = true;
+      entries.push(e);
+    }
+    this.applyFxField('params', (lane, row) => {
+      const inst = this.instOf(lane);
+      const mine = entries.filter((e) => paramOf(inst, e));
+      const others = (fxAt(lane, row)?.params ?? []).filter((e) => !paramOf(inst, e)); // not the editor's to change
+      return [...mine, ...others].slice(0, MAX_FX_PARAMS);
+    });
+  }
+
   clearEffects() {
     this.pushUndo();
     this.fxGesture = false;
@@ -772,6 +917,7 @@ export class PatternEditor {
     ui.cutTick.value = String(cell?.cut ?? 3);
     ui.retrigChk.checked = cell?.retrig !== undefined;
     ui.retrigN.value = String(cell?.retrig ?? 2);
+    this.syncParamRows();
   }
 
   /** The song got longer or shorter (freeform): keep the cursor inside it and drop the undo history, which holds rows beyond the new end. */
@@ -1263,7 +1409,7 @@ export class PatternEditor {
         cell.dataset.lane = String(li);
         cell.dataset.row = String(r);
         if (fxCell) {
-          cell.title = fxTitle(fxCell);
+          cell.title = fxTitle(fxCell, (e) => describeParam(this.instOf(lane), e));
           cell.append(h('div.rc-text', h('span', fxLabel(fxCell))));
         }
         this.rollCols[r].push(cell);

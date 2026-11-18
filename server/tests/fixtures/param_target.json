@@ -1,0 +1,143 @@
+{
+ "instrument": {
+  "id": "x",
+  "gain": 1,
+  "send_delay": 0,
+  "send_reverb": 0,
+  "nodes": [
+   {
+    "id": "o",
+    "type": "osc",
+    "wave": "sawtooth"
+   },
+   {
+    "id": "lfo",
+    "type": "osc",
+    "wave": "sine",
+    "fixed_hz": 5
+   },
+   {
+    "id": "lp",
+    "type": "filter",
+    "mode": "lowpass",
+    "freq": 800,
+    "q": 2,
+    "key_track": 0.5
+   },
+   {
+    "id": "g",
+    "type": "gain",
+    "gain": 0.5,
+    "key_track": 1
+   },
+   {
+    "id": "g0",
+    "type": "gain",
+    "gain": 0.25
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": []
+ },
+ "cases": [
+  {
+   "hz": 261.6255653005986,
+   "node": "lp",
+   "port": "freq",
+   "expected": {
+    "base": 800,
+    "factor": 1,
+    "exp": true,
+    "lo": 10,
+    "hi": 22000
+   }
+  },
+  {
+   "hz": 523.2511306011972,
+   "node": "lp",
+   "port": "freq",
+   "expected": {
+    "base": 1131.370849898476,
+    "factor": 1.4142135623730951,
+    "exp": true,
+    "lo": 10,
+    "hi": 22000
+   }
+  },
+  {
+   "hz": 261.6255653005986,
+   "node": "lp",
+   "port": "q",
+   "expected": {
+    "base": 2,
+    "factor": 1,
+    "exp": false,
+    "lo": 0.0001,
+    "hi": 30
+   }
+  },
+  {
+   "hz": 523.2511306011972,
+   "node": "g",
+   "port": "gain",
+   "expected": {
+    "base": 1.0,
+    "factor": 2,
+    "exp": false,
+    "lo": -1000000000.0,
+    "hi": 1000000000.0
+   }
+  },
+  {
+   "hz": 523.2511306011972,
+   "node": "g0",
+   "port": "gain",
+   "expected": {
+    "base": 0.25,
+    "factor": 1,
+    "exp": false,
+    "lo": -1000000000.0,
+    "hi": 1000000000.0
+   }
+  },
+  {
+   "hz": 261.6255653005986,
+   "node": "lfo",
+   "port": "freq",
+   "expected": {
+    "base": 5,
+    "factor": 1,
+    "exp": true,
+    "lo": 0.01,
+    "hi": 20000
+   }
+  },
+  {
+   "hz": 261.6255653005986,
+   "node": "o",
+   "port": "freq",
+   "expected": null
+  },
+  {
+   "hz": 261.6255653005986,
+   "node": "lp",
+   "port": "detune",
+   "expected": null
+  },
+  {
+   "hz": 261.6255653005986,
+   "node": "out",
+   "port": "gain",
+   "expected": null
+  },
+  {
+   "hz": 261.6255653005986,
+   "node": "nope",
+   "port": "gain",
+   "expected": null
+  }
+ ]
+}

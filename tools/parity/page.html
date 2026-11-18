@@ -2,7 +2,8 @@
 <!-- Served temporarily from client/ by tools/parity/run.sh; compares live JS voices with the Rust renderer. -->
 <pre id="out">pending</pre>
 <script type="module">
-import { Master, noiseBuffer, startVoice } from '/js/voice.js';
+import { Master, midiHz, noiseBuffer, startVoice } from '/js/voice.js';
+import { notePlan, paramTarget } from '/js/fx.js';
 const out = [];
 const names = (await (await fetch('/_t/names.txt')).text()).trim().split('\n');
 const log = () => { document.getElementById('out').textContent = out.join('\n'); };
@@ -19,7 +20,16 @@ for (const entry of names) {
   const master = new Master(ctx, { bpm: 120, seed: 1 });
   const noise = new Map();
   for (const nd of inst.nodes) if (nd.type === 'noise') noise.set(nd.id, noiseBuffer(ctx, 1, 0, inst.id, nd.id, nd.color));
-  startVoice(ctx, master.bus(ctx, inst), inst, noise, 48, 100, 0).release(Number(gate));
+  // With effect cells the note goes through the plan like in the live player (one voice per segment); without, a plain voice.
+  const lane = orders.lanes[0];
+  if (lane.fx?.length) {
+    const hz = midiHz(48);
+    for (const seg of notePlan(lane.fx, 0, Math.round(Number(gate) / 0.125), 0.125, (node, port) => paramTarget(inst, hz, node, port))) {
+      startVoice(ctx, master.bus(ctx, inst), inst, noise, 48, 100, seg.start, seg).release(seg.end);
+    }
+  } else {
+    startVoice(ctx, master.bus(ctx, inst), inst, noise, 48, 100, 0).release(Number(gate));
+  }
   const buf = await ctx.startRendering();
   const mono = (get) => { const m = new Float32Array(n); for (let i = 0; i < n; i++) m[i] = (get(0, i) + get(1, i)) / 2; return m; };
   const R = mono((c, i) => ref[c][i]);

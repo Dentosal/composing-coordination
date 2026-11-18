@@ -382,6 +382,7 @@ export class Game {
       getOrders: () => this.orders, onChange: () => { this.touch(); this.pattern.syncHeads(); },
       onRename: () => this.pattern.syncHeads(),
       onMode: () => this.pattern.render(), // piano roll on/off changes how the roll draws the track
+      onFxChange: () => this.pattern.render(), // the instrument change dropped effect-cell entries for nodes it no longer has
       onDeleteTrack: this.unlimited ? (lane) => this.deleteTrack(lane) : null,
       canDeleteTrack: () => this.orders.lanes.length > 1,
     });

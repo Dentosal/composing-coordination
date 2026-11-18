@@ -318,6 +318,20 @@ input[type=range] { accent-color: var(--accent); }
 .fx-offsets { grid-column: 2 / 4; width: 100%; min-width: 0; font-family: var(--mono); }
 .fx-offsets.bad { outline: 2px solid var(--bad); }
 .fx-actions { display: flex; justify-content: flex-end; }
+/* Parameter rows: a menu, a slider with its value, a glide checkbox and a remove button. */
+.fx-params-field { display: grid; gap: 6px; font-size: .85rem; }
+.fx-params { display: grid; gap: 6px; }
+.fx-params:empty { display: none; }
+.fx-param { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
+.fx-param.bad { outline: 2px solid var(--bad); }
+.fx-param select { grid-column: 1; min-width: 0; }
+.fx-param-value { grid-column: 1; display: grid; grid-template-columns: 1fr 9ch; align-items: center; gap: 8px; }
+.fx-param-value input[type=range] { width: 100%; min-width: 0; padding: 0; }
+.fx-param-value output { font-family: var(--mono); text-align: right; white-space: nowrap; }
+.fx-glide { grid-column: 2; grid-row: 2; font-size: .8rem; }
+.fx-remove { grid-column: 2; grid-row: 1; padding: 0 8px; }
+.fx-params-add { display: flex; align-items: center; gap: 10px; }
+.fx-hint { margin: 0; font-size: .8rem; }
 /* The effect dialog (a placeholder for now): non-modal, floating above the footer so the roll stays usable. */
 .effect-dialog { position: fixed; inset: auto 24px 72px auto; margin: 0; z-index: 6; width: 300px; padding: 12px 14px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
 .effect-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; cursor: grab; user-select: none; touch-action: none; }

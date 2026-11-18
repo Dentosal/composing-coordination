@@ -6,6 +6,7 @@ import { icon } from './icons.js';
 import { helpButton } from './help.js';
 import { downloadText } from './download.js';
 import { routingDiagram } from './routing.js';
+import { pruneParams } from './automation.js';
 import { shapePlot } from './shapeplot.js';
 import { FILTER_MODES, SHAPES, WAVES, buildInstrument, usesFilter2, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
 
@@ -266,6 +267,7 @@ export class InstrumentPanel {
     if (!cur) return;
     const i = this.orders.instruments.indexOf(cur);
     this.orders.instruments[i] = { ...inst, id: cur.id, name };
+    if (pruneParams(this.orders)) this.o.onFxChange?.(); // effect cells must not automate a node the new instrument does not have
     this.o.onRename?.();
     this.o.onMode?.(); // a preset or file can switch the track between steps and piano roll
     this.o.onChange();
@@ -497,6 +499,7 @@ export class InstrumentPanel {
       syncShape();
       const prev = this.orders.instruments[idx()];
       this.orders.instruments[idx()] = buildInstrument(inst.id, patch, prev.name, prev.piano_roll === true);
+      if (pruneParams(this.orders)) this.o.onFxChange?.(); // e.g. filter 2 is not in the graph while unused: its effect-cell entries go with it
       hintLoad();
       routing.lastElementChild.replaceWith(routingDiagram(patch));
       this.highlight(this.hlKey, this.hlDiagramOnly);

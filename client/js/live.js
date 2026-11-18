@@ -3,8 +3,8 @@
 // to the patch are heard within one look-ahead window. Has the same transport surface as LoopPlayer
 // (play / stop / position / loopRegion / playing) so game.js can drive either.
 import { getBus, getCtx, unlock } from './audio.js';
-import { Master, noiseBuffer, startVoice } from './voice.js';
-import { notePlan } from './fx.js';
+import { Master, midiHz, noiseBuffer, startVoice } from './voice.js';
+import { notePlan, paramTarget } from './fx.js';
 
 const LOOK_AHEAD = 0.1; // seconds scheduled ahead
 const TICK_MS = 25;
@@ -118,7 +118,8 @@ export class LiveSequencer {
       const endRow = row < r.leRow ? Math.min(next, r.leRow) : next; // a looped slice cuts the note at its end
       // Effect cells can split the note into several voices (retrigger) and end it early (cut); each voice carries its
       // own volume / pitch automation.
-      for (const seg of notePlan(lane.fx, row, endRow, r.rowSecs)) {
+      const hz = midiHz(on.note);
+      for (const seg of notePlan(lane.fx, row, endRow, r.rowSecs, (node, port) => paramTarget(inst, hz, node, port))) {
         startVoice(ctx, r.master.bus(ctx, inst), inst, this.noiseFor(ctx, inst, seed), on.note, on.vel, t + seg.start, seg)
           .release(t + seg.end);
       }

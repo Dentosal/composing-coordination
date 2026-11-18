@@ -218,7 +218,7 @@ pub struct Lane {
 }
 
 /// One effect cell: it applies to the notes sounding during its row, nothing carries over to the next row.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(deny_unknown_fields)]
 pub struct FxStep {
     pub row: u32,
@@ -239,6 +239,41 @@ pub struct FxStep {
     /// Retrigger: the note restarts every this many ticks within the row (not at tick 0), 1..ARP_TICKS_PER_ROW.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retrig: Option<u32>,
+    /// Parameter automation, up to `MAX_FX_PARAMS` entries (one per node parameter): each sets a node's parameter for this
+    /// row, see `ParamSet`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<ParamSet>,
+}
+
+/// One automated parameter in an effect cell: the `port` (an AudioParam) of the instrument's `node` takes `value` during
+/// the cell's row, in the node's own units at middle C (so a filter cutoff, or a gain node with `key_track`, is scaled by
+/// the note's pitch like the node's own value is). Rows without an entry for the parameter use the node's own value again,
+/// immediately; the first row of the loop starts from it too. Envelopes and LFOs connected to the parameter still add on
+/// top. With `glide` the value is not set at once: it moves linearly (exponentially for frequencies) from what it was at
+/// the start of the row to `value` by the row's end.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ParamSet {
+    pub node: String,
+    pub port: String,
+    pub value: f32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub glide: bool,
+}
+
+pub const MAX_FX_PARAMS: usize = 3;
+
+/// The parameters an effect cell may automate and their value ranges: a gain node's `gain`, a filter's `freq` and `q`, and
+/// the `freq` of an oscillator with a `fixed_hz` (an LFO, a drum tone). The pitch of the other oscillators belongs to the
+/// slide and arpeggio effects, so their `freq` and `detune` are not available.
+pub fn automation_range(kind: &NodeKind, port: &str) -> Option<(f32, f32)> {
+    match (kind, port) {
+        (NodeKind::Gain { .. }, "gain") => Some((-50000.0, 50000.0)),
+        (NodeKind::Filter { .. }, "freq") => Some((20.0, 20000.0)),
+        (NodeKind::Filter { .. }, "q") => Some((0.0001, 30.0)),
+        (NodeKind::Osc { fixed_hz: Some(_), .. }, "freq") => Some((0.01, 20000.0)),
+        _ => None,
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -383,6 +418,7 @@ impl Orders {
                 err(p.clone(), "too many effect cells".into());
             }
             let mut rows = HashSet::new();
+            let inst = self.instruments.iter().find(|i| i.id == lane.instrument);
             for (j, f) in lane.fx.iter().enumerate() {
                 let fp = format!("{p}[{j}]");
                 if f.row >= limits.total_rows {
@@ -415,6 +451,24 @@ impl Orders {
                     }
                     if a.offsets.iter().any(|o| !(-48..=48).contains(o)) {
                         err(format!("{fp}.arp.offsets"), "offsets must be within -48..=48 semitones".into());
+                    }
+                }
+                if f.params.len() > MAX_FX_PARAMS {
+                    err(format!("{fp}.params"), format!("at most {MAX_FX_PARAMS} parameters per effect cell"));
+                }
+                let mut targets = HashSet::new();
+                for (k, ps) in f.params.iter().enumerate() {
+                    let pp = format!("{fp}.params[{k}]");
+                    if !targets.insert((ps.node.as_str(), ps.port.as_str())) {
+                        err(pp.clone(), format!("'{}'.{} is set twice in one cell", ps.node, ps.port));
+                    }
+                    let Some(node) = inst.and_then(|i| i.nodes.iter().find(|n| n.id == ps.node)) else {
+                        err(format!("{pp}.node"), format!("the instrument has no node '{}'", ps.node));
+                        continue;
+                    };
+                    match automation_range(&node.kind, &ps.port) {
+                        Some((lo, hi)) => range(ps.value, lo, hi, &format!("{pp}.value"), &mut err),
+                        None => err(format!("{pp}.port"), format!("'{}'.{} cannot be automated", ps.node, ps.port)),
                     }
                 }
             }
@@ -619,8 +673,8 @@ mod tests {
         let mut o: Orders = serde_json::from_str(GOOD).unwrap();
         o.lanes[0].steps = vec![Step { row: 3, note: Some(60), vel: 100 }, Step { row: 40, note: None, vel: 100 }];
         o.lanes[0].fx = vec![
-            FxStep { row: 5, volume: Some(0.5), arp: None, slide: None, cut: None, retrig: None },
-            FxStep { row: 41, volume: Some(0.5), arp: None, slide: None, cut: None, retrig: None },
+            FxStep { row: 5, volume: Some(0.5), arp: None, slide: None, cut: None, retrig: None, params: vec![] },
+            FxStep { row: 41, volume: Some(0.5), arp: None, slide: None, cut: None, retrig: None, params: vec![] },
         ];
         o.truncate_rows(32);
         assert_eq!(o.lanes[0].steps.iter().map(|s| s.row).collect::<Vec<_>>(), vec![3]);
@@ -631,13 +685,13 @@ mod tests {
     fn effect_cells_are_validated() {
         let mut o: Orders = serde_json::from_str(GOOD).unwrap();
         o.lanes[0].fx = vec![
-            FxStep { row: 3, volume: Some(0.5), arp: None, slide: Some(-3), cut: Some(2), retrig: Some(2) },
-            FxStep { row: 4, volume: None, arp: Some(Arp { offsets: vec![0, 4, 7] }), slide: None, cut: None, retrig: None },
+            FxStep { row: 3, volume: Some(0.5), arp: None, slide: Some(-3), cut: Some(2), retrig: Some(2), params: vec![] },
+            FxStep { row: 4, volume: None, arp: Some(Arp { offsets: vec![0, 4, 7] }), slide: None, cut: None, retrig: None, params: vec![] },
         ];
         assert!(o.validate(&limits()).is_empty());
         let again: Orders = serde_json::from_str(&serde_json::to_string(&o).unwrap()).unwrap();
         assert_eq!(again.lanes[0].fx.len(), 2);
-        let fx = |row: u32| FxStep { row, volume: None, arp: None, slide: None, cut: None, retrig: None };
+        let fx = |row: u32| FxStep { row, volume: None, arp: None, slide: None, cut: None, retrig: None, params: vec![] };
         let bad = |f: FxStep| {
             let mut o: Orders = serde_json::from_str(GOOD).unwrap();
             o.lanes[0].fx = vec![f];
@@ -655,6 +709,39 @@ mod tests {
         assert!(serde_json::from_str::<Arp>(r#"{"offsets":[0],"ticks":4}"#).is_err(), "the tick count is fixed, not a setting");
         o.lanes[0].fx.push(FxStep { volume: Some(0.2), ..fx(3) });
         assert!(o.validate(&limits()).iter().any(|e| e.message.contains("duplicate effect cell")));
+    }
+
+    #[test]
+    fn parameter_automation_cells_are_validated() {
+        let json = r#"{"instruments":[{"id":"b","nodes":[
+            {"id":"o","type":"osc","wave":"sine"},{"id":"lfo","type":"osc","wave":"sine","fixed_hz":5},
+            {"id":"f","type":"filter","mode":"lowpass","freq":800,"q":1,"key_track":0.5},
+            {"id":"g","type":"gain","gain":1},{"id":"out","type":"out"}],
+            "edges":[{"from":"o","to":"f"},{"from":"f","to":"g"},{"from":"g","to":"out"}]}],
+            "lanes":[{"instrument":"b","steps":[{"row":0,"note":60}]}]}"#;
+        let check = |params: Vec<ParamSet>| {
+            let mut o: Orders = serde_json::from_str(json).unwrap();
+            o.lanes[0].fx = vec![FxStep { row: 1, params, ..Default::default() }];
+            o.validate(&limits())
+        };
+        let ps = |node: &str, port: &str, value: f32| ParamSet { node: node.into(), port: port.into(), value, glide: false };
+        assert!(check(vec![ps("f", "freq", 1200.0), ps("f", "q", 4.0), ps("g", "gain", 0.5)]).is_empty());
+        assert!(check(vec![ParamSet { glide: true, ..ps("lfo", "freq", 7.0) }]).is_empty(), "a fixed-pitch oscillator's frequency");
+        assert!(!check(vec![ps("nope", "freq", 1000.0)]).is_empty(), "unknown node");
+        assert!(!check(vec![ps("o", "freq", 440.0)]).is_empty(), "the pitch of an ordinary oscillator belongs to slide and arpeggio");
+        assert!(!check(vec![ps("o", "detune", 10.0)]).is_empty(), "detune of an ordinary oscillator");
+        assert!(!check(vec![ps("f", "detune", 10.0)]).is_empty(), "a filter's detune is not offered");
+        assert!(!check(vec![ps("out", "gain", 1.0)]).is_empty(), "a node without parameters");
+        assert!(!check(vec![ps("f", "freq", 5.0)]).is_empty(), "cutoff below its range");
+        assert!(!check(vec![ps("f", "q", 100.0)]).is_empty(), "resonance above its range");
+        assert!(!check(vec![ps("f", "freq", 1000.0), ps("f", "freq", 2000.0)]).is_empty(), "the same parameter twice in a cell");
+        assert!(check(vec![ps("f", "freq", 1000.0), ps("f", "q", 2.0), ps("g", "gain", 1.0), ps("lfo", "freq", 5.0)])
+            .iter().any(|e| e.message.contains("at most 3")), "more than three entries");
+        // The wire format: defaults are left out, and an unknown field is refused.
+        let cell = FxStep { row: 1, params: vec![ps("f", "freq", 1200.0)], ..Default::default() };
+        assert_eq!(serde_json::to_string(&cell).unwrap(), r#"{"row":1,"params":[{"node":"f","port":"freq","value":1200.0}]}"#);
+        assert!(serde_json::from_str::<ParamSet>(r#"{"node":"f","port":"freq","value":1,"curve":"log"}"#).is_err());
+        assert!(!serde_json::to_string(&FxStep { row: 2, volume: Some(0.5), ..Default::default() }).unwrap().contains("params"));
     }
 
     #[test]

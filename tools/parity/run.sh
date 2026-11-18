@@ -27,6 +27,21 @@ json.dump(o, open(sys.argv[2], 'w'))
 PY
 "$ROOT/server/target/release/render" "$TMP/pad_short.json" "$TMP/pad_short.wav" --bpm 120 --bars 1 --rows-per-bar 16 --seed 1 --raw >/dev/null
 echo "pad_short:0.25" >> "$TMP/names.txt"
+# Parameter automation in effect cells (rows are 0.125 s here): a cutoff held on two rows, a cutoff glide, a resonance glide and an
+# LFO-rate entry, on the lead preset (its graph has the filter `lp` and the LFO `lfo`). The browser plays the same plan.
+python3.14 - "$TMP/lead.json" "$TMP/auto.json" <<'PY'
+import json, sys
+o = json.load(open(sys.argv[1]))
+ps = lambda node, port, value, glide=False: {k: v for k, v in {'node': node, 'port': port, 'value': value, 'glide': glide or None}.items() if v is not None}
+o['lanes'][0]['fx'] = [
+    {'row': 1, 'params': [ps('lp', 'freq', 500)]}, {'row': 2, 'params': [ps('lp', 'freq', 500)]},
+    {'row': 4, 'params': [ps('lp', 'freq', 6000, True), ps('lfo', 'freq', 14, True)]},
+    {'row': 5, 'params': [ps('lp', 'q', 9, True)]},
+]
+json.dump(o, open(sys.argv[2], 'w'))
+PY
+"$ROOT/server/target/release/render" "$TMP/auto.json" "$TMP/auto.wav" --bpm 120 --bars 1 --rows-per-bar 16 --seed 1 --raw >/dev/null
+echo "auto:1" >> "$TMP/names.txt"
 cp "$ROOT/tools/parity/page.html" "$ROOT/client/_parity.html"
 (cd "$ROOT/client" && python3.14 -m http.server 8765 >/dev/null 2>&1) & PID=$!
 sleep 1

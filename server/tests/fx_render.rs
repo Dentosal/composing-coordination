@@ -17,7 +17,7 @@ fn organ() -> Instrument {
 }
 
 fn fx_cell(row: u32, volume: Option<f32>, arp: Option<Vec<i32>>) -> FxStep {
-    FxStep { row, volume, arp: arp.map(|offsets| Arp { offsets }), slide: None, cut: None, retrig: None }
+    FxStep { row, volume, arp: arp.map(|offsets| Arp { offsets }), slide: None, cut: None, retrig: None, params: vec![] }
 }
 
 fn render_with(fx: Vec<FxStep>) -> Vec<f32> {
