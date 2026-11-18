@@ -685,7 +685,9 @@ export class InstrumentPanel {
     syncLayout();
     // Linked to the diagram's sum node (Σ), where the signal paths the Routing box sets up come together.
     const routingBox = node('sum', module(null,
-      h('div.mod-head', h('h4', 'Routing'), h('div.tog-group', modeBtn, posBtn)),
+      h('div.mod-head', h('h4', 'Routing'), h('div.tog-group',
+        h('span.tog-pair', h('span.tog-label', { title: 'Filters: how the two filters are connected' }, 'F:'), modeBtn),
+        h('span.tog-pair', h('span.tog-label', { title: 'Waveshaper: which filters it follows' }, 'S:'), posBtn))),
       oscRoutes));
 
     // Two filters in tabs, each with its own envelope. Sources choose which one they go through (or none).

@@ -184,8 +184,6 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 /* The oscillators' routing: a row of tri-state buttons (bypass / filter 1 / filter 2). */
 .tri-group { grid-column: 2 / 4; display: flex; gap: 3px; }
 .tri { flex: 1; min-width: 0; padding: 2px 0; font-size: .72rem; font-weight: 600; white-space: nowrap; background: transparent; color: var(--muted); }
-.tri[data-state="1"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.tri[data-state="2"] { color: var(--accent); border-color: var(--accent); }
 .tri.off { opacity: .45; }
 /* Noise header: the colour menu and the noise's tri-state button side by side, at the right. */
 .head-group { margin-left: auto; display: flex; align-items: center; gap: 4px; }
@@ -221,10 +219,11 @@ input[type=range] { accent-color: var(--accent); }
 .mod-head { display: flex; align-items: center; gap: 10px; }
 .mod-head h4 { margin: 0; }
 .head-select { margin-left: auto; min-width: 0; max-width: 60%; font-size: .85rem; } /* a dropdown in a module's header row */
-.tog-group { margin-left: auto; display: flex; gap: 4px; }
-/* A two-state toggle button showing its current state; the accent marks the less usual one (serial, one). */
+.tog-group { margin-left: auto; display: flex; gap: 8px; }
+.tog-pair { display: inline-flex; align-items: center; gap: 3px; }
+.tog-label { font-size: .65rem; font-weight: 600; letter-spacing: .04em; color: var(--muted); cursor: default; } /* F: (filters) and S: (shaper) */
+/* A two-state toggle button showing its current state (by its label only: the colour does not change). */
 .tog { min-width: 0; padding: 2px 8px; font-size: .72rem; font-weight: 600; white-space: nowrap; background: transparent; color: var(--muted); }
-.tog[data-on="1"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .osc-tabs { display: flex; gap: 4px; margin-left: auto; }
 .osc-tab { min-width: 28px; padding: 2px 8px; font-weight: 600; }
 .osc-tab.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
