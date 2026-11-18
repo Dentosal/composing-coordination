@@ -6,7 +6,8 @@ import { icon } from './icons.js';
 import { helpButton } from './help.js';
 import { downloadText } from './download.js';
 import { routingDiagram } from './routing.js';
-import { FILTER_MODES, FILTER_ROUTINGS, WAVES, buildInstrument, usesFilter2, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
+import { shapePlot } from './shapeplot.js';
+import { FILTER_MODES, FILTER_ROUTINGS, SHAPES, WAVES, buildInstrument, usesFilter2, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
 
 let presetCache = null;
 
@@ -422,9 +423,11 @@ export class InstrumentPanel {
     const routing = this.section('routing', 'Signal routing', 'routingOpen', routingDiagram(patch));
     let syncFm = () => {}; // refreshes the FM box (ratio helper, dimming) after any patch edit; set below
     let syncFilterTabs = () => {}; // dims the filter tab nothing is routed to; set below
+    let syncShape = () => {}; // redraws the waveshaper plot; set below
     const change = () => {
       syncFm();
       syncFilterTabs();
+      syncShape();
       const prev = this.orders.instruments[idx()];
       this.orders.instruments[idx()] = buildInstrument(inst.id, patch, prev.name, prev.piano_roll === true);
       hintLoad();
@@ -515,8 +518,7 @@ export class InstrumentPanel {
       },
     });
     const fmBox = node('fm', h('div.fm-sec',
-      h('h5.sub', 'FM'),
-      check('osc 2 → osc 1', () => fm.on, (on) => { fm.on = on; change(); }),
+      h('div.fm-head', h('h5.sub', 'FM'), check('osc 2 → osc 1', () => fm.on, (on) => { fm.on = on; change(); })),
       knob('depth', fm, 'depth', { min: 0, max: 10, step: 0.05 }, change),
       h('label.knob', h('span', 'ratio'), ratioSelect)));
     syncFm = () => {
@@ -532,6 +534,31 @@ export class InstrumentPanel {
       fmBox.classList.toggle('off', !fm.on);
     };
     syncFm();
+
+    // Waveshaper: drive (0 = off), the curve, and the curve's own second setting (shown only for shapes that have one).
+    const shapeParam = h('div.shape-param');
+    const renderShapeParam = () => {
+      const def = SHAPES.find((sh) => sh.id === patch.shape)?.param;
+      shapeParam.replaceChildren(...(def ? [knob(def.label, patch, 'shapeParam', def, change)] : []));
+    };
+    renderShapeParam();
+    const plot = shapePlot();
+    syncShape = () => plot.update(patch);
+    syncShape();
+    const shaperBox = node('drive', h('div.shaper-sec',
+      knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change),
+      h('label.knob', h('span', 'shape'),
+        h('select', {
+          title: 'The distortion curve',
+          onchange: (e) => {
+            patch.shape = e.target.value;
+            patch.shapeParam = SHAPES.find((sh) => sh.id === patch.shape).param?.def ?? patch.shapeParam;
+            renderShapeParam();
+            change();
+          },
+        }, SHAPES.map((sh) => h('option', { value: sh.id, selected: sh.id === patch.shape }, sh.label)))),
+      shapeParam,
+      plot.el));
 
     // Two filters in tabs, each with its own envelope. Sources choose which one they go through (or none).
     const filterRow = (fk, ek, n) => node(n === 1 ? 'filter' : 'filter2', h('div.filt',
@@ -580,7 +607,8 @@ export class InstrumentPanel {
               select('color', noise, 'color', ['white', 'pink'], change),
               knob('level', noise, 'level', { min: 0, max: 1 }, change),
               routeSelect(noise, change)))),
-          module(null, fmBox)),
+          module(null, fmBox),
+          module('Waveshaper', shaperBox)),
         target(module(null,
           h('div.mod-head', h('h4', 'Oscillators'), h('div.osc-tabs', oscTabs)),
           oscRows,
@@ -588,11 +616,13 @@ export class InstrumentPanel {
         target(module(null,
           h('div.mod-head', h('h4', 'Filter'), h('div.seg', routingBtns), h('div.osc-tabs', filterTabs)),
           filterRows), 'cutoff'),
-        target(node('amp', module('Amplifier + FX',
-          knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
-          knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change),
-          node('drive', knob('drive', patch, 'drive', { min: 0, max: 20, step: 0.5 }, change)),
-          envelope('aenv', 'Amp envelope', patch.aenv, { label: 'level', obj: patch, key: 'gain', min: 0, max: 1 }))), 'amp')),
+        // Right-hand column: effect sends, then the amplifier (the part the LFO's volume depth modulates) at the bottom.
+        h('div.col-stack.sink',
+          node('amp', module('Effects',
+            knob('delay', patch, 'send_delay', { min: 0, max: 1 }, change),
+            knob('reverb', patch, 'send_reverb', { min: 0, max: 1 }, change))),
+          target(node('amp', module(null,
+            envelope('aenv', 'Amplifier envelope', patch.aenv, { label: 'level', obj: patch, key: 'gain', min: 0, max: 1 }))), 'amp'))),
       lfoRow));
     patchEl = h('div.patch', head, this.auditionBar(inst, [this.detailsToggle(nodes, 'Patch'), this.detailsToggle(routing, 'Signal routing')]), nodes, routing);
     syncLfo();
@@ -622,7 +652,7 @@ function patchHelp() {
     h('h3', 'Filter and drive'),
     h('ul',
       h('li', h('strong', 'Filter'), ': removes frequencies. Cutoff sets where, resonance emphasises that spot, and key track makes higher notes open the filter more. There are two filters (tabs 1 and 2), each with its own envelope; a source goes through one of them, so they work side by side (parallel), or filter 1 feeds filter 2 (serial: "filter 1" then runs on through filter 2, and "filter 2" enters at the second filter). The LFO cutoff depth moves both. The second filter is only active while a source is routed to it.'),
-      h('li', h('strong', 'Drive'), ': distortion after the filters (in the Amplifier box) that makes the sound thicker and louder.')),
+      h('li', h('strong', 'Drive'), ': distortion after the filters (in the Amplifier box) that makes the sound thicker and louder. 0 switches it off. Shape picks the kind: soft clip (smooth), hard clip (harsh), foldback (the peaks bounce back: metallic), asymmetric (even harmonics: warm) and bitcrush (few amplitude steps; "bits" sets how many). Quiet sounds are crushed harder, so raise the drive to bring the level into the crusher.')),
     h('h3', 'Envelopes'),
     h('ul',
       h('li', 'Each envelope has Attack, Decay, Sustain and Release: how fast the sound rises, falls to its held level, and fades when the note ends.'),

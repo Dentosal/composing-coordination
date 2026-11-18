@@ -92,6 +92,33 @@ fn is_zero(v: &f32) -> bool {
     *v == 0.0
 }
 
+/// Waveshaper curves. `soft` is a tanh clip, `hard` a flat clip, `fold` reflects the signal back at the rails,
+/// `asym` is a biased tanh (even harmonics), `crush` quantises to a number of bits.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ShaperShape {
+    #[default]
+    Soft,
+    Hard,
+    Fold,
+    Asym,
+    Crush,
+}
+
+impl ShaperShape {
+    pub fn is_soft(&self) -> bool {
+        *self == ShaperShape::Soft
+    }
+
+    /// The second setting's value when the node has none.
+    pub fn default_param(self) -> f32 {
+        match self {
+            ShaperShape::Crush => 8.0,
+            _ => 0.5,
+        }
+    }
+}
+
 pub const MAX_UNISON: u8 = 7;
 pub const MAX_SPREAD_CENTS: f32 = 100.0;
 
@@ -157,8 +184,15 @@ pub enum NodeKind {
         release: f32,
         amount: f32,
     },
-    /// WaveShaperNode with a tanh curve. `drive` 0.1..=50.
-    Shaper { drive: f32 },
+    /// WaveShaperNode with a curve chosen by `shape` (default `soft`). `drive` 0.1..=50 is the gain into the curve.
+    /// `param` is the shape's second setting (omitted = its default): `asym` asymmetry 0..=1, `crush` bits 1..=12.
+    Shaper {
+        drive: f32,
+        #[serde(default, skip_serializing_if = "ShaperShape::is_soft")]
+        shape: ShaperShape,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        param: Option<f32>,
+    },
     /// Voice output (exactly one per instrument). A GainNode scaled by note velocity.
     Out {},
 }
@@ -454,7 +488,16 @@ fn validate_instrument(inst: &Instrument, p: &str, err: &mut impl FnMut(String, 
                 range(*release, 0.0, 5.0, &format!("{np}.release"), err);
                 range(*amount, -20000.0, 20000.0, &format!("{np}.amount"), err);
             }
-            NodeKind::Shaper { drive } => range(*drive, 0.1, 50.0, &format!("{np}.drive"), err),
+            NodeKind::Shaper { drive, shape, param } => {
+                range(*drive, 0.1, 50.0, &format!("{np}.drive"), err);
+                if let Some(v) = param {
+                    let (lo, hi) = match shape {
+                        ShaperShape::Crush => (1.0, 12.0),
+                        _ => (0.0, 1.0),
+                    };
+                    range(*v, lo, hi, &format!("{np}.param"), err);
+                }
+            }
             NodeKind::Out {} => outs += 1,
         }
     }

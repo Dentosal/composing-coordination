@@ -8,7 +8,7 @@
 //   The LFO's cutoff depth moves both filters; filter 2 and its envelope exist only while a source is routed to it.
 //
 // Every module always exists, so switching things on and off never loses settings: a silent oscillator
-// is level 0, an unused modulation is amount 0. The exceptions are drive (0 omits the shaper), FM and filter 2: they are
+// is level 0, an unused modulation is amount 0. The exceptions are the waveshaper, FM and filter 2: they are
 // left out of the graph while they are off / unused and still at their default settings, so that graphs built before they
 // existed are still recognised. Once their settings are changed they stay in the graph (FM unwired, filter 2 silent) so a
 // reload keeps them.
@@ -17,6 +17,15 @@ export const OSC_COUNT = 3;
 export const WAVES = ['sine', 'triangle', 'sawtooth', 'square'];
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass', 'notch'];
 export const MIDDLE_C_HZ = 261.6255653005986; // as in the renderers: FM depth is stored as a gain in Hz at middle C
+/** Waveshaper shapes. `param` is the shape's second setting (the node's `param`), with its slider range and default. */
+export const SHAPES = [
+  { id: 'soft', label: 'soft clip' },
+  { id: 'hard', label: 'hard clip' },
+  { id: 'fold', label: 'foldback' },
+  { id: 'asym', label: 'asymmetric', param: { label: 'asymmetry', min: 0, max: 1, step: 0.01, def: 0.5 } },
+  { id: 'crush', label: 'bitcrush', param: { label: 'bits', min: 1, max: 12, step: 0.5, def: 8, unit: ' bit' } },
+];
+const shapeOf = (id) => SHAPES.find((sh) => sh.id === id);
 export const FILTER_ROUTINGS = ['parallel', 'serial'];
 export const MIN_DRIVE = 0.1; // server minimum for a shaper node
 
@@ -34,7 +43,9 @@ export function defaultPatch() {
     filter: { mode: 'lowpass', freq: 2000, q: 1, key_track: 0.5 },
     filterMode: 'parallel', // or 'serial'
     filter2: { mode: 'lowpass', freq: 2000, q: 1, key_track: 0.5 },
-    drive: 0,
+    drive: 0, // gain into the waveshaper; 0 switches it off
+    shape: 'soft',
+    shapeParam: 0.5, // the shape's second setting (asymmetry, bits); ignored by shapes without one
     fm: { on: false, depth: 1 }, // osc 2 frequency-modulates osc 1; depth is the modulation index (peak deviation / modulator frequency)
     aenv: { attack: 0.005, decay: 0.2, sustain: 0.7, release: 0.1 },
     fenv: { attack: 0.005, decay: 0.25, sustain: 0.3, release: 0.1, amount: 0 }, // amount in Hz
@@ -112,10 +123,16 @@ export function buildInstrument(id, p, name, pianoRoll = false) {
   }
 
   let tail = 'bus';
-  if (p.drive > 0) {
-    nodes.push({ id: 'drv', type: 'shaper', drive: Math.max(MIN_DRIVE, p.drive) });
-    edge('bus', 'drv');
-    tail = 'drv';
+  // The shaper is left out while it is off and still soft; a changed shape stays in the graph (unwired) so a reload keeps it.
+  if (p.drive > 0 || p.shape !== 'soft') {
+    const drv = { id: 'drv', type: 'shaper', drive: Math.fround(Math.max(MIN_DRIVE, p.drive)) }; // 32-bit exact (0.1 is not), as the server stores it
+    if (p.shape !== 'soft') drv.shape = p.shape;
+    if (shapeOf(p.shape)?.param) drv.param = Math.fround(p.shapeParam); // 32-bit exact, as the server stores it
+    nodes.push(drv);
+    if (p.drive > 0) {
+      edge('bus', 'drv');
+      tail = 'drv';
+    }
   }
   nodes.push(gainNode('vca', 0), env('aenv', p.aenv, 1), env('fenv', p.fenv, p.fenv.amount), env('penv', p.penv, p.penv.amount));
   edge(tail, 'vca');
@@ -191,7 +208,14 @@ export function parseInstrument(inst) {
       p.filter2 = { mode: lp2.mode, freq: lp2.freq, q: lp2.q, key_track: lp2.key_track ?? 0 };
       p.fenv2 = { ...envOf('fenv2'), amount: by.get('fenv2').amount };
     }
-    p.drive = by.has('drv') ? need('drv', 'shaper').drive : 0;
+    if (by.has('drv')) {
+      const drv = need('drv', 'shaper');
+      p.shape = drv.shape ?? 'soft';
+      p.shapeParam = drv.param != null ? Number(drv.param.toFixed(4)) : shapeOf(p.shape)?.param?.def ?? p.shapeParam; // 4 places: the server stores 32-bit floats
+      p.drive = routedTo('bus', 'drv') ? drv.drive : 0;
+    } else {
+      p.drive = 0;
+    }
     if (by.has('fm')) p.fm = { on: routedTo('o2', 'fm'), depth: Number((need('fm', 'gain').gain / fmBase(p.osc[1])).toFixed(4)) };
     p.aenv = envOf('aenv');
     p.fenv = { ...envOf('fenv'), amount: by.get('fenv').amount };
@@ -231,6 +255,7 @@ const allNum = (o, keys) => keys.every((k) => isNum(o?.[k]));
 /** A message describing the first thing wrong with a parsed patch, or null. Ranges are left to the server. */
 export function validatePatch(p) {
   if (!allNum(p, ['gain', 'send_delay', 'send_reverb', 'drive'])) return 'output levels must be numbers';
+  if (!shapeOf(p.shape) || !isNum(p.shapeParam)) return 'invalid waveshaper settings';
   if (typeof p.fm?.on !== 'boolean' || !isNum(p.fm.depth)) return 'invalid FM settings';
   for (const o of p.osc) {
     if (!WAVES.includes(o.wave)) return `unknown oscillator wave "${o.wave}"`;

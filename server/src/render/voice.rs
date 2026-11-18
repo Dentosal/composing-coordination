@@ -2,7 +2,7 @@
 
 use super::master::Master;
 use super::{gain, RenderConfig, SeatPart, SAMPLE_RATE, SEAT_GAIN};
-use crate::orders::{unison_offsets, Edge, FilterMode, FxStep, Instrument, Lane, NodeKind, NoiseColor, Wave, ARP_TICKS_PER_ROW};
+use crate::orders::{unison_offsets, ShaperShape, Edge, FilterMode, FxStep, Instrument, Lane, NodeKind, NoiseColor, Wave, ARP_TICKS_PER_ROW};
 use crate::prng::Mulberry32;
 use std::collections::HashMap;
 use web_audio_api::context::{BaseAudioContext, OfflineAudioContext};
@@ -160,13 +160,42 @@ fn noise_buffer(cfg: &RenderConfig, seat_index: u32, inst: &str, node: &str, col
     AudioBuffer::from(vec![d], SAMPLE_RATE)
 }
 
-fn shaper_curve(drive: f32) -> Vec<f32> {
-    let drive = drive as f64;
-    let norm = drive.tanh();
+/// One point of a waveshaper curve: `x` in -1..=1 in, the shaped value out. `drive` is the gain into the curve, `param`
+/// the shape's second setting. Everything is f64 and the rounding is explicit (floor), so the browser gets the same table.
+/// Must stay identical to `shapeValue` in client/js/voice.js (checked against server/tests/fixtures/shaper.json).
+pub fn shape_value(shape: ShaperShape, drive: f64, param: f64, x: f64) -> f64 {
+    let u = drive * x;
+    match shape {
+        // tanh, scaled so that x = 1 comes out as 1 whatever the drive
+        ShaperShape::Soft => u.tanh() / drive.tanh(),
+        // flat clip at +-1 (scaled the same way for drives below 1, where nothing clips)
+        ShaperShape::Hard => u.clamp(-1.0, 1.0) / drive.min(1.0),
+        // reflect at the rails: a triangle fold, identity for |u| <= 1
+        ShaperShape::Fold => {
+            let t = (u + 1.0).rem_euclid(4.0);
+            if t < 2.0 { t - 1.0 } else { 3.0 - t }
+        }
+        // tanh around a bias (the param, 0..1): the two halves clip differently, which adds even harmonics.
+        // The bias is taken out at x = 0 so silence stays silent; scaled so the larger half peaks at 1.
+        ShaperShape::Asym => {
+            let b = param;
+            let norm = ((drive + b).tanh() - b.tanh()).max(b.tanh() - (b - drive).tanh());
+            ((u + b).tanh() - b.tanh()) / norm
+        }
+        // round to a grid of 2^(bits-1) steps per unit (a mid-tread quantiser: zero stays zero)
+        ShaperShape::Crush => {
+            let k = 2f64.powf(param - 1.0);
+            ((u.clamp(-1.0, 1.0) * k + 0.5).floor() / k).clamp(-1.0, 1.0)
+        }
+    }
+}
+
+pub fn shaper_curve(shape: ShaperShape, drive: f32, param: Option<f32>) -> Vec<f32> {
+    let param = param.unwrap_or(shape.default_param()) as f64;
     (0..SHAPER_CURVE_LEN)
         .map(|i| {
             let x = 2.0 * i as f64 / (SHAPER_CURVE_LEN - 1) as f64 - 1.0;
-            ((drive * x).tanh() / norm) as f32
+            shape_value(shape, drive as f64, param, x) as f32
         })
         .collect()
 }
@@ -434,9 +463,9 @@ fn build_voice(
                 c.stop_at(t_stop);
                 VNode::Env(c)
             }
-            NodeKind::Shaper { drive } => {
+            NodeKind::Shaper { drive, shape, param } => {
                 let mut w = ctx.create_wave_shaper();
-                w.set_curve(shaper_curve(*drive));
+                w.set_curve(shaper_curve(*shape, *drive, *param));
                 VNode::Shaper(w)
             }
             NodeKind::Out {} => {

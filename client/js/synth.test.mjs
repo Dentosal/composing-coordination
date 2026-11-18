@@ -269,3 +269,58 @@ test('FM depth is kept while FM is off, but only once it differs from the defaul
   off.fm.on = true;
   assert.deepEqual(parseInstrument(buildInstrument('x', off)), off);
 });
+
+test('waveshaper: soft stays the old graph; shape and second setting round-trip; a changed shape is kept while drive is 0', () => {
+  const p = defaultPatch();
+  p.drive = 4;
+  const soft = buildInstrument('x', p).nodes.find((n) => n.id === 'drv');
+  assert.deepEqual(soft, { id: 'drv', type: 'shaper', drive: 4 }); // exactly as before shapes existed
+
+  for (const [shape, param] of [['hard', 0.5], ['fold', 0.5], ['asym', 0.37], ['crush', 5.5]]) {
+    const q = defaultPatch();
+    q.drive = 3;
+    q.shape = shape;
+    q.shapeParam = param;
+    const inst = buildInstrument('x', q);
+    const drv = inst.nodes.find((n) => n.id === 'drv');
+    assert.equal(drv.shape, shape);
+    assert.equal(drv.param !== undefined, shape === 'asym' || shape === 'crush');
+    assert.deepEqual(parseInstrument(inst), q, shape);
+    // drive 0: the shaper stays (unwired) so the choice survives a reload
+    q.drive = 0;
+    const off = buildInstrument('x', q);
+    assert.equal(off.edges.some((e) => e.to === 'drv' || e.from === 'drv'), false);
+    assert.deepEqual(parseInstrument(off), q, `${shape} off`);
+    // what the server stores: every number as a 32-bit float
+    const stored = { ...off, nodes: off.nodes.map((n) => (n.type === 'shaper' ? { ...n, drive: Math.fround(n.drive), ...(n.param !== undefined ? { param: Math.fround(n.param) } : {}) } : n)) };
+    assert.deepEqual(parseInstrument(stored), q, `${shape} off, after the server's 32-bit storage`);
+  }
+  const plain = defaultPatch();
+  assert.equal(buildInstrument('x', plain).nodes.some((n) => n.id === 'drv'), false);
+});
+
+test('waveshaper curves: soft is unchanged; the shapes have their defining properties', async () => {
+  const { shapeValue, shaperCurve } = await import('./voice.js');
+  const f = (shape, drive, param, x) => shapeValue(shape, drive, param, x);
+  // soft: the tanh curve normalised so x = 1 gives 1
+  assert.ok(Math.abs(f('soft', 4, 0.5, 1) - 1) < 1e-12);
+  assert.ok(Math.abs(f('soft', 4, 0.5, 0.25) - Math.tanh(1) / Math.tanh(4)) < 1e-12);
+  // every shape leaves silence silent and keeps a full-scale input within +-1
+  for (const shape of ['soft', 'hard', 'fold', 'asym', 'crush']) {
+    assert.ok(Math.abs(f(shape, 3, 0.5, 0)) < 1e-12, `${shape} at 0`);
+    for (const x of [-1, -0.7, 0.3, 1]) assert.ok(Math.abs(f(shape, 3, 0.5, x)) <= 1 + 1e-12, `${shape} at ${x}`);
+  }
+  // hard: flat above the rail, and unchanged for a drive of 1
+  assert.equal(f('hard', 4, 0.5, 0.5), 1);
+  assert.ok(Math.abs(f('hard', 1, 0.5, 0.4) - 0.4) < 1e-12);
+  // fold: identity at drive 1, and the peak comes back down (u = 1.5 reflects to 0.5)
+  assert.ok(Math.abs(f('fold', 1, 0.5, 0.6) - 0.6) < 1e-12);
+  assert.ok(Math.abs(f('fold', 1.5, 0.5, 1) - 0.5) < 1e-12);
+  // asymmetric: parameter 0 is the soft curve; otherwise the two halves differ
+  assert.ok(Math.abs(f('asym', 4, 0, 0.3) - f('soft', 4, 0, 0.3)) < 1e-12);
+  assert.ok(Math.abs(f('asym', 4, 0.5, 0.6) + f('asym', 4, 0.5, -0.6)) > 0.05);
+  // crush: at 3 bits the output sits on a grid of 4 steps per unit
+  const levels = new Set(Array.from({ length: 201 }, (_, i) => f('crush', 1, 3, i / 100 - 1)));
+  assert.deepEqual([...levels].sort((a, b) => a - b), [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1]);
+  assert.equal(shaperCurve(4, 'crush', 3).length, 2048);
+});

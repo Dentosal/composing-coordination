@@ -117,9 +117,21 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .filt { display: flex; flex-direction: column; gap: 4px; flex: 1; } /* one filter's controls; its envelope sits at the bottom, level with the other columns' */
 .filt[hidden] { display: none; }
 .filt .env-sec { margin-top: auto; }
-.col-stack { display: grid; gap: 12px; align-content: start; } /* two modules sharing one column */
-.fm-sec { display: grid; gap: 4px; }
+.col-stack { display: grid; gap: 12px; align-content: start; } /* modules sharing one column */
+.col-stack.sink { display: flex; flex-direction: column; } /* the last module sinks to the bottom, level with the other columns' envelopes */
+.col-stack.sink > :last-child { margin-top: auto; }
+.fm-sec, .shaper-sec { display: grid; gap: 4px; }
+.shape-param:empty { display: none; }
 .fm-sec.off .knob { opacity: .5; }
+.fm-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.module .fm-head > h5.sub { margin: 0; border-top: 0; }
+/* The waveshaper's transfer-curve plot (see shapeplot.js). */
+.shape-plot { width: 92px; height: 92px; justify-self: center; margin-top: 6px; }
+.shape-plot .sp-frame { fill: var(--panel); stroke: var(--line); stroke-width: .02; }
+.shape-plot .sp-axis { stroke: var(--line); stroke-width: .015; }
+.shape-plot .sp-identity { stroke: var(--muted); stroke-width: .015; stroke-dasharray: .06 .06; opacity: .6; }
+.shape-plot .sp-curve { stroke: var(--accent); stroke-width: .045; stroke-linejoin: round; stroke-linecap: round; }
+.shape-plot.off .sp-curve { opacity: .3; }
 .module { background: var(--panel2); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; }
 .module h4 { margin: 0 0 4px; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .knob { display: grid; grid-template-columns: 74px 1fr 76px; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }

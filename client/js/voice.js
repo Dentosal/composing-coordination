@@ -128,10 +128,37 @@ export function noiseBuffer(ctx, seed, seatIndex, instId, nodeId, color) {
   return buf;
 }
 
-function shaperCurve(drive) {
-  const norm = Math.tanh(drive);
+/** Shaped value for input x in -1..1: `drive` is the gain into the curve, `param` the shape's second setting. Must stay identical to `shape_value` in server/src/render/voice.rs (floor, not Math.round, which rounds ties differently). */
+export function shapeValue(shape, drive, param, x) {
+  const u = drive * x;
+  switch (shape) {
+    case 'hard':
+      return Math.min(1, Math.max(-1, u)) / Math.min(drive, 1);
+    case 'fold': {
+      const t = (((u + 1) % 4) + 4) % 4;
+      return t < 2 ? t - 1 : 3 - t;
+    }
+    case 'asym': {
+      const b = param;
+      const norm = Math.max(Math.tanh(drive + b) - Math.tanh(b), Math.tanh(b) - Math.tanh(b - drive));
+      return (Math.tanh(u + b) - Math.tanh(b)) / norm;
+    }
+    case 'crush': {
+      const k = 2 ** (param - 1);
+      return Math.min(1, Math.max(-1, Math.floor(Math.min(1, Math.max(-1, u)) * k + 0.5) / k));
+    }
+    default: // soft
+      return Math.tanh(u) / Math.tanh(drive);
+  }
+}
+
+/** The second setting's value when a shaper node has none. */
+export const shapeDefaultParam = (shape) => (shape === 'crush' ? 8 : 0.5);
+
+export function shaperCurve(drive, shape = 'soft', param = null) {
+  const p = param ?? shapeDefaultParam(shape);
   const c = new Float32Array(SHAPER_CURVE_LEN);
-  for (let i = 0; i < SHAPER_CURVE_LEN; i++) c[i] = Math.tanh(drive * ((2 * i) / (SHAPER_CURVE_LEN - 1) - 1)) / norm;
+  for (let i = 0; i < SHAPER_CURVE_LEN; i++) c[i] = shapeValue(shape, drive, p, (2 * i) / (SHAPER_CURVE_LEN - 1) - 1);
   return c;
 }
 
@@ -277,7 +304,7 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
         break;
       case 'shaper':
         node = ctx.createWaveShaper();
-        node.curve = shaperCurve(n.drive);
+        node.curve = shaperCurve(n.drive, n.shape ?? 'soft', n.param ?? null);
         break;
       case 'out':
         node = gain(ctx, vel / 127);

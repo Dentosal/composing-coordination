@@ -99,7 +99,7 @@ export function routingDiagram(p) {
   }
   if (f2On) wireTo(sinkOut, F2_CY, SUM[0] - 14, SUM[1]);
   const driveOn = p.drive > 0;
-  layers.boxes.push(box(550, 78, 100, 44, 'Drive', driveOn ? `amount ${num(p.drive)}` : 'off', { on: driveOn, node: 'drive' }));
+  layers.boxes.push(box(550, 78, 100, 44, 'Drive', driveOn ? `${p.shape} · ${num(p.drive)}` : 'off', { on: driveOn, node: 'drive' }));
   layers.boxes.push(box(690, 78, 110, 44, 'Amp', 'volume', { node: 'amp' }));
   layers.boxes.push(box(830, 78, 90, 44, 'Output + FX', null, { node: 'amp' })); // level and the delay/reverb sends
   wireTo(SUM[0] + 14, SUM[1], 550, 100);

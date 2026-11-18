@@ -8,7 +8,7 @@
  *  | {id:string,type:'gain',gain:number,key_track?:number}
  *  | {id:string,type:'filter',mode:FilterMode,freq:number,q:number,key_track?:number}
  *  | {id:string,type:'env',attack:number,decay:number,sustain:number,release:number,amount:number}
- *  | {id:string,type:'shaper',drive:number}
+ *  | {id:string,type:'shaper',drive:number,shape?:'soft'|'hard'|'fold'|'asym'|'crush',param?:number}
  *  | {id:string,type:'out'}} OrdersNode
  */
 /** @typedef {{from:string,to:string,port?:string|null}} OrdersEdge */
