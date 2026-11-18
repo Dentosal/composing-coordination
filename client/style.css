@@ -149,13 +149,20 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .cell { padding: 1px 8px; white-space: pre; color: #4a5064; cursor: pointer; border-left: 1px solid var(--line); }
 .cell.note { color: var(--text); }
 .cell.off { color: var(--muted); }
-.cell.cur { background: var(--accent) !important; color: var(--accent-ink); }
+/* Cursor and selection only lighten the cell: colours are never inverted, so a note or pad hit keeps its own colour. */
+.cell.cur { background: rgba(255, 255, 255, .22) !important; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55); }
 .lane-head { display: flex; gap: 4px; padding: 4px; border-left: 1px solid var(--line); }
 .lane-head { flex-direction: column; gap: 2px; cursor: pointer; min-width: 0; }
 .lane-name { font-size: .8rem; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lane-vol { width: 100%; margin: 2px 0 0; }
 /* Active track: a soft accent tint with a bar on top, so it never competes with the solo button's solid accent fill. */
 .lane-head.active { background: color-mix(in srgb, var(--accent) 16%, var(--panel2)); box-shadow: inset 0 3px 0 color-mix(in srgb, var(--accent) 70%, transparent); }
+/* Pad view: one bar per row; a hit is filled, its strength follows the velocity. */
+.cell.pad { display: flex; align-items: center; padding-top: 0; padding-bottom: 0; min-height: 1.3em; }
+.cell.pad::before { content: ''; flex: 1; height: .8em; border-radius: 3px; background: #232838; }
+.cell.pad.hit::before { background: var(--accent); opacity: calc(.3 + .7 * var(--v, 1)); }
+.cell.pad.off::before { background: transparent; border: 1px dashed var(--muted); }
+.lane-btn.view.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .cell.laneact { box-shadow: inset 0 0 0 100px rgba(255,255,255,.05); }
 .pattern-help { margin-top: 8px; color: var(--muted); font-size: .8rem; }
 .empty { padding: 20px; color: var(--muted); font-family: system-ui; }
@@ -216,8 +223,8 @@ input[type=range] { accent-color: var(--accent); }
 .pattern-bar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
 .pattern-status { margin-top: 8px; font-size: .85rem; color: var(--text); }
 .pattern-help { margin-top: 4px; }
-.cell.sel { background: color-mix(in srgb, var(--accent) 28%, transparent) !important; color: var(--text); }
-.cell.sel.cur { background: var(--accent) !important; color: var(--accent-ink); }
+.cell.sel { background: rgba(255, 255, 255, .1) !important; }
+.cell.sel.cur { background: rgba(255, 255, 255, .22) !important; }
 
 .lane-btns { display: flex; justify-content: center; gap: 4px; margin-top: 3px; padding-bottom: 3px; }
 .lane-btn { display: inline-flex; align-items: center; justify-content: center; padding: 2px 6px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 5px; }

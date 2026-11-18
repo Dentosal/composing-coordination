@@ -27,6 +27,7 @@ export class PatternEditor {
    *   onAudition?:(lane:number, note:number, vel:number)=>void,
    *   isMuted?:(id:string)=>boolean, isSolo?:(id:string)=>boolean, isAudible?:(id:string)=>boolean,
    *   onToggleMute?:(id:string)=>void, onToggleSolo?:(id:string)=>void,
+   *   isPads?:(id:string)=>boolean, onToggleView?:(id:string)=>void,
    *   onPlay?:(kind:'cursor'|'region', fromRow:number, toRow?:number)=>void}} opts
    */
   constructor(root, opts) {
@@ -41,6 +42,8 @@ export class PatternEditor {
     this.undoStack = [];
     this.redoStack = [];
     this.drag = null;
+    this.paint = null; // pad-column painting in progress: {lane, last, mode, changed}
+    this.lastNote = new Map(); // instrument id -> note most recently entered on its track (what a pad hit plays)
     this.rowEls = [];
     this.playRow = -1;
     this.grid = h('div.grid', { tabindex: '0', onkeydown: (e) => this.onKey(e) });
@@ -112,6 +115,59 @@ export class PatternEditor {
       l.steps.push({ row, note, vel });
       l.steps.sort((a, b) => a.row - b.row);
     }
+  }
+
+  /** True when the track is shown as pads (one hit per row) instead of text cells. Same data either way. */
+  isPadLane(lane) {
+    const l = this.orders.lanes[lane];
+    return !!l && !!this.o.isPads?.(l.instrument);
+  }
+
+  /** The note a new pad hit gets: the last one typed on this track, else its first note, else C of the current octave. */
+  hitNote(lane) {
+    const l = this.orders.lanes[lane];
+    return this.lastNote.get(l?.instrument) ?? l?.steps.find((s) => s.note != null)?.note ?? (this.octave + 1) * 12;
+  }
+
+  /** Keyboard: add a hit at the cursor with the track's hit note, or remove the one that is there. */
+  toggleHit() {
+    const { lane, row } = this.cur;
+    const s = this.stepAt(lane, row);
+    this.anchor = null;
+    if (s && s.note != null) return this.edit(() => this.clearStep(lane, row), this.step);
+    const note = this.hitNote(lane);
+    this.edit(() => this.setStep(lane, row, note, this.vel), this.step);
+    this.hearNote(lane, note, this.vel);
+  }
+
+  /** Start painting pad hits: pressing on a hit erases (and drags erase), on an empty pad adds; alt+click toggles an accent. */
+  startPaint(c, accent) {
+    const s = this.stepAt(c.lane, c.row);
+    this.pushUndo();
+    this.paint = { lane: c.lane, last: c.row, changed: false, mode: accent ? 'accent' : s && s.note != null ? 'erase' : 'paint' };
+    this.paintCell(c.row, true);
+  }
+
+  paintCell(row, first) {
+    const p = this.paint;
+    const s = this.stepAt(p.lane, row);
+    const on = !!s && s.note != null;
+    const note = this.hitNote(p.lane);
+    if (p.mode === 'erase') {
+      if (s) { this.clearStep(p.lane, row); p.changed = true; }
+    } else if (p.mode === 'paint') {
+      if (!on) {
+        this.setStep(p.lane, row, note, this.vel);
+        p.changed = true;
+        if (first) this.hearNote(p.lane, note, this.vel);
+      }
+    } else if (first) {
+      if (on) s.vel = s.vel >= 127 ? this.vel : 127;
+      else this.setStep(p.lane, row, note, 127);
+      p.changed = true;
+      this.hearNote(p.lane, s?.note ?? note, 127);
+    }
+    if (p.changed) this.o.onChange();
   }
 
   clearStep(lane, row) {
@@ -449,6 +505,7 @@ export class PatternEditor {
       case '1':
         if (hasLane) { this.anchor = null; this.edit(() => this.setStep(lane, row, null, this.vel), this.step); }
         break;
+      case 'a': if (hasLane) this.toggleHit(); break;
       case '[': this.octave = Math.max(0, this.octave - 1); this.renderStatus(); break;
       case ']': this.octave = Math.min(8, this.octave + 1); this.renderStatus(); break;
       case '-':
@@ -475,6 +532,7 @@ export class PatternEditor {
         if (off !== undefined && hasLane) {
           const note = Math.min(127, (this.octave + 1) * 12 + off);
           this.anchor = null;
+          this.lastNote.set(this.orders.lanes[lane].instrument, note);
           this.edit(() => this.setStep(lane, row, note, this.vel), this.step);
           this.hearNote(lane, note, this.vel);
         } else handled = false;
@@ -499,6 +557,9 @@ export class PatternEditor {
       const moved = c.lane !== this.cur.lane;
       if (e.shiftKey) {
         this.anchor ??= { ...this.cur };
+      } else if (this.isPadLane(c.lane)) {
+        this.anchor = null;
+        this.startPaint(c, e.altKey);
       } else {
         this.anchor = null;
         this.drag = c;
@@ -509,6 +570,20 @@ export class PatternEditor {
       if (moved) this.o.onSelect?.();
     });
     this.grid.addEventListener('mouseover', (e) => {
+      const p = this.paint;
+      if (p) {
+        const c = cellAt(e);
+        if (!c || c.lane !== p.lane || c.row === p.last || p.mode === 'accent') return;
+        const dir = Math.sign(c.row - p.last);
+        for (let r = p.last + dir; ; r += dir) { // fill rows skipped by a fast drag
+          this.paintCell(r, false);
+          if (r === c.row) break;
+        }
+        p.last = c.row;
+        this.cur = { lane: p.lane, row: c.row };
+        this.render();
+        return;
+      }
       if (!this.drag) return;
       const c = cellAt(e);
       if (!c || (c.lane === this.cur.lane && c.row === this.cur.row)) return;
@@ -518,7 +593,11 @@ export class PatternEditor {
       this.render();
       if (moved) this.o.onSelect?.();
     });
-    this.onMouseUp = () => { this.drag = null; };
+    this.onMouseUp = () => {
+      if (this.paint && !this.paint.changed) this.undoStack.pop(); // a press that changed nothing is not an undo step
+      this.paint = null;
+      this.drag = null;
+    };
     window.addEventListener('mouseup', this.onMouseUp);
   }
 
@@ -538,6 +617,7 @@ export class PatternEditor {
     this.help.textContent =
       'keys: z s x d c v … piano, q 2 w 3 e … upper octave · ` or 1 note-off · ⌫ clear · [ ] octave · - = velocity · ' +
       'shift+arrows or drag select · ctrl+c/x/v copy/cut/paste · ctrl+z undo · ctrl+d duplicate · ctrl+e repeat to end · ' +
+      'pad tracks: click or drag to add/erase hits · alt+click accent · a toggle hit at cursor · ' +
       'alt+↑↓ transpose (+shift: octave) · enter play from cursor · shift+enter loop selection · space play/stop';
   }
 
@@ -556,6 +636,7 @@ export class PatternEditor {
       const muted = !!this.o.isMuted?.(id);
       const solo = !!this.o.isSolo?.(id);
       const audible = this.o.isAudible ? this.o.isAudible(id) : true;
+      const pads = !!this.o.isPads?.(id);
       const lbtn = (kind, title, pressed, ico, fn) => {
         const b = h('button', { type: 'button', class: `lane-btn ${kind}${pressed ? ' on' : ''}`, title, 'aria-label': title,
           'aria-pressed': String(pressed),
@@ -581,11 +662,13 @@ export class PatternEditor {
             } }),
           h('div.lane-btns',
             lbtn('mute', muted ? 'Unmute track' : 'Mute track', muted, muted ? 'muted' : 'speaker', (i) => this.o.onToggleMute?.(i)),
-            lbtn('solo', solo ? 'Stop listening only to this track' : 'Only listen to this track', solo, 'headphones', (i) => this.o.onToggleSolo?.(i)))),
+            lbtn('solo', solo ? 'Stop listening only to this track' : 'Only listen to this track', solo, 'headphones', (i) => this.o.onToggleSolo?.(i)),
+            lbtn('view', pads ? 'Show this track as note text' : 'Show this track as pads (one hit per row)', pads, 'pads', (i) => this.o.onToggleView?.(i)))),
       );
     });
     this.grid.append(head);
 
+    const padLane = lanes.map((l) => !!this.o.isPads?.(l.instrument));
     const rpb = this.o.rowsPerBar / 4;
     for (let r = 0; r < this.o.totalRows; r++) {
       const row = h('div.grid-row', { class: [r % this.o.rowsPerBar === 0 ? 'bar' : '', r % rpb === 0 ? 'beat' : ''].join(' ') },
@@ -594,7 +677,11 @@ export class PatternEditor {
         const s = lane.steps.find((x) => x.row === r);
         let text = '··· ···';
         let cls = 'cell';
-        if (s) {
+        if (padLane[li]) { // pads: the cell is drawn by CSS (a bar whose strength follows the velocity)
+          text = '';
+          cls += ' pad';
+          if (s) cls += s.note == null ? ' off' : ' hit';
+        } else if (s) {
           if (s.note == null) { text = 'OFF'; cls += ' off'; }
           else { text = `${noteName(s.note)} ${String(s.vel).padStart(3, ' ')}`; cls += ' note'; }
         }
@@ -602,6 +689,10 @@ export class PatternEditor {
         if (this.inSel(li, r)) cls += ' sel';
         if (this.o.isAudible && !this.o.isAudible(lane.instrument)) cls += ' silent';
         const cell = h('div', { class: cls }, text);
+        if (padLane[li] && s) {
+          cell.style.setProperty('--v', String(s.vel / 127));
+          cell.title = s.note == null ? 'note off' : `${noteName(s.note)} · velocity ${s.vel}`;
+        }
         cell.dataset.lane = String(li);
         cell.dataset.row = String(r);
         row.append(cell);
