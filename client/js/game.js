@@ -177,6 +177,7 @@ export class Game {
     on('votes', (d) => {
       if (this.st.round?.n === d.n) this.st.round.vote = { cast: d.cast, total: d.total };
       this.updateTop();
+      this.updateCommit();
       this.updateRoundDialog();
     });
     on('vote_result', (d) => { this.voteResult = d; this.updateRoundDialog(); }); // the next round's opening follows
@@ -375,10 +376,9 @@ export class Game {
       sid: this.sid, token: this.token, state: () => this.st, stamp: () => fileStamp(),
       onListen: () => { if (this.playing) this.togglePlay(); }, // not both at once
       voteResult: () => this.voteResult ?? null,
-      onClose: () => { this.songDlg = null; this.updateTop(); }, // the header's Vote button reopens it
+      onClose: () => { this.songDlg = null; }, // the Vote button (the commit button during a vote) reopens it
     });
     this.songDlg.show(n);
-    this.updateTop(); // the dialog is open: no Vote button
   }
 
   updateRoundDialog() {
@@ -524,10 +524,6 @@ export class Game {
     const free = this.freeform;
     if (!free) { // the round machinery of a game; a freeform session has none of it
       r.round = h('span'); r.timer = h('span'); r.seats = h('span');
-      // While the round just played is put to a vote and its dialog has been closed: open it again.
-      r.voteBtn = h('button.small.primary.vote-open', { type: 'button', hidden: true,
-        title: 'Listen to the song so far and vote on keeping this round',
-        onclick: () => { const rd = this.st.round; if (rd?.vote) this.showRoundDialog(rd.n); } });
       // "ready 2 / 3", and on hover (or focus) who is ready and who is still writing.
       r.readyText = h('span');
       r.readyList = h('ul.player-list');
@@ -550,7 +546,12 @@ export class Game {
             try { await api.end(this.sid, this.host); this.st.end_requested = true; this.updateTop(); } catch (err) { alert(err.message); }
           } }, 'End after this round')
         : null;
-      r.commit = h('button.primary', { onclick: () => this.commit() }, 'Commit & ready');
+      // Ready / Unready while writing; during a vote on the round just played, it opens the vote (the round's dialog).
+      r.commit = h('button.primary', { onclick: () => {
+        const rd = this.st.round;
+        if (rd?.vote) this.showRoundDialog(rd.n);
+        else this.commit();
+      } }, 'Ready');
       r.commitInfo = h('span.muted.commit-info');
     }
     r.errors = h('ul.errors');
@@ -567,7 +568,7 @@ export class Game {
         h('ul', h('li', 'Each row of the track roll is one instrument. Click a track to shape its sound in the panel above, and place notes in its cells.'),
           h('li', 'Drag across the bar numbers to loop a section while you work.'),
           h('li', 'The footer plays your draft over the last round\'s band, your draft alone, or the last round as it was played.'),
-          h('li', 'Commit & ready sends your part. The round ends when everyone is ready.'),
+          h('li', 'Ready sends your part (Unready takes it back to keep editing). The round ends when everyone is ready.'),
           h('li', 'Then everyone hears the song so far and votes, in secret, on keeping the round. It takes everyone\'s yes: otherwise the round is played again, up to the attempts the game allows (the last attempt is kept as it is).'),
           h('li', 'The download menu in the header saves the song so far or your own part as audio, or your patches, notes and effects as one scene file.')),
       ],
@@ -585,7 +586,7 @@ export class Game {
       () => this.downloadItems(), 'Download');
     r.top = free
       ? h('header.topbar', r.fsBtn, h('strong.mode-name', 'Freeform'), this.bpmField(), h('span.spacer'), r.exportBtn, r.help)
-      : h('header.topbar', r.fsBtn, r.round, r.timer, r.voteBtn, r.ready, r.seats, r.sounds, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
+      : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, r.sounds, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     // What a game plays (once there is a band, the last round kept): the band with your draft in place of your own part,
@@ -665,9 +666,6 @@ export class Game {
     r.round.textContent = `Round ${rd?.slot ?? '–'}${st.config.rounds ? ` / ${st.config.rounds}` : ''}`
       + (rd && rd.attempts > 1 ? ` · attempt ${rd.attempt} / ${rd.attempts}` : '');
     r.readyText.textContent = `ready ${st.ready_count} / ${st.eligible_count}`;
-    const vote = st.round?.vote;
-    r.voteBtn.hidden = !vote || !!this.songDlg;
-    if (vote) r.voteBtn.textContent = `Vote (${vote.cast} / ${vote.total})`;
     const snd = st.you?.sounds;
     r.sounds.hidden = !snd;
     if (snd) {
@@ -1095,21 +1093,29 @@ export class Game {
     if (this.view !== 'game' || !r.commit) return;
     const rs = this.st.round?.state;
     const eligible = this.st.you?.eligible;
+    const vote = this.st.round?.vote;
     r.commit.disabled = false;
-    r.commit.classList.toggle('ready', this.ready);
-    if (!eligible) {
+    r.commit.classList.toggle('ready', this.ready && !vote);
+    r.commit.title = '';
+    if (vote) { // anyone can listen; the round's players vote
+      r.commit.textContent = `Vote (${vote.cast} / ${vote.total})`;
+      r.commit.title = 'Listen to the song so far and vote on keeping this round';
+      r.commitInfo.textContent = '';
+    } else if (!eligible) {
       r.commit.disabled = true;
       r.commit.textContent = 'You join next round';
       r.commitInfo.textContent = 'You can keep editing; your part starts in the next round.';
     } else if (rs !== 'open') {
       r.commit.disabled = true;
-      r.commit.textContent = this.st.round?.vote ? 'Voting…' : 'Rendering mix…';
+      r.commit.textContent = 'Rendering mix…';
       r.commitInfo.textContent = '';
     } else if (this.ready) {
-      r.commit.textContent = '✓ Ready. Click to keep editing';
+      r.commit.textContent = 'Unready';
+      r.commit.title = 'You are ready. Click to keep editing';
       r.commitInfo.textContent = 'Waiting for the others.';
     } else {
-      r.commit.textContent = 'Commit & ready';
+      r.commit.textContent = 'Ready';
+      r.commit.title = 'Save your part and say you are done with this round';
       r.commitInfo.textContent = '';
     }
   }
