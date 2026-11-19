@@ -159,6 +159,20 @@ fn noise_buffer(cfg: &RenderConfig, seat_index: u32, inst: &str, node: &str, col
                 *s = ((b0 + b1 + b2 + w * 0.1848) * 0.25) as f32;
             }
         }
+        NoiseColor::Brown => {
+            // Leaky-integrated white noise (-6 dB/octave above ~150 Hz at 48 kHz), scaled to about pink's loudness.
+            // The integrator runs over the white noise twice and only the second pass is kept: it starts where the
+            // first ended, so the looped buffer has no click at the seam.
+            let w: Vec<f64> = (0..n).map(|_| rng.next_bipolar()).collect();
+            let mut b = 0f64;
+            for &x in &w {
+                b = (b + 0.02 * x) / 1.02;
+            }
+            for (s, &x) in d.iter_mut().zip(&w) {
+                b = (b + 0.02 * x) / 1.02;
+                *s = (b * 7.0) as f32;
+            }
+        }
     }
     AudioBuffer::from(vec![d], SAMPLE_RATE)
 }

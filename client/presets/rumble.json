@@ -1,0 +1,248 @@
+{
+ "label": "Rumble",
+ "category": "Sound FX",
+ "instrument": {
+  "id": "rumble",
+  "piano_roll": true,
+  "gain": 1,
+  "send_delay": 0,
+  "send_reverb": 0.35,
+  "nodes": [
+   {
+    "id": "o1",
+    "type": "osc",
+    "wave": "sine",
+    "semitones": -12,
+    "detune": 0
+   },
+   {
+    "id": "l1",
+    "type": "gain",
+    "gain": 0.25
+   },
+   {
+    "id": "o2",
+    "type": "osc",
+    "wave": "sawtooth",
+    "semitones": 0,
+    "detune": 0
+   },
+   {
+    "id": "l2",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "o3",
+    "type": "osc",
+    "wave": "sawtooth",
+    "semitones": 0,
+    "detune": 0
+   },
+   {
+    "id": "l3",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "n",
+    "type": "noise",
+    "color": "brown"
+   },
+   {
+    "id": "ln",
+    "type": "gain",
+    "gain": 1
+   },
+   {
+    "id": "lp",
+    "type": "filter",
+    "mode": "lowpass",
+    "freq": 300,
+    "q": 0.9,
+    "key_track": 0.5
+   },
+   {
+    "id": "bus",
+    "type": "gain",
+    "gain": 1
+   },
+   {
+    "id": "drv",
+    "type": "shaper",
+    "drive": 2
+   },
+   {
+    "id": "vca",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "aenv",
+    "type": "env",
+    "attack": 0.8,
+    "decay": 0.5,
+    "sustain": 0.9,
+    "release": 2,
+    "amount": 1
+   },
+   {
+    "id": "fenv",
+    "type": "env",
+    "attack": 0.005,
+    "decay": 0.25,
+    "sustain": 0.3,
+    "release": 0.1,
+    "amount": 0
+   },
+   {
+    "id": "penv",
+    "type": "env",
+    "attack": 0.001,
+    "decay": 0.08,
+    "sustain": 0,
+    "release": 0.05,
+    "amount": 0
+   },
+   {
+    "id": "lfo",
+    "type": "osc",
+    "wave": "sine",
+    "semitones": 0,
+    "detune": 0,
+    "fixed_hz": 0.23
+   },
+   {
+    "id": "lfo_p",
+    "type": "gain",
+    "gain": 0
+   },
+   {
+    "id": "lfo_c",
+    "type": "gain",
+    "gain": 80
+   },
+   {
+    "id": "lfo_a",
+    "type": "gain",
+    "gain": 0.15
+   },
+   {
+    "id": "out",
+    "type": "out"
+   }
+  ],
+  "edges": [
+   {
+    "from": "o1",
+    "to": "l1"
+   },
+   {
+    "from": "l1",
+    "to": "bus"
+   },
+   {
+    "from": "penv",
+    "to": "o1",
+    "port": "detune"
+   },
+   {
+    "from": "lfo_p",
+    "to": "o1",
+    "port": "detune"
+   },
+   {
+    "from": "o2",
+    "to": "l2"
+   },
+   {
+    "from": "l2",
+    "to": "lp"
+   },
+   {
+    "from": "penv",
+    "to": "o2",
+    "port": "detune"
+   },
+   {
+    "from": "lfo_p",
+    "to": "o2",
+    "port": "detune"
+   },
+   {
+    "from": "o3",
+    "to": "l3"
+   },
+   {
+    "from": "l3",
+    "to": "lp"
+   },
+   {
+    "from": "penv",
+    "to": "o3",
+    "port": "detune"
+   },
+   {
+    "from": "lfo_p",
+    "to": "o3",
+    "port": "detune"
+   },
+   {
+    "from": "n",
+    "to": "ln"
+   },
+   {
+    "from": "ln",
+    "to": "lp"
+   },
+   {
+    "from": "lp",
+    "to": "bus"
+   },
+   {
+    "from": "fenv",
+    "to": "lp",
+    "port": "freq"
+   },
+   {
+    "from": "lfo_c",
+    "to": "lp",
+    "port": "freq"
+   },
+   {
+    "from": "bus",
+    "to": "drv"
+   },
+   {
+    "from": "drv",
+    "to": "vca"
+   },
+   {
+    "from": "aenv",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "lfo_a",
+    "to": "vca",
+    "port": "gain"
+   },
+   {
+    "from": "lfo",
+    "to": "lfo_p"
+   },
+   {
+    "from": "lfo",
+    "to": "lfo_c"
+   },
+   {
+    "from": "lfo",
+    "to": "lfo_a"
+   },
+   {
+    "from": "vca",
+    "to": "out"
+   }
+  ]
+ }
+}

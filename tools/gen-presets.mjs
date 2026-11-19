@@ -240,6 +240,16 @@ const presets = {
     aenv: { attack: 0.04, decay: 2.5, sustain: 0.4, release: 2.5 },
     lfo: { rate: 0.8, amp: 0.25 },
   }],
+  rumble: ['Rumble', 'Sound FX', { // a deep, held rumble (an earthquake, a distant engine, a cinematic drone): brown noise through a low lowpass that follows the note (play it low, around C2, for the deepest), soft-clip drive for grit, a quiet sine an octave below the note as a floor, and a slow LFO swell on the cutoff and level
+    piano_roll: true,
+    gain: 1, send_reverb: 0.35,
+    osc: [{ wave: 'sine', semitones: -12, level: 0.25, route: 0 }, OFF, OFF],
+    noise: { color: 'brown', level: 1 },
+    drive: 2,
+    filter: { freq: 300, q: 0.9, key_track: 0.5 },
+    lfo: { wave: 'sine', rate: 0.23, cutoff: 80, amp: 0.15 },
+    aenv: { attack: 0.8, decay: 0.5, sustain: 0.9, release: 2 },
+  }],
   drop: ['Water Drop', 'Sound FX', { // a sine that starts an octave below and rises fast: the "bloop" of a bubble
     gain: 0.95, send_reverb: 0.45,
     osc: [{ wave: 'sine', semitones: 12, level: 0.8 }, OFF, OFF],

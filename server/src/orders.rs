@@ -86,6 +86,7 @@ pub enum FilterMode {
 pub enum NoiseColor {
     White,
     Pink,
+    Brown,
 }
 
 fn is_zero(v: &f32) -> bool {

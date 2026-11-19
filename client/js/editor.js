@@ -8,7 +8,7 @@ import { downloadText } from './download.js';
 import { routingDiagram } from './routing.js';
 import { pruneParams } from './automation.js';
 import { shapePlot } from './shapeplot.js';
-import { FILTER_MODES, SHAPES, WAVES, buildInstrument, usesFilter2, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
+import { FILTER_MODES, NOISE_COLORS, SHAPES, WAVES, buildInstrument, usesFilter2, defaultPatch, isDefaultPatch, parseInstrument, patchToFile, readPatchFile } from './synth.js';
 
 let presetCache = null;
 
@@ -712,9 +712,9 @@ export class InstrumentPanel {
               h('div.sec-head', h('h5.sub', 'Noise'),
                 h('div.head-group',
                   h('select.head-select', {
-                    title: 'White or pink noise', 'aria-label': 'Noise color',
+                    title: 'White, pink or brown noise (each darker and deeper than the last)', 'aria-label': 'Noise color',
                     onchange: (e) => { noise.color = e.target.value; change(); },
-                  }, ['white', 'pink'].map((v) => h('option', { value: v, selected: v === noise.color }, v))),
+                  }, NOISE_COLORS.map((v) => h('option', { value: v, selected: v === noise.color }, v))),
                   routeButton(noise, 'Noise'))),
               knob('level', noise, 'level', { min: 0, max: 1 }, change)))),
           module(null, fmBox),
@@ -759,7 +759,7 @@ function patchHelp() {
     h('h3', 'Sound sources'),
     h('ul',
       h('li', h('strong', 'Oscillators'), ': up to three tone generators. Pick a wave shape, set the pitch (in semitones from the note, down to hundredths of a semitone for detuning; hold Shift while dragging the slider to snap to whole semitones); stack them, or use unison (several detuned copies of one oscillator, spread across the given cents) for a thicker sound.'),
-      h('li', h('strong', 'Noise'), ': white or pink noise, good for drums and breath. The Routing box sets, for each source, whether it goes through filter 1, filter 2 or no filter.')),
+      h('li', h('strong', 'Noise'), ': white, pink or brown noise, good for drums and breath; brown is the deepest, for rumbles and surf. The Routing box sets, for each source, whether it goes through filter 1, filter 2 or no filter.')),
     h('h3', 'Filter and drive'),
     h('ul',
       h('li', h('strong', 'Filter'), ': removes frequencies. Cutoff sets where, resonance emphasises that spot, and key track makes higher notes open the filter more. There are two filters (tabs 1 and 2), each with its own envelope. The Routing box sends each source to filter 1, filter 2 or past them (bypass). Its "parallel / serial" button sets how the filters are connected: side by side, or filter 1 feeding filter 2 (serial: a source on filter 1 runs on through filter 2, and one on filter 2 enters at the second filter). The LFO cutoff depth moves both. The second filter is only active while something goes through it.'),

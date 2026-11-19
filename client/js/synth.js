@@ -16,6 +16,7 @@
 export const OSC_COUNT = 3;
 export const WAVES = ['sine', 'triangle', 'sawtooth', 'square'];
 export const FILTER_MODES = ['lowpass', 'highpass', 'bandpass', 'notch'];
+export const NOISE_COLORS = ['white', 'pink', 'brown'];
 export const MIDDLE_C_HZ = 261.6255653005986; // as in the renderers: FM depth is stored as a gain in Hz at middle C
 /** Waveshaper shapes. `param` is the shape's second setting (the node's `param`), with its slider range and default. */
 export const SHAPES = [
@@ -285,7 +286,7 @@ export function validatePatch(p) {
     if (!WAVES.includes(o.wave)) return `unknown oscillator wave "${o.wave}"`;
     if (!allNum(o, ['semitones', 'level', 'unison', 'spread', 'route']) || (o.fixed_hz != null && !isNum(o.fixed_hz))) return 'oscillator values must be numbers';
   }
-  if (!['white', 'pink'].includes(p.noise.color) || !allNum(p.noise, ['level', 'route'])) return 'invalid noise settings';
+  if (!NOISE_COLORS.includes(p.noise.color) || !allNum(p.noise, ['level', 'route'])) return 'invalid noise settings';
   if ([...p.osc, p.noise].some((s) => ![0, 1, 2].includes(s.route))) return 'a source is routed to an unknown filter';
   if (!FILTER_ROUTINGS.includes(p.filterMode)) return 'unknown filter routing';
   for (const f of [p.filter, p.filter2]) {

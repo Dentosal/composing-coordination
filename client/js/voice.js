@@ -122,6 +122,16 @@ export function noiseBuffer(ctx, seed, seatIndex, instId, nodeId, color) {
       b2 = 0.57 * b2 + w * 1.0526913;
       d[i] = (b0 + b1 + b2 + w * 0.1848) * 0.25;
     }
+  } else if (color === 'brown') {
+    // Leaky-integrated white noise, scaled to about pink's loudness. Two passes, keeping the second, so the loop has
+    // no click at the seam (as in the server).
+    const w = Array.from({ length: n }, () => rng.nextBipolar());
+    let b = 0;
+    for (const x of w) b = (b + 0.02 * x) / 1.02;
+    for (let i = 0; i < n; i++) {
+      b = (b + 0.02 * w[i]) / 1.02;
+      d[i] = b * 7;
+    }
   } else {
     for (let i = 0; i < n; i++) d[i] = rng.nextBipolar();
   }
