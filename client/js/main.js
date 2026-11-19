@@ -82,7 +82,9 @@ const FIELDS = [
  * length can be changed there), or with a parsed scene's settings and tracks. Throws an Error with a readable message.
  */
 async function openFreeform(scene = null) {
-  await unlock();
+  // Not awaited: the browser lets audio start only after a click or a key, and a dropped file is neither, so waiting
+  // here would hold a drop until the next click. Asked for now, it starts on the next one; playing unlocks it anyway.
+  unlock();
   const cfg = { freeform: true };
   if (scene) {
     cfg.bpm = scene.config.bpm;
@@ -187,8 +189,24 @@ function showHome() {
   const openBtn = h('button.primary', { type: 'button', onclick: () => open(openBtn) }, 'Open editor');
   const importBtn = h('button', { type: 'button', onclick: () => fileIn.click(),
     title: 'Open a scene file saved from the download menu in the header' }, 'Import a scene file…');
-  const freeCard = h('div.card.freeform-card', h('h2', 'Freeform editor'),
+  const freeCard = h('div.card.freeform-card', { title: 'Drop a scene file here to open it' }, h('h2', 'Freeform editor'),
     h('div.freeform-actions', openBtn, importBtn), fileIn, freeMsg);
+  // A scene file dropped on the card opens like an imported one. Counting enter/leave keeps the highlight steady while
+  // the pointer crosses the card's children.
+  let over = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
+  const highlight = () => freeCard.classList.toggle('drop', over > 0);
+  freeCard.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); over++; highlight(); });
+  freeCard.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; over = Math.max(0, over - 1); highlight(); });
+  freeCard.addEventListener('dragover', (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+  freeCard.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    over = 0;
+    highlight();
+    const f = e.dataTransfer.files?.[0];
+    if (f && !importBtn.disabled) open(importBtn, () => file(f));
+  });
 
   async function onCreate(e) {
     e.preventDefault();

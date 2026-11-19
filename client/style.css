@@ -452,6 +452,8 @@ input[type=range] { accent-color: var(--accent); }
 /* Freeform mode on the home screen and in the header */
 .config [hidden] { display: none !important; }
 .freeform-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.freeform-card { transition: border-color .1s, background .1s; }
+.freeform-card.drop { border: 1px dashed var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--panel)); }
 .topbar .mode-name { letter-spacing: .06em; text-transform: uppercase; font-size: .8rem; color: var(--muted); }
 .bpm-field { display: inline-flex; align-items: center; gap: 6px; }
 .bpm-input { width: 5.5em; padding: 4px 8px; font-variant-numeric: tabular-nums; }
