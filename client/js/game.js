@@ -45,16 +45,16 @@ export class Game {
     this.dirty = false;
     this.errors = [];
     this.view = null;
-    this.player = new LoopPlayer();
     // Playback of this seat's draft (the preview) and, in a game, of the last round's band. Normally the streaming
     // player plays both (the server's renderer running in a worker, see stream.js): the band from the parts the
     // players committed, with this seat's draft in place of its own committed part while previewing. A page that
     // cannot stream (not cross-origin isolated) falls back to the browser's own voices for the draft (live.js) over the
-    // server's rendered band mix (this.player).
+    // server's rendered band mix (this.mixPlayer, which exists only then).
     const seat = () => this.st.you?.seat_index ?? 0;
     this.draftPart = () => ({ instruments: this.orders.instruments, lanes: this.orders.lanes.filter((l) => this.isAudible(l.instrument)) });
     this.stream = StreamPlayer.supported;
     this.band = null; // streaming: the parts of the last resolved round ({seat, orders}), from the server
+    this.mixPlayer = this.stream ? null : new LoopPlayer();
     this.livePlayer = this.stream
       ? new StreamPlayer({ config: () => this.st.config, parts: () => this.streamParts() })
       : new LiveSequencer({ config: () => this.st.config, seat, part: this.draftPart });
@@ -111,7 +111,7 @@ export class Game {
     this.es?.close();
     clearInterval(this.tickT);
     clearTimeout(this.saveT);
-    this.player.stop();
+    this.mixPlayer?.stop();
     this.livePlayer.stop();
     this.livePlayer.destroy?.();
     this.panel?.destroy();
@@ -168,7 +168,7 @@ export class Game {
           this.band = band;
           this.livePlayer.changed();
         } else {
-          this.player.setBuffer(band);
+          this.mixPlayer.setBuffer(band);
         }
         this.updateMix();
       }
@@ -560,7 +560,7 @@ export class Game {
     else if (this.loop) this.loop = { from: this.loop.from, to: Math.min(this.loop.to, total - 1) };
     if (this.playing) {
       this.playing = false;
-      this.player.stop();
+      this.mixPlayer?.stop();
       this.livePlayer.stop();
     }
     if (this.pattern) this.pattern.loop = this.loop; // the editor keeps its own copy of the loop
@@ -639,7 +639,7 @@ export class Game {
   /** The band is silenced while a track is soloed or when "Previous round" is off. Only affects local playback. */
   applyMixMute() {
     if (this.stream) this.livePlayer.changed(); // the band is part of what the stream plays (see streamParts)
-    else this.player.setMuted(this.solo.size > 0 || !this.playMix);
+    else this.mixPlayer.setMuted(this.solo.size > 0 || !this.playMix);
   }
 
   setPlayMix(on) {
@@ -693,7 +693,7 @@ export class Game {
   setLoop(loop, final) {
     this.loop = loop;
     if (!final || !this.playing) return;
-    const pos = this.player.position() ?? this.previewPlayer.position();
+    const pos = this.mixPlayer?.position() ?? this.previewPlayer.position();
     const cfg = this.st.config;
     const rowSecs = 60 / (cfg.bpm * (cfg.rows_per_bar / 4));
     this.playPattern('cursor', pos == null ? 0 : Math.floor(pos / rowSecs) % (cfg.bars * cfg.rows_per_bar));
@@ -704,16 +704,16 @@ export class Game {
     if (!this.playing && this.needsPreview()) return this.playWhenPreviewReady({ kind: 'full' });
     if (this.playing) {
       this.playing = false;
-      this.player.stop();
+      this.mixPlayer?.stop();
       this.previewPlayer.stop();
     } else {
       const c = await unlock();
       const when = c.currentTime + 0.05;
       this.playing = true;
       const region = this.transportRegion();
-      // Streaming, the one player plays the band too (this.player has no buffer then), so it always starts.
-      await Promise.all([this.player.play(when, region), this.previewOn || this.stream ? this.previewPlayer.play(when, region) : null]);
-      if (!this.player.playing && !this.previewPlayer.playing) this.playing = false;
+      // Streaming, the one player plays the band too, so it always starts.
+      await Promise.all([this.mixPlayer?.play(when, region), this.previewOn || this.stream ? this.previewPlayer.play(when, region) : null]);
+      if (!this.mixPlayer?.playing && !this.previewPlayer.playing) this.playing = false;
     }
     this.updateMix();
   }
@@ -730,14 +730,14 @@ export class Game {
       ? this.transportRegion(a) ?? { offset: 0, loopStart: 0, loopEnd: this.st.config.bars * this.st.config.rows_per_bar * rowSecs }
       : { offset: a * rowSecs, loopStart: a * rowSecs, loopEnd: (b + 1) * rowSecs };
     if (this.playing) {
-      this.player.stop();
+      this.mixPlayer?.stop();
       this.previewPlayer.stop();
     }
     const c = await unlock();
     const when = c.currentTime + 0.05;
     this.playing = true;
-    await Promise.all([this.player.play(when, region), this.previewOn || this.stream ? this.previewPlayer.play(when, region) : null]);
-    if (!this.player.playing && !this.previewPlayer.playing) this.playing = false;
+    await Promise.all([this.mixPlayer?.play(when, region), this.previewOn || this.stream ? this.previewPlayer.play(when, region) : null]);
+    if (!this.mixPlayer?.playing && !this.previewPlayer.playing) this.playing = false;
     this.updateMix();
   }
 
@@ -750,7 +750,7 @@ export class Game {
       this.stopIfSilent();
     } else if (!this.previewOn) {
       this.previewPlayer.stop();
-      if (!this.player.playing) this.playing = false;
+      if (!this.mixPlayer?.playing) this.playing = false;
     }
     if (this.previewOn) this.previewReady();
     this.updateMix();
@@ -773,10 +773,10 @@ export class Game {
   /** If the transport is running but the preview is not yet (first render finished late), join on the mix's next loop boundary. */
   async startPreviewInSync() {
     if (!this.playing || this.previewPlayer.playing || !this.previewPlayer.buffer) return;
-    const reg = this.player.playing ? this.player.loopRegion() : undefined;
-    let when = this.player.playing ? this.player.nextBoundary() : undefined;
+    const reg = this.mixPlayer?.playing ? this.mixPlayer.loopRegion() : undefined;
+    let when = this.mixPlayer?.playing ? this.mixPlayer.nextBoundary() : undefined;
     let region = reg;
-    const pos = reg && this.previewPlayer === this.livePlayer ? this.player.position() : null;
+    const pos = reg && this.previewPlayer === this.livePlayer ? this.mixPlayer?.position() : null;
     if (pos != null) { // live: join at the next row of the running mix instead of waiting for the loop boundary
       const rowSecs = 60 / (this.st.config.bpm * (this.st.config.rows_per_bar / 4));
       let next = Math.ceil(pos / rowSecs - 1e-6) * rowSecs;
@@ -789,7 +789,7 @@ export class Game {
 
   updatePlayhead() {
     if (this.view !== 'game' || !this.pattern) return;
-    const pos = this.player.position() ?? this.previewPlayer.position();
+    const pos = this.mixPlayer?.position() ?? this.previewPlayer.position();
     if (pos == null) return this.pattern.setPlayhead(null);
     const cfg = this.st.config;
     const rowSecs = 60 / (cfg.bpm * (cfg.rows_per_bar / 4));
