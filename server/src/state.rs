@@ -1,6 +1,6 @@
 //! Sessions, seats, rounds and the round state machine.
 
-use crate::orders::{Limits, Orders, ValidationError};
+use crate::orders::{Instrument, Limits, Orders, ValidationError};
 use crate::render::{self, wav, RenderConfig, SeatPart};
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,10 @@ pub struct Config {
     pub rows_per_bar: u32,
     pub max_lanes: u32,
     pub max_instruments: u32,
+    /// Sounds per player for the whole game (absent: twice the tracks per player). A sound is an instrument as set up
+    /// (see `sound_key`); every one a player has played in a round counts, and reusing one is free. The game's combined
+    /// scene file needs a track for each, so this keeps it within `UNLIMITED_TRACK_CAP` tracks.
+    pub max_sounds: Option<u32>,
     /// Players may add and delete tracks themselves (up to `UNLIMITED_TRACK_CAP`); `max_lanes` / `max_instruments`
     /// are then only the number of tracks everyone starts with.
     pub unlimited_tracks: bool,
@@ -102,6 +106,7 @@ impl Default for Config {
             rows_per_bar: ROWS_PER_BAR,
             max_lanes: 4,
             max_instruments: 4,
+            max_sounds: None,
             unlimited_tracks: false,
             freeform: false,
             rounds: None,
@@ -121,12 +126,38 @@ impl Config {
         chk(self.rows_per_bar == ROWS_PER_BAR, &format!("rows_per_bar is fixed at {ROWS_PER_BAR}"))?;
         chk((1..=16).contains(&self.max_lanes), "max_lanes must be 1..=16")?;
         chk((1..=16).contains(&self.max_instruments), "max_instruments must be 1..=16")?;
-        chk(self.rounds.map_or(true, |r| (1..=500).contains(&r)), "rounds must be 1..=500")?;
+        let cap = UNLIMITED_TRACK_CAP as u32;
+        chk(self.max_sounds.map_or(true, |s| (1..=cap).contains(&s)), &format!("max_sounds must be 1..={cap}"))?;
+        chk(
+            self.unlimited_tracks || self.sound_budget() >= self.max_lanes.min(self.max_instruments),
+            "max_sounds must be at least the tracks per player",
+        )?;
+        if !self.freeform {
+            let most = self.max_rounds();
+            chk(self.rounds.map_or(true, |r| (1..=most).contains(&r)), &format!(
+                "rounds must be 1..={most}: a game is at most {MAX_FREEFORM_BARS} bars, so that its scene opens in the editor"))?;
+        }
         chk(
             self.round_timer_secs.map_or(true, |t| (5..=86400).contains(&t)),
             "round_timer_secs must be 5..=86400",
         )?;
         Ok(())
+    }
+
+    /// The most rounds a game can have: the whole song is at most `MAX_FREEFORM_BARS` bars, so that its combined scene
+    /// opens in the freeform editor. A game without a set number of rounds ends there.
+    pub fn max_rounds(&self) -> u32 {
+        MAX_FREEFORM_BARS / self.bars.max(1)
+    }
+
+    /// Sounds per player for the whole game.
+    pub fn sound_budget(&self) -> u32 {
+        self.max_sounds.unwrap_or(2 * self.max_lanes.min(self.max_instruments)).min(UNLIMITED_TRACK_CAP as u32)
+    }
+
+    /// The most players a game takes: everyone's sounds together must fit in the combined scene's tracks.
+    pub fn max_players(&self) -> usize {
+        (UNLIMITED_TRACK_CAP as u32 / self.sound_budget().max(1)) as usize
     }
 
     pub fn render_config(&self) -> RenderConfig {
@@ -391,6 +422,12 @@ impl Session {
         if self.config.freeform && !self.seats.is_empty() {
             return err(StatusCode::CONFLICT, "a freeform session is for one person only");
         }
+        // Kicked seats count too: their rounds stay in the song.
+        if !self.config.freeform && self.seats.len() >= self.config.max_players() {
+            return err(StatusCode::CONFLICT, format!(
+                "the session is full: {} players with {} sounds each fill the song's {UNLIMITED_TRACK_CAP} tracks",
+                self.config.max_players(), self.config.sound_budget()));
+        }
         let joined_round = match self.phase {
             Phase::Lobby => 1,
             _ => self.current().map(|r| r.index + 1).unwrap_or(1),
@@ -588,9 +625,47 @@ impl Session {
         Ok(())
     }
 
+    /// The sounds seat `seat_idx` has used in the rounds played before round `n`, plus those of `draft`: how many
+    /// different ones (see `part_sounds`).
+    pub fn sounds_used(&self, seat_idx: usize, n: u32, draft: Option<&Orders>) -> usize {
+        let seat = self.seats[seat_idx].index;
+        let mut keys = HashSet::new();
+        for r in self.rounds.iter().filter(|r| r.state == RoundState::Resolved && r.index < n) {
+            for (_, o) in r.played.iter().filter(|(s, _)| *s == seat) {
+                keys.extend(part_sounds(o));
+            }
+        }
+        if let Some(d) = draft {
+            keys.extend(part_sounds(d));
+        }
+        keys.len()
+    }
+
+    /// The orders seat `seat_idx` has in effect now: its draft for the open round, or else its last part.
+    fn orders_in_effect(&self, seat_idx: usize) -> (u32, Option<&Orders>) {
+        let id = self.seats[seat_idx].id;
+        let n = self.current().map_or(1, |r| r.index);
+        (n, self.current().and_then(|r| r.orders.get(&id)).or_else(|| self.last_orders(id, n)))
+    }
+
+    /// `{used, budget}`: seat `seat_idx`'s sounds in this game, counting the orders it has in effect now.
+    pub fn sounds_json(&self, seat_idx: usize) -> Value {
+        let (n, orders) = self.orders_in_effect(seat_idx);
+        json!({"used": self.sounds_used(seat_idx, n, orders), "budget": self.config.sound_budget()})
+    }
+
     /// Returns true when the round should now resolve.
     pub fn set_ready(&mut self, seat_idx: usize, ready: bool) -> Result<bool, ApiError> {
         let id = self.seats[seat_idx].id;
+        if ready && !self.config.freeform {
+            let (n, orders) = self.orders_in_effect(seat_idx);
+            let (used, budget) = (self.sounds_used(seat_idx, n, orders), self.config.sound_budget() as usize);
+            if used > budget {
+                return err(StatusCode::UNPROCESSABLE_ENTITY, format!(
+                    "your part makes it {used} sounds in this game, and each player has {budget}: reuse sounds \
+                     (an earlier round's cost nothing more)"));
+            }
+        }
         let round = self.open_round_mut(seat_idx)?;
         let changed = if ready { round.ready.insert(id) } else { round.ready.remove(&id) };
         let n = round.index;
@@ -610,6 +685,20 @@ impl Session {
     }
 
     /// Phase one of resolving: decide, fill in missing orders, flip to Rendering.
+    /// What seat `seat_idx` plays in round `n` (the open one): its draft, or its last part when it has no draft or the
+    /// draft goes over the sound budget (a draft played because the timer ran out, never committed), or nothing.
+    pub fn orders_to_play(&self, seat_idx: usize, n: u32) -> Orders {
+        let id = self.seats[seat_idx].id;
+        let budget = self.config.sound_budget() as usize;
+        let round = self.rounds.iter().find(|r| r.index == n);
+        round
+            .and_then(|r| r.orders.get(&id))
+            .filter(|d| self.config.freeform || self.sounds_used(seat_idx, n, Some(d)) <= budget)
+            .or_else(|| self.last_orders(id, n))
+            .cloned()
+            .unwrap_or_default()
+    }
+
     fn begin_resolve(&mut self, n: u32, timer: bool) -> Option<RenderJob> {
         let ok = if timer {
             // Timer expiry only resolves under RepeatLast; under Wait the round keeps waiting.
@@ -623,17 +712,8 @@ impl Session {
         }
         let eligible: Vec<Seat> = self.seats.iter().filter(|s| s.plays_in(n)).cloned().collect();
         let mut filled: Vec<(SeatId, Orders)> = Vec::new();
-        {
-            let round = self.rounds.last().unwrap();
-            for s in &eligible {
-                let o = round
-                    .orders
-                    .get(&s.id)
-                    .cloned()
-                    .or_else(|| self.last_orders(s.id, n).cloned())
-                    .unwrap_or_default();
-                filled.push((s.id, o));
-            }
+        for s in &eligible {
+            filled.push((s.id, self.orders_to_play(s.index as usize, n))); // a seat's join-order index is its place in `seats`
         }
         let round = self.rounds.last_mut().unwrap();
         round.state = RoundState::Rendering;
@@ -655,7 +735,7 @@ impl Session {
         round.mix = Some(wav);
         round.state = RoundState::Resolved;
         self.emit("round_resolved", json!({"n": n}));
-        let done = self.end_requested || self.config.rounds.is_some_and(|r| n >= r);
+        let done = self.end_requested || n >= self.config.rounds.unwrap_or(self.config.max_rounds());
         if done {
             self.phase = Phase::Ended;
             self.emit("session_ended", json!({}));
@@ -746,4 +826,32 @@ async fn render_song(shared: Shared, sid: String) {
             s.emit("song_ready", json!({}));
         }
     }
+}
+
+/// What makes two instruments the same sound: everything but the id, the display name and the piano-roll hint.
+pub fn sound_key(inst: &Instrument) -> String {
+    let mut i = inst.clone();
+    i.id.clear();
+    i.name = None;
+    i.piano_roll = false;
+    serde_json::to_string(&i).unwrap_or_default()
+}
+
+/// The sounds a part plays: one per track with at least one note, keyed by `sound_key` and by how many tracks before
+/// it in the part have the same sound (two tracks with one sound need two tracks in the combined scene). Must stay
+/// identical to `partSounds` in client/js/combine.js.
+pub fn part_sounds(o: &Orders) -> Vec<(String, usize)> {
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut out = Vec::new();
+    for lane in &o.lanes {
+        if !lane.steps.iter().any(|s| s.note.is_some()) {
+            continue;
+        }
+        let Some(inst) = o.instruments.iter().find(|i| i.id == lane.instrument) else { continue };
+        let key = sound_key(inst);
+        let k = seen.entry(key.clone()).or_insert(0);
+        out.push((key, *k));
+        *k += 1;
+    }
+    out
 }

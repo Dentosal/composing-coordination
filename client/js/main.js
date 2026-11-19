@@ -72,6 +72,7 @@ const FIELDS = [
   ['bpm', 'BPM', 112, 'number'],
   ['bars', 'Bars per loop', 4, 'number'],
   ['max_tracks', 'Tracks per player', 4, 'number'], // a track = one instrument + its pattern lane
+  ['max_sounds', 'Sounds per player (blank = 2 × tracks)', '', 'number'], // different instruments over the whole game
   ['rounds', 'Rounds (blank = until host ends)', '', 'number'],
   ['round_timer_secs', 'Round timer, seconds (blank = none)', '', 'number'],
 ];

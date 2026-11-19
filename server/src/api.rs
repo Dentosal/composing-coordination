@@ -42,11 +42,12 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/bpm", put(set_bpm))
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
         .route("/api/sessions/{id}/rounds/{n}/parts", get(round_parts))
+        .route("/api/sessions/{id}/song-parts", get(song_parts))
         .route("/api/sessions/{id}/song.wav", get(song))
         .route("/api/sessions/{id}/render", post(render_part))
         .route("/api/sessions/{id}/song-so-far.wav", get(song_so_far))
         .route("/api/sessions/{id}/events", get(events))
-        .layer(axum::extract::DefaultBodyLimit::max(4 * 1024 * 1024)) // 64 tracks with every row of a 256-bar song filled is about 1.8 MB
+        .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)) // a combined game scene: 64 tracks over 256 bars, every row filled, with effects
         .with_state(shared)
 }
 
@@ -215,6 +216,7 @@ async fn get_state(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMa
                 "seat_index": seat.index,
                 "eligible": cur.map_or(true, |r| seat.joined_round <= r.index),
                 "ready": cur.map_or(false, |r| r.ready.contains(&seat.id)),
+                "sounds": s.sounds_json(i),
                 "orders": orders,
             })
         }
@@ -245,7 +247,7 @@ async fn put_orders(
     let s = session_mut(&mut g, &id)?;
     let seat = seat_of(s, &h, &q)?;
     Ok(match s.put_orders(seat, orders)? {
-        Ok(()) => Json(json!({"ok": true})).into_response(),
+        Ok(()) => Json(json!({"ok": true, "sounds": s.sounds_json(seat)})).into_response(),
         Err(errors) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"ok": false, "errors": errors}))).into_response(),
     })
 }
@@ -407,6 +409,21 @@ async fn round_parts(State(sh): State<Shared>, Path((id, n)): Path<(String, u32)
         Some(r) => Ok(Json(r.played.iter().map(|(seat, orders)| json!({"seat": seat, "orders": orders})).collect::<Vec<_>>()).into_response()),
         None => err(StatusCode::NOT_FOUND, "round not resolved"),
     }
+}
+
+/// Every resolved round's parts, in order, with the players' names: what the browser needs to play the song so far
+/// and to build the game's combined scene. `[{n, parts: [{seat, orders}]}]` and `players: [{seat, name}]` (kicked
+/// players included: their rounds stay in the song).
+async fn song_parts(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMap, q: Q) -> Result<Json<Value>, ApiError> {
+    let g = sh.read().await;
+    let s = session(&g, &id)?;
+    any_auth(s, &h, &q)?;
+    let rounds: Vec<Value> = s.rounds.iter().filter(|r| r.state == RoundState::Resolved).map(|r| json!({
+        "n": r.index,
+        "parts": r.played.iter().map(|(seat, orders)| json!({"seat": seat, "orders": orders})).collect::<Vec<_>>(),
+    })).collect();
+    let players: Vec<Value> = s.seats.iter().map(|p| json!({"seat": p.index, "name": p.name})).collect();
+    Ok(Json(json!({"rounds": rounds, "players": players})))
 }
 
 async fn song(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMap, q: Q) -> Result<Response, ApiError> {

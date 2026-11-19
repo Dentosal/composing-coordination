@@ -14,6 +14,7 @@ import { sceneFile } from './scene.js';
 import { icon } from './icons.js';
 import { Spectrum } from './spectrum.js';
 import { saveNick, tidyNick, MAX_NICK } from './nick.js';
+import { SongDialog, downloadGameScene } from './song-dialog.js';
 
 /** Local date and time for file names: 20261119-1432. */
 const fileStamp = (d = new Date()) => {
@@ -110,6 +111,7 @@ export class Game {
   }
 
   destroy() {
+    this.closeRoundDialog();
     this.dead = true;
     this.spectrum?.destroy();
     if (this.onFullscreen) document.removeEventListener('fullscreenchange', this.onFullscreen);
@@ -156,7 +158,7 @@ export class Game {
       if (d.bpm != null) this.applyBpm(d.bpm);
     });
     on('round_opened', () => this.refresh().catch(() => {}));
-    on('round_resolved', (d) => this.loadMix(d.n));
+    on('round_resolved', (d) => { this.loadMix(d.n); this.showRoundDialog(d.n); });
     on('session_ended', () => this.refresh().catch(() => {}));
     on('song_ready', () => this.refresh().catch(() => {}));
     on('resync', () => this.refresh().catch(() => {}));
@@ -240,6 +242,10 @@ export class Game {
       if (r.ok) {
         this.errors = [];
         this.dirty = false;
+        if (r.sounds && this.st.you) {
+          this.st.you.sounds = r.sounds;
+          this.updateTop();
+        }
       } else {
         this.errors = r.errors;
       }
@@ -290,6 +296,7 @@ export class Game {
     this.updateCommit();
     this.updateLobby();
     this.updateEnd();
+    this.updateRoundDialog();
     this.updateErrors();
   }
 
@@ -323,6 +330,25 @@ export class Game {
     if (this.view !== 'lobby') return;
     this.refs.seats.textContent = String(this.st.seat_count);
     this.fillPlayers(this.refs.players, false);
+  }
+
+  /** A round has been played: the dialog with the song so far (and at the end of the game, its downloads). */
+  showRoundDialog(n) {
+    if (this.freeform) return;
+    this.songDlg ??= new SongDialog({
+      sid: this.sid, token: this.token, state: () => this.st, stamp: () => fileStamp(),
+      onListen: () => { if (this.playing) this.togglePlay(); }, // not both at once
+      onClose: () => { this.songDlg = null; },
+    });
+    this.songDlg.show(n);
+  }
+
+  updateRoundDialog() {
+    this.songDlg?.update();
+  }
+
+  closeRoundDialog() {
+    this.songDlg?.close();
   }
 
   /** A new player list: notice when the host has removed this player, or let them play in this round already. */
@@ -444,6 +470,7 @@ export class Game {
       r.ready = h('span.ready-count', { tabindex: 0 }, r.readyText, r.offline,
         h('div.players-pop', { role: 'tooltip' }, h('div.players-pop-title', 'Players'), r.readyList));
       r.nameChip = this.nameChip();
+      r.sounds = h('span.sounds-count', { title: 'Different sounds you have played in this game, of the most each player may use. Reusing one, from this round or an earlier one, is free; effects cost nothing.' });
       r.endBtn = this.host
         ? h('button.small', { onclick: async (e) => {
             if (!confirm('End the session after the current round resolves?')) return;
@@ -484,7 +511,7 @@ export class Game {
       () => this.downloadItems(), 'Download');
     r.top = free
       ? h('header.topbar', r.fsBtn, h('strong.mode-name', 'Freeform'), this.bpmField(), h('span.spacer'), r.exportBtn, r.help)
-      : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
+      : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, r.sounds, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
@@ -558,6 +585,12 @@ export class Game {
     const st = this.st;
     r.round.textContent = `Round ${st.round?.n ?? '–'}${st.config.rounds ? ` / ${st.config.rounds}` : ''}`;
     r.readyText.textContent = `ready ${st.ready_count} / ${st.eligible_count}`;
+    const snd = st.you?.sounds;
+    r.sounds.hidden = !snd;
+    if (snd) {
+      r.sounds.textContent = `sounds ${snd.used} / ${snd.budget}`;
+      r.sounds.classList.toggle('over', snd.used > snd.budget);
+    }
     const gone = (st.players ?? []).filter((p) => p.online === false).length;
     r.offline.textContent = gone ? `${gone} disconnected` : '';
     r.offline.hidden = !gone;
@@ -1017,7 +1050,13 @@ export class Game {
       body.append(
         h('p', 'The full song, all rounds back to back:'),
         h('audio', { controls: true, src: api.songUrl(this.sid, this.token) }),
-        h('p', h('a.button', { href: api.songUrl(this.sid, this.token, true), download: 'song.wav' }, 'Download song.wav')));
+        h('p.end-downloads', h('a.button', { href: api.songUrl(this.sid, this.token, true), download: 'song.wav' }, 'Download song.wav'),
+          h('button', { type: 'button', title: 'Every player\'s tracks over the whole game, to open in the freeform editor', onclick: async (e) => {
+            e.currentTarget.disabled = true;
+            const b = e.currentTarget;
+            try { await downloadGameScene(this.sid, this.token, this.st.config, fileStamp()); } catch (err) { alert(err.message); }
+            b.disabled = false;
+          } }, 'Download scene file')));
     } else {
       body.append(h('p.muted', 'Rendering the full song…'));
     }

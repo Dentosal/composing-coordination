@@ -59,6 +59,13 @@ export async function fetchRoundParts(sid, token, n) {
   return r.json();
 }
 
+/** Every played round's parts and the players' names: {rounds: [{n, parts: [{seat, orders}]}], players: [{seat, name}]}. */
+export async function fetchSongParts(sid, token) {
+  const r = await fetch(`/api/sessions/${sid}/song-parts`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`the song's parts: ${r.status}`);
+  return r.json();
+}
+
 export async function fetchMix(sid, token, n) {
   const r = await fetch(`/api/sessions/${sid}/rounds/${n}/mix.wav?token=${token}`);
   if (!r.ok) throw new Error(`mix ${n}: ${r.status}`);

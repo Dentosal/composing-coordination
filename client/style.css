@@ -462,3 +462,21 @@ input[type=range] { accent-color: var(--accent); }
 .roll-len-btn:disabled { opacity: .35; cursor: default; }
 
 /* Importing a scene on the start page */
+
+/* The end-of-round dialog: the song so far, and at the end of the game its downloads. */
+dialog.round-dialog { width: min(520px, calc(100vw - 32px)); box-sizing: border-box; padding: 18px 20px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0, 0, 0, .5); }
+dialog.round-dialog::backdrop { background: rgba(0, 0, 0, .55); }
+dialog.round-dialog audio { display: block; width: 100%; margin: 4px 0 12px; }
+dialog.round-dialog audio[hidden] { display: none; }
+.round-downloads { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.round-downloads:empty { display: none; }
+.round-downloads button { display: inline-flex; align-items: center; gap: 6px; }
+.round-close { display: flex; justify-content: flex-end; margin: 4px 0 0; }
+.song-player { display: flex; align-items: center; gap: 10px; margin: 4px 0 12px; }
+.song-player[hidden] { display: none; }
+.song-play { flex: none; min-width: 5.5em; }
+.song-seek { flex: 1; min-width: 0; accent-color: var(--accent); }
+.song-time { flex: none; font-variant-numeric: tabular-nums; font-size: .85rem; }
+.end-downloads { display: flex; flex-wrap: wrap; gap: 8px; }
+.sounds-count { font-size: .9rem; }
+.sounds-count.over { color: var(--bad); }

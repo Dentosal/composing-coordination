@@ -2,7 +2,7 @@
 // header's export button and read back on the start page to open it in a fresh freeform session.
 
 export const SCENE_FORMAT = 'band-game-tracks';
-const MAX_BYTES = 1024 * 1024; // the server takes bodies up to 1 MiB
+const MAX_BYTES = 16 * 1024 * 1024; // the server takes bodies up to 16 MiB (a whole game's scene can be several)
 const MAX_BARS = 256; // the longest freeform song
 const ROWS_PER_BAR = 16; // every session's (the server's ROWS_PER_BAR)
 
