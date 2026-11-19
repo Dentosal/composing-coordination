@@ -155,6 +155,9 @@ pub struct Seat {
     /// Open event streams (browser tabs) of this seat. With none for longer than `OFFLINE_GRACE` the player shows as
     /// disconnected.
     pub connections: u32,
+    /// Removed by the host: the token no longer works and the seat plays no more rounds. The seat stays in the list so
+    /// the others keep their join-order index (which seeds their noise); its earlier rounds stay in the song.
+    pub kicked: bool,
     /// Since when the seat has had no event stream (None: connected now). Joining starts it: the page has until the
     /// grace period ends to connect.
     pub left_at: Option<Instant>,
@@ -165,6 +168,11 @@ pub struct Seat {
 pub const OFFLINE_GRACE: Duration = Duration::from_secs(5);
 
 impl Seat {
+    /// Whether this seat plays in round `n`.
+    pub fn plays_in(&self, n: u32) -> bool {
+        !self.kicked && self.joined_round <= n
+    }
+
     /// Whether the player counts as here: a tab is open, or the last one closed (or the seat was taken) only moments ago.
     pub fn online(&self) -> bool {
         self.connections > 0 || self.left_at.map_or(true, |t| t.elapsed() < OFFLINE_GRACE)
@@ -267,7 +275,7 @@ impl Session {
         if token == self.host_token {
             return Some(Who::Host);
         }
-        self.seats.iter().position(|s| s.token == token).map(Who::Seat)
+        self.seats.iter().position(|s| s.token == token && !s.kicked).map(Who::Seat)
     }
 
     pub fn current(&self) -> Option<&Round> {
@@ -275,11 +283,16 @@ impl Session {
     }
 
     pub fn eligible_count(&self, n: u32) -> usize {
-        self.seats.iter().filter(|s| s.joined_round <= n).count()
+        self.seats.iter().filter(|s| s.plays_in(n)).count()
+    }
+
+    /// Seats taken, not counting kicked players.
+    pub fn seat_count(&self) -> usize {
+        self.seats.iter().filter(|s| !s.kicked).count()
     }
 
     pub fn emit_seat_count(&self) {
-        self.emit("seat_count", json!({"count": self.seats.len()}));
+        self.emit("seat_count", json!({"count": self.seat_count()}));
         self.emit_players();
     }
 
@@ -294,11 +307,11 @@ impl Session {
     /// parts and `you.seat_index` carry); `ready` and `eligible` are about the current round (false and true in the lobby).
     pub fn players(&self) -> Value {
         let cur = self.current();
-        Value::Array(self.seats.iter().map(|s| json!({
+        Value::Array(self.seats.iter().filter(|s| !s.kicked).map(|s| json!({
             "seat": s.index,
             "name": s.name,
             "ready": cur.map_or(false, |r| r.ready.contains(&s.id)),
-            "eligible": cur.map_or(true, |r| s.joined_round <= r.index),
+            "eligible": cur.map_or(true, |r| s.plays_in(r.index)),
             "online": s.online(),
         })).collect())
     }
@@ -364,6 +377,7 @@ impl Session {
             index: self.seats.len() as u32,
             name,
             connections: 0,
+            kicked: false,
             left_at: Some(Instant::now()),
         };
         let token = seat.token;
@@ -485,6 +499,51 @@ impl Session {
         Ok(())
     }
 
+    /// The seat with join-order index `seat`, unless it has been kicked.
+    fn active_seat(&self, seat: u32) -> Result<usize, ApiError> {
+        match self.seats.get(seat as usize) {
+            Some(s) if !s.kicked => Ok(seat as usize),
+            _ => err(StatusCode::NOT_FOUND, "no such player"),
+        }
+    }
+
+    /// The host removes a player: their token stops working, their draft for the open round is dropped and they play
+    /// no more rounds. Returns the open round's index when everyone left is now ready (the caller resolves it).
+    pub fn kick(&mut self, seat: u32) -> Result<Option<u32>, ApiError> {
+        if self.config.freeform {
+            return err(StatusCode::CONFLICT, "a freeform session has nobody to remove");
+        }
+        let i = self.active_seat(seat)?;
+        let id = self.seats[i].id;
+        self.seats[i].kicked = true;
+        let mut open = None;
+        if let Some(r) = self.rounds.last_mut() {
+            if r.state == RoundState::Open {
+                r.orders.remove(&id);
+                r.ready.remove(&id);
+                open = Some(r.index);
+            }
+        }
+        self.emit_seat_count();
+        self.emit_ready_count();
+        Ok(open.filter(|&n| self.all_ready(n)))
+    }
+
+    /// The host lets a player who would join next round play in the open round already.
+    pub fn admit(&mut self, seat: u32) -> Result<(), ApiError> {
+        let i = self.active_seat(seat)?;
+        let n = match self.rounds.last() {
+            Some(r) if r.state == RoundState::Open => r.index,
+            _ => return err(StatusCode::CONFLICT, "no open round to join"),
+        };
+        if self.seats[i].joined_round <= n {
+            return err(StatusCode::CONFLICT, "the player is already in this round");
+        }
+        self.seats[i].joined_round = n;
+        self.emit_ready_count();
+        Ok(())
+    }
+
     /// Returns true when the round should now resolve.
     pub fn set_ready(&mut self, seat_idx: usize, ready: bool) -> Result<bool, ApiError> {
         let id = self.seats[seat_idx].id;
@@ -502,7 +561,7 @@ impl Session {
         if r.index != n || r.state != RoundState::Open {
             return false;
         }
-        let eligible: Vec<_> = self.seats.iter().filter(|s| s.joined_round <= n).collect();
+        let eligible: Vec<_> = self.seats.iter().filter(|s| s.plays_in(n)).collect();
         !eligible.is_empty() && eligible.iter().all(|s| r.ready.contains(&s.id))
     }
 
@@ -518,7 +577,7 @@ impl Session {
         if !ok {
             return None;
         }
-        let eligible: Vec<Seat> = self.seats.iter().filter(|s| s.joined_round <= n).cloned().collect();
+        let eligible: Vec<Seat> = self.seats.iter().filter(|s| s.plays_in(n)).cloned().collect();
         let mut filled: Vec<(SeatId, Orders)> = Vec::new();
         {
             let round = self.rounds.last().unwrap();

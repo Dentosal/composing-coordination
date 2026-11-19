@@ -39,6 +39,7 @@ export class Game {
     this.seat = o.seat;
     this.host = o.host;
     this.onLeave = o.onLeave;
+    this.onKicked = o.onKicked;
     this.token = o.seat || o.host;
     this.st = null;
     this.orders = { instruments: [], lanes: [] };
@@ -129,6 +130,7 @@ export class Game {
 
   async refresh(first = false) {
     const st = await api.getState(this.sid, this.token);
+    if (this.dead) return; // removed from the session (or left) while this was on its way
     this.st = st;
     if (first && st.you?.orders) {
       this.orders = { instruments: st.you.orders.instruments ?? [], lanes: st.you.orders.lanes ?? [] };
@@ -145,7 +147,7 @@ export class Game {
     const on = (name, fn) => es.addEventListener(name, (e) => fn(JSON.parse(e.data || '{}')));
     on('seat_count', (d) => { this.st.seat_count = d.count; this.updateTop(); this.updateLobby(); });
     on('ready_count', (d) => { this.st.ready_count = d.ready; this.st.eligible_count = d.total; this.updateTop(); });
-    on('players', (d) => { this.st.players = d.players; this.updateTop(); this.updateLobby(); });
+    on('players', (d) => this.applyPlayers(d.players));
     on('config', (d) => this.applyBars(d.bars)); // freeform: the song's length changed (another tab, or this one)
     on('round_opened', () => this.refresh().catch(() => {}));
     on('round_resolved', (d) => this.loadMix(d.n));
@@ -317,6 +319,45 @@ export class Game {
     this.fillPlayers(this.refs.players, false);
   }
 
+  /** A new player list: notice when the host has removed this player, or let them play in this round already. */
+  applyPlayers(players) {
+    this.st.players = players;
+    const me = this.st.you && players.find((p) => p.seat === this.st.you.seat_index);
+    if (this.st.you && !me) return this.removed();
+    if (me && me.eligible !== this.st.you.eligible) this.refresh().catch(() => {}); // admitted: the round is ours to edit now
+    this.updateTop();
+    this.updateLobby();
+  }
+
+  /** The host has removed this player: stop everything and say so. */
+  removed() {
+    this.destroy();
+    this.onKicked?.();
+    this.view = 'removed';
+    clear(this.root).append(h('div.card',
+      h('h2', 'Removed from the session'),
+      h('p', 'The host has removed you from this session. You can take a new seat with the session link.'),
+      h('button', { onclick: () => this.onLeave() }, 'Back to start')));
+  }
+
+  /** The host's buttons for player `p`'s row: "Join now" for one waiting for the next round, and "Kick". */
+  hostActions(p, state) {
+    if (!this.host || p.seat === this.st.you?.seat_index) return null;
+    const act = async (e, fn) => {
+      e.currentTarget.disabled = true;
+      try { await fn(); } catch (err) { alert(err.message); }
+    };
+    const join = state === 'next' && this.st.round?.state === 'open'
+      ? h('button.small', { type: 'button', title: `Let ${p.name} play in this round instead of waiting for the next one`,
+          onclick: (e) => act(e, () => api.admit(this.sid, this.host, p.seat)) }, 'Join now')
+      : null;
+    const kick = h('button.small.kick', { type: 'button', title: `Remove ${p.name} from the session`, onclick: (e) => {
+      if (p.online !== false && !confirm(`Kick ${p.name}? They are still connected. Their part for this round is dropped and they leave the session.`)) return;
+      act(e, () => api.kick(this.sid, this.host, p.seat));
+    } }, 'Kick');
+    return h('span.player-actions', join, kick);
+  }
+
   /**
    * List the players in `ul`, this one marked "(you)", and those whose page has gone away marked disconnected; with
    * `round`, each one's state in the current round: ready, still writing, or joining next round.
@@ -332,7 +373,8 @@ export class Game {
         mark ? h('span.mark', { 'aria-hidden': 'true' }, mark) : null,
         h('span.who', p.name, p.seat === mine ? h('span.muted', ' (you)') : null),
         p.online === false ? h('span.offline-tag', { title: 'Their page is closed or has lost its connection' }, 'disconnected') : null,
-        note ? h('span.note', note) : null);
+        note ? h('span.note', note) : null,
+        this.hostActions(p, state));
       li.classList.toggle('offline', p.online === false);
       ul.append(li);
     }

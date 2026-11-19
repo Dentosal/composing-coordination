@@ -34,6 +34,10 @@ export const end = (sid, token) => req('POST', `/${sid}/end`, { token });
 export const getState = (sid, token) => req('GET', `/${sid}/state`, { token });
 /** Freeform sessions: change the number of bars. */
 export const setBars = (sid, token, bars) => req('PUT', `/${sid}/bars`, { token, body: { bars } });
+/** Host: remove the player with join-order index `seat` from the session. */
+export const kick = (sid, host, seat) => req('POST', `/${sid}/players/${seat}/kick`, { token: host });
+/** Host: let the player with join-order index `seat`, waiting for the next round, play in the open round. */
+export const admit = (sid, host, seat) => req('POST', `/${sid}/players/${seat}/admit`, { token: host });
 export const setReady = (sid, token, ready) => req('POST', `/${sid}/ready`, { token, body: { ready } });
 
 /** @returns {Promise<{ok:true}|{ok:false,errors:{path:string,message:string}[]}>} */

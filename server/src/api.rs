@@ -36,6 +36,8 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/orders", put(put_orders))
         .route("/api/sessions/{id}/ready", post(ready))
         .route("/api/sessions/{id}/name", put(set_name))
+        .route("/api/sessions/{id}/players/{seat}/kick", post(kick))
+        .route("/api/sessions/{id}/players/{seat}/admit", post(admit))
         .route("/api/sessions/{id}/bars", put(set_bars))
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
         .route("/api/sessions/{id}/rounds/{n}/parts", get(round_parts))
@@ -97,7 +99,7 @@ async fn info(State(sh): State<Shared>, Path(id): Path<String>) -> Result<Json<V
     let s = session(&g, &id)?;
     Ok(Json(json!({
         "config": s.config, "phase": s.phase,
-        "seat_count": s.seats.len(),
+        "seat_count": s.seat_count(),
     })))
 }
 
@@ -138,6 +140,33 @@ async fn start(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMap, q
         return err(StatusCode::FORBIDDEN, "host only");
     }
     s.start(&sh)?;
+    Ok(Json(json!({"ok": true})))
+}
+
+/// Host: remove the player with join-order index `seat` (as in the player list).
+async fn kick(State(sh): State<Shared>, Path((id, seat)): Path<(String, u32)>, h: HeaderMap, q: Q) -> Result<Json<Value>, ApiError> {
+    let resolve = {
+        let mut g = sh.write().await;
+        let s = session_mut(&mut g, &id)?;
+        if !matches!(any_auth(s, &h, &q)?, Who::Host) {
+            return err(StatusCode::FORBIDDEN, "host only");
+        }
+        s.kick(seat)?
+    };
+    if let Some(n) = resolve {
+        tokio::spawn(try_resolve(sh.clone(), id, n, false));
+    }
+    Ok(Json(json!({"ok": true})))
+}
+
+/// Host: let the player with join-order index `seat`, waiting for the next round, play in the open round now.
+async fn admit(State(sh): State<Shared>, Path((id, seat)): Path<(String, u32)>, h: HeaderMap, q: Q) -> Result<Json<Value>, ApiError> {
+    let mut g = sh.write().await;
+    let s = session_mut(&mut g, &id)?;
+    if !matches!(any_auth(s, &h, &q)?, Who::Host) {
+        return err(StatusCode::FORBIDDEN, "host only");
+    }
+    s.admit(seat)?;
     Ok(Json(json!({"ok": true})))
 }
 
@@ -189,9 +218,9 @@ async fn get_state(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMa
         "phase": s.phase,
         "round": round,
         "latest_mix": latest_mix,
-        "seat_count": s.seats.len(),
+        "seat_count": s.seat_count(),
         "ready_count": cur.map_or(0, |r| r.ready.len()),
-        "eligible_count": cur.map_or(s.seats.len(), |r| s.eligible_count(r.index)),
+        "eligible_count": cur.map_or(s.seat_count(), |r| s.eligible_count(r.index)),
         "players": s.players(),
         "song_ready": s.song.is_some(),
         "end_requested": s.end_requested,

@@ -55,6 +55,11 @@ async function route() {
 function enter(sid, tokens) {
   game = new Game(root, {
     sid, seat: tokens.seat, host: tokens.host,
+    onKicked: () => { // the seat token is dead: the link (and a reload) leads to the join screen again
+      const t = { host: tokens.host };
+      saveTokens(sid, t);
+      setHash(sid, t);
+    },
     onLeave: () => { history.replaceState(null, '', location.pathname); route(); },
   });
   game.start();
