@@ -78,7 +78,8 @@ With `Wait` and no timer, a round stays open until everyone is ready. That is th
 
 ### HTTP API
 
-Auth: `Authorization: Bearer <token>` (seat token or host token).
+Auth: `X-Session-Token: <token>` (seat token or host token). `Authorization: Bearer <token>` and `?token=` work too;
+the client uses its own header so that `Authorization` stays free for a login in front of the server (basic auth in nginx).
 
 | Method & path | Who | Purpose |
 |---|---|---|

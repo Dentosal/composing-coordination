@@ -1,8 +1,12 @@
 // Thin client for the server API. Tokens are passed explicitly.
 
+// The session token has a header of its own: `Authorization` stays free for a login in front of the server (HTTP basic
+// auth in a reverse proxy), which the browser sends with every request but which an explicit Authorization would replace.
+const auth = (token) => ({ 'X-Session-Token': token });
+
 async function req(method, path, { token, body } = {}) {
   const headers = {};
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) Object.assign(headers, auth(token));
   if (body !== undefined) headers['content-type'] = 'application/json';
   const r = await fetch(`/api/sessions${path}`, {
     method,
@@ -56,14 +60,14 @@ export async function putOrders(sid, token, orders) {
 
 /** The parts played in resolved round `n`: [{seat, orders}], what its band mix was rendered from. */
 export async function fetchRoundParts(sid, token, n) {
-  const r = await fetch(`/api/sessions/${sid}/rounds/${n}/parts`, { headers: { Authorization: `Bearer ${token}` } });
+  const r = await fetch(`/api/sessions/${sid}/rounds/${n}/parts`, { headers: auth(token) });
   if (!r.ok) throw new Error(`parts of round ${n}: ${r.status}`);
   return r.json();
 }
 
 /** Every played round's parts and the players' names: {rounds: [{n, parts: [{seat, orders}]}], players: [{seat, name}]}. */
 export async function fetchSongParts(sid, token) {
-  const r = await fetch(`/api/sessions/${sid}/song-parts`, { headers: { Authorization: `Bearer ${token}` } });
+  const r = await fetch(`/api/sessions/${sid}/song-parts`, { headers: auth(token) });
   if (!r.ok) throw new Error(`the song's parts: ${r.status}`);
   return r.json();
 }
@@ -89,14 +93,14 @@ async function wavOf(r) {
 export async function fetchRender(sid, token, orders) {
   return wavOf(await fetch(`/api/sessions/${sid}/render`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    headers: { ...auth(token), 'content-type': 'application/json' },
     body: JSON.stringify(orders),
   }));
 }
 
 /** Every round played so far, back to back, as a song file. Resolves to WAV bytes. */
 export async function fetchSongSoFar(sid, token) {
-  return wavOf(await fetch(`/api/sessions/${sid}/song-so-far.wav`, { headers: { Authorization: `Bearer ${token}` } }));
+  return wavOf(await fetch(`/api/sessions/${sid}/song-so-far.wav`, { headers: auth(token) }));
 }
 
 export const songUrl = (sid, token, download = false) =>

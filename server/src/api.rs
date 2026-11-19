@@ -52,12 +52,20 @@ pub fn router(shared: Shared) -> Router {
         .with_state(shared)
 }
 
+/// The session token: `X-Session-Token` (what the client sends, leaving `Authorization` to a login in front of the
+/// server, such as HTTP basic auth in a reverse proxy), `Authorization: Bearer`, or `?token=` (links and EventSource).
 fn token_from(headers: &HeaderMap, q: &HashMap<String, String>) -> Result<Uuid, ApiError> {
     let raw = headers
-        .get(header::AUTHORIZATION)
+        .get("x-session-token")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
         .map(str::to_string)
+        .or_else(|| {
+            headers
+                .get(header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "))
+                .map(str::to_string)
+        })
         .or_else(|| q.get("token").cloned());
     raw.and_then(|t| Uuid::parse_str(t.trim()).ok())
         .ok_or(ApiError(StatusCode::UNAUTHORIZED, "missing or invalid token".into()))
