@@ -35,9 +35,8 @@ fn render_left(o: &Orders) -> Vec<f32> {
 /// How bright a stretch of the render is: the energy of its first difference relative to its level (a sawtooth's sharp edge
 /// is all high harmonics, so opening the filter raises it a lot).
 fn brightness(s: &[f32], from_row: f64, to_row: f64) -> f64 {
-    // The limiter delays everything by about 8 ms: shift the window by 15 ms and stay clear of the end.
-    let a = (from_row * ROW_SECS * SR) as usize + 720;
-    let b = ((to_row * ROW_SECS * SR) as usize + 720).min(s.len());
+    let a = (from_row * ROW_SECS * SR) as usize;
+    let b = ((to_row * ROW_SECS * SR) as usize).min(s.len());
     let w = &s[a..b];
     let rms = |v: &mut dyn Iterator<Item = f64>| -> f64 {
         let (sum, n) = v.fold((0.0, 0usize), |(s, n), x| (s + x * x, n + 1));

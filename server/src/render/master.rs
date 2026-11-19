@@ -14,7 +14,27 @@ pub const DELAY_FEEDBACK: f32 = 0.4;
 pub const DELAY_LP_HZ: f32 = 3000.0;
 pub const DELAY_RETURN: f32 = 0.7;
 pub const REVERB_RETURN: f32 = 0.8;
-/// Trim after the limiter (which has automatic makeup gain). A lone instrument at velocity 100 peaks around -13 dBFS;
+/// The limiter: a static curve, linear up to the threshold, then compressed at the ratio, with makeup gain (+4.3 dB).
+/// A curve has no attack, release or look-ahead, so nothing is delayed. Must stay identical to the LIMIT_ constants and
+/// `limiterCurve` in client/js/voice.js.
+pub const LIMIT_THRESHOLD: f64 = 0.5; // -6 dB
+pub const LIMIT_RATIO: f64 = 20.0;
+pub const LIMIT_MAKEUP: f64 = 1.64;
+pub const LIMIT_CURVE_LEN: usize = 4096;
+
+/// The limiter's waveshaper curve (computed in f64, stored as f32, as the browser does).
+pub fn limiter_curve() -> Vec<f32> {
+    (0..LIMIT_CURVE_LEN)
+        .map(|i| {
+            let x = (2 * i) as f64 / (LIMIT_CURVE_LEN - 1) as f64 - 1.0;
+            let a = x.abs();
+            let y = if a <= LIMIT_THRESHOLD { a } else { LIMIT_THRESHOLD * (a / LIMIT_THRESHOLD).powf(1.0 / LIMIT_RATIO) };
+            (x.signum() * y * LIMIT_MAKEUP) as f32
+        })
+        .collect()
+}
+
+/// Trim after the limiter (which has makeup gain). A lone instrument at velocity 100 peaks around -13 dBFS;
 /// eight seats stacked on the same beats at full velocity still stay just under 0 dBFS (0.8 clipped there).
 pub const OUTPUT_TRIM: f32 = 0.7;
 
@@ -33,13 +53,9 @@ impl Master {
         let delay_in = gain(ctx, 1.0);
         let reverb_in = gain(ctx, 1.0);
 
-        // Limiter.
-        let limiter = ctx.create_dynamics_compressor();
-        limiter.threshold().set_value(-6.0);
-        limiter.knee().set_value(0.0);
-        limiter.ratio().set_value(20.0);
-        limiter.attack().set_value(0.003);
-        limiter.release().set_value(0.1);
+        // Limiter: a static curve (see `limiter_curve`).
+        let mut limiter = ctx.create_wave_shaper();
+        limiter.set_curve(limiter_curve());
         let trim = gain(ctx, OUTPUT_TRIM);
         limiter.connect(&trim);
         trim.connect(&ctx.destination());

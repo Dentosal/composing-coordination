@@ -103,12 +103,12 @@ serde handles shape. Semantic checks: limits from config, every referenced node/
 
 The same JSON must produce (nearly) the same audio in the browser and on the server. Rules:
 
-1. **Map orders 1:1 onto Web Audio primitives** (`OscillatorNode`, `BiquadFilterNode`, `GainNode`, `DelayNode`, `WaveShaperNode`, `ConvolverNode`, `DynamicsCompressorNode`, `AudioBufferSourceNode`). The JS renderer (`client/js/render.js`) and the Rust renderer (`server/src/render/`) are line-by-line ports of each other. Keep them structurally parallel.
+1. **Map orders 1:1 onto Web Audio primitives** (`OscillatorNode`, `BiquadFilterNode`, `GainNode`, `DelayNode`, `WaveShaperNode`, `ConvolverNode`, `AudioBufferSourceNode`). The JS renderer (`client/js/render.js`) and the Rust renderer (`server/src/render/`) are line-by-line ports of each other. Keep them structurally parallel.
 2. **No Transport.** Precompute every note's start time from row index, BPM and rows per bar, and schedule everything up front in an `OfflineAudioContext`.
 3. **Voices:** instantiate the instrument graph once per note, schedule start/stop, let it be collected afterwards.
 4. **Envelopes:** ADSR via AudioParam automation (`setValueAtTime`, `linearRampToValueAtTime`, `setTargetAtTime`). Implement identically on both sides.
 5. **Noise and anything random:** generated into `AudioBuffer`s from a seeded PRNG (mulberry32 or xorshift32, implemented identically in `prng.rs` and `prng.js`), seeded from `(session seed, seat index, instrument id, node id)`.
-6. **Master chain:** per-seat gain → shared send to delay + reverb (convolver with an IR generated from the seeded PRNG) → limiter (`DynamicsCompressorNode` with a fast attack and high ratio) → output. No per-player loudness rule in the MVP.
+6. **Master chain:** per-seat gain → shared send to delay + reverb (convolver with an IR generated from the seeded PRNG) → limiter (a `WaveShaperNode` with a static curve: -6 dB threshold, ratio 20, makeup gain; no look-ahead, so no delay) → output. No per-player loudness rule in the MVP.
 7. **Seamless loops:** render each round as two consecutive loops and keep the second, so reverb and delay tails wrap into the loop start.
 8. **Output:** 48 kHz stereo, 16-bit WAV.
 

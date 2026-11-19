@@ -17,16 +17,17 @@ const DELAY_LP_HZ = 3000;
 const DELAY_RETURN = 0.7;
 const REVERB_RETURN = 0.8;
 const OUTPUT_TRIM = 0.7; // see OUTPUT_TRIM in server/src/render/master.rs
-// The server's limiter is a DynamicsCompressor (threshold -6 dB, ratio 20) whose automatic makeup gain works out to
-// roughly +4 dB for the sounds this game makes. Browsers' own DynamicsCompressor implementations differ a lot from
-// that crate's (quiet transients come out up to 12 dB lower), so the live master uses a static curve with the same
-// threshold, ratio and makeup instead. Measured against the server render: see tools/parity/run.sh.
+// The master limiter: a static curve, linear up to the threshold, compressed at the ratio above it, with makeup gain.
+// The server uses the same curve (limiter_curve in server/src/render/master.rs; checked against
+// server/tests/fixtures/limiter.json). A curve has no look-ahead, so nothing is delayed. (It replaced a
+// DynamicsCompressor on the server, whose look-ahead made every server render 8 ms late, and which browsers'
+// compressors could not match.)
 const LIMIT_THRESHOLD = 0.5; // -6 dB
 const LIMIT_RATIO = 20;
 const LIMIT_MAKEUP = 1.64; // +4.3 dB
 const LIMIT_CURVE_LEN = 4096;
 
-function limiterCurve() {
+export function limiterCurve() {
   const c = new Float32Array(LIMIT_CURVE_LEN);
   for (let i = 0; i < LIMIT_CURVE_LEN; i++) {
     const x = (2 * i) / (LIMIT_CURVE_LEN - 1) - 1;

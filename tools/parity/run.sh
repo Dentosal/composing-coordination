@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Parity check: renders one note of every preset with the Rust renderer (--raw) and with the browser voices in
 # client/js/voice.js, and compares them (overall level, loudness envelope, spectrum, cross-correlation).
-# Expect corr ~1.00 and a level difference within about 1 dB. The Rust output is ~8 ms later (compressor lookahead).
+# Expect corr ~1.00, lag 0 and a level difference within about 1 dB.
 # One known exception: a sawtooth or square LFO driving the pitch (the arcade preset) gives a low corr and band differences of several dB,
 # although the loudness envelope agrees. Cause (measured): the browser's built-in sawtooth and square are band-limited and peak at about
 # 0.93, where the server's reach 1.0, so such an LFO sweeps the pitch about 7% less deeply in the browser; the difference accumulates into

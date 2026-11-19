@@ -397,3 +397,11 @@ test('waveshaper position: after the filters by default; in the middle it sits b
   const plain = defaultPatch();
   assert.equal(buildInstrument('x', plain).nodes.some((n) => n.type === 'shaper'), false);
 });
+
+test('the master limiter curve matches the server (shared fixture)', async () => {
+  const { limiterCurve } = await import('./voice.js');
+  const { len, pts } = JSON.parse(readFileSync(new URL('../../server/tests/fixtures/limiter.json', import.meta.url)));
+  const c = limiterCurve();
+  assert.equal(c.length, len);
+  for (const [i, want] of pts) assert.equal(c[i], want, `at ${i}`);
+});

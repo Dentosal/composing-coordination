@@ -46,7 +46,7 @@ fn crossings(s: &[f32]) -> usize {
 fn volume_zero_silences_its_rows_and_half_volume_halves_them() {
     let secs = 0.125; // a row at 120 bpm, 16 rows per bar
     let sr = 48000.0;
-    // The limiter delays everything by about 8 ms, so skip the first 15 ms of a row (the previous row's tail).
+    // Skip the first 15 ms of a row, where the level is still settling from the previous row.
     let seg = |rows: std::ops::Range<usize>, s: &[f32]| s[(rows.start as f64 * secs * sr) as usize + 720..(rows.end as f64 * secs * sr) as usize - 200].to_vec();
     let plain = render_with(vec![]);
     let quiet = render_with(vec![fx_cell(4, Some(0.0), None), fx_cell(5, Some(0.5), None)]);
@@ -126,7 +126,7 @@ fn retrigger_restarts_the_note() {
     let plain = render_note(96, vec![]);
     let re = render_note(96, vec![with(2, |c| c.retrig = Some(2))]); // restarts at ticks 2 and 4 of row 2
     // The old voice is silenced at the instant of a restart and the new one fades in, so the level dips there
-    // (the limiter delays everything by about 8 ms). A plain note has no such dip.
+    // A plain note has no such dip.
     let restart = (2.0 + 2.0 / 6.0) * secs;
     let (from, to) = (restart, restart + 0.03);
     let steady = min_window_rms(&plain, from, to);
