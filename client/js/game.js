@@ -84,6 +84,19 @@ export class Game {
   }
 
   async start() {
+    // Space plays and stops from anywhere on the game screen, unless it is typing into a field, something else has
+    // already used it (the beat grid, a hold-to-preview button) or a dialog is open over the page.
+    this.onSpaceKey = (e) => {
+      if (e.key !== ' ' || e.repeat || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (this.view !== 'game' || this.dead) return;
+      const t = e.target;
+      const typing = t.isContentEditable || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'
+        || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit', 'reset', 'color'].includes(t.type));
+      if (typing || document.querySelector('dialog[open]:modal')) return;
+      e.preventDefault(); // not also a click on the focused button
+      this.togglePlay();
+    };
+    document.addEventListener('keydown', this.onSpaceKey);
     this.presets = await loadPresets();
     try {
       await this.refresh(true);
@@ -115,6 +128,7 @@ export class Game {
     this.dead = true;
     this.spectrum?.destroy();
     if (this.onFullscreen) document.removeEventListener('fullscreenchange', this.onFullscreen);
+    if (this.onSpaceKey) document.removeEventListener('keydown', this.onSpaceKey);
     this.es?.close();
     clearInterval(this.tickT);
     clearTimeout(this.saveT);
