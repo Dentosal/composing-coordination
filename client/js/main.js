@@ -160,7 +160,7 @@ function showHome() {
   inputs.timeout_policy = h('select', { name: 'timeout_policy' },
     h('option', { value: 'Wait' }, 'Wait for everyone'),
     h('option', { value: 'RepeatLast' }, 'Repeat last orders on timeout'));
-  const timeoutRow = h('label', h('span', 'When the timer runs out'), inputs.timeout_policy);
+  const timeoutRow = h('label.wide-select', h('span', 'When the timer runs out'), inputs.timeout_policy);
   gameOnly.push(timeoutRow);
   form.append(timeoutRow);
 
