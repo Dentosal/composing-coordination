@@ -501,3 +501,9 @@ dialog.round-dialog audio[hidden] { display: none; }
 .sound-row .sound-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sound-row .sound-rounds { flex: none; font-size: .78rem; }
 .sound-row button.small { padding: 1px 8px; font-size: .78rem; }
+.listen-mode { display: inline-flex; }
+.listen-mode[hidden] { display: none; }
+.listen-mode button { border-radius: 0; margin-left: -1px; }
+.listen-mode button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.listen-mode button:last-child { border-radius: 0 6px 6px 0; }
+.listen-mode button.active { background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); border-color: var(--accent); position: relative; }

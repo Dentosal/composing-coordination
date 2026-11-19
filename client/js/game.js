@@ -201,6 +201,7 @@ export class Game {
 
   /** No band any more: the only round played was voted down. */
   clearMix() {
+    if (!this.previewOn) this.togglePreview(); // with no band, your own part is all there is to hear
     this.mixRound = null;
     this.mixWanted = null;
     this.band = null;
@@ -551,7 +552,7 @@ export class Game {
         'Every round, each player writes a short looping part. When everyone has committed, the parts are mixed into one band loop that plays under the next round.',
         h('ul', h('li', 'Each row of the track roll is one instrument. Click a track to shape its sound in the panel above, and place notes in its cells.'),
           h('li', 'Drag across the bar numbers to loop a section while you work.'),
-          h('li', 'The footer plays your draft, optionally over the previous round.'),
+          h('li', 'The footer plays your draft over the last round\'s band, your draft alone, or the last round as it was played.'),
           h('li', 'Commit & ready sends your part. The round ends when everyone is ready.'),
           h('li', 'Then everyone hears the song so far and votes, in secret, on keeping the round. It takes everyone\'s yes: otherwise the round is played again, up to the attempts the game allows (the last attempt is kept as it is).'),
           h('li', 'The download menu in the header saves the song so far or your own part as audio, or your patches, notes and effects as one scene file.')),
@@ -573,17 +574,19 @@ export class Game {
       : h('header.topbar', r.fsBtn, r.round, r.timer, r.voteBtn, r.ready, r.seats, r.sounds, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
-    // A game's own part can be heard over the band or left out; freeform has nothing but your own part, always on.
+    // What a game plays (once there is a band, the last round kept): the band with your draft in place of your own part,
+    // your draft alone, or the last round as it was played. Freeform has nothing but your own part.
     if (free) this.previewOn = true;
-    else r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
-    if (!free) { // the previous round's mix: a game has one, a freeform session does not
-      r.prevChk = h('input', { type: 'checkbox', checked: this.playMix, onchange: (e) => this.setPlayMix(e.target.checked) });
-      r.prevLbl = h('label.muted', {}, r.prevChk, ' Previous round');
+    else {
+      const mode = (key, label, title) => h('button', { type: 'button', 'data-mode': key, title, onclick: () => this.setListen(key) }, label);
+      r.listen = h('div.listen-mode', { role: 'group', 'aria-label': 'What to play' },
+        mode('both', 'Band + my part', 'The last round\'s band, with your draft in place of your part'),
+        mode('mine', 'My part only', 'Just your draft'),
+        mode('band', 'Last round', 'The last round as it was played, your old part included'));
     }
-    r.mixInfo = h('span.muted');
     this.spectrum?.destroy();
     this.spectrum = new Spectrum();
-    r.foot = h('footer.bottombar', r.playBtn, r.previewBtn, free ? null : r.prevLbl, r.mixInfo, this.spectrum.el);
+    r.foot = h('footer.bottombar', r.playBtn, r.listen, this.spectrum.el);
 
     const instRoot = h('div');
     const patRoot = h('div');
@@ -689,30 +692,28 @@ export class Game {
     const hasAudio = (!!this.mixRound && this.playMix) || (this.previewOn && !!this.previewPlayer.buffer);
     r.playBtn.disabled = !hasAudio;
     r.playBtn.textContent = this.playing ? '■ Stop' : '▶ Play';
-    if (r.prevChk) r.prevChk.checked = this.playMix && !!this.mixRound;
-    if (r.prevChk) r.prevChk.disabled = !this.mixRound;
-    if (r.prevLbl) r.prevLbl.title = this.mixRound
-      ? 'Play the last round\'s band mix in the background while you listen to your draft.'
-      : 'There is no previous round to play yet.';
-    if (r.previewBtn) {
-      r.previewBtn.classList.toggle('active', this.previewOn);
-      r.previewBtn.textContent = this.previewOn ? '🎧 Previewing my part' : '🎧 Preview my part';
+    if (r.listen) {
+      r.listen.hidden = !this.mixRound; // nothing to choose before there is a band
+      for (const b of r.listen.children) b.classList.toggle('active', b.dataset.mode === this.listenMode());
     }
-    const free = this.freeform;
-    const mixText = free
-      ? ''
-      : this.mixRound
-        ? (this.playMix ? 'The last round\'s band mix plays in the background.' : '')
-        : this.previewOn ? '' : 'No mix yet: round 1 is written blind. Use Preview to hear your part.';
-    let previewText = '';
-    if (this.previewOn && !free) {
-      previewText = 'Preview is on.';
-      if (this.mixRound && this.playMix) previewText += this.stream ? ' (Your draft plays in place of your part from the last round.)' : ' (The mix already contains your last committed part.)';
-    }
-    let listenText = '';
-    if (this.solo.size) listenText = free ? 'Solo: you hear only the soloed track.' : 'Solo: the band is silenced; you hear only the soloed track(s) of your draft.';
-    else if (this.muted.size) listenText = free || this.stream ? '' : 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
-    r.mixInfo.textContent = [mixText, previewText, listenText].filter(Boolean).join(' ');
+  }
+
+  /** Which of the footer's three listening modes the band and preview switches make. */
+  listenMode() {
+    if (!this.previewOn) return 'band';
+    return this.playMix ? 'both' : 'mine';
+  }
+
+  /** Switch to a listening mode: 'both' (the band with your draft), 'mine' (your draft) or 'band' (the last round as played). */
+  setListen(mode) {
+    const band = mode !== 'mine';
+    const mine = mode !== 'band';
+    // Switch on before switching off, so the stream never has nothing to play in between (which would stop it).
+    if (band && !this.playMix) this.setPlayMix(true);
+    if (mine && !this.previewOn) this.togglePreview();
+    if (!band && this.playMix) this.setPlayMix(false);
+    if (!mine && this.previewOn) this.togglePreview();
+    this.updateMix();
   }
 
   /**
