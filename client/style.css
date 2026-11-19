@@ -121,6 +121,8 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .lfo-amt { display: flex; align-items: center; padding: 0 var(--lfo-pad); font-size: .85rem; }
 .lfo-amt .knob { flex: 1; }
 .noise-sec > h5.sub:first-child, .fm-sec > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+/* An envelope that opens its box (the amplifier's) has nothing above it to separate from: no rule over its heading. */
+.module > .env-sec:first-child > h5.sub:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .filt { display: flex; flex-direction: column; gap: 4px; flex: 1; } /* one filter's controls; its envelope sits at the bottom, level with the other columns' */
 .filt[hidden] { display: none; }
 .filt .env-sec { margin-top: auto; }
@@ -138,7 +140,7 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .sec-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .module .sec-head > h5.sub { margin: 0; border-top: 0; }
 /* The waveshaper's transfer-curve plot (see shapeplot.js). */
-.shape-plot { width: 100%; max-width: 100px; aspect-ratio: 1 / 1; height: auto; justify-self: center; }
+.shape-plot { width: 100%; max-width: 90px; aspect-ratio: 1 / 1; height: auto; justify-self: center; }
 .shape-plot .sp-frame { fill: var(--panel); stroke: var(--line); stroke-width: .02; }
 .shape-plot .sp-axis { stroke: var(--line); stroke-width: .015; }
 .shape-plot .sp-identity { stroke: var(--muted); stroke-width: .015; stroke-dasharray: .06 .06; opacity: .6; }
@@ -208,12 +210,12 @@ audio { width: 100%; max-width: 520px; }
 input[type=range] { accent-color: var(--accent); }
 
 .adsr { display: grid; gap: 6px; }
-.adsr-preview { width: 100%; height: 56px; background: var(--bg); border-radius: 6px; display: block; }
+.adsr-preview { width: 100%; height: 46px; background: var(--bg); border-radius: 6px; display: block; }
 .adsr-area { fill: var(--accent); opacity: .18; }
 .adsr-line { fill: none; stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
 .adsr-sliders { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .adsr-col { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: .8rem; font-weight: 600; color: var(--muted); }
-.adsr-col input[type=range] { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 50px; padding: 0; margin: 0; }
+.adsr-col input[type=range] { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 44px; padding: 0; margin: 0; }
 .module h5.sub { margin: 1px; padding: 0; border-top: 1px solid var(--line); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 
 .osc.off > :not(.osc-head), .osc.off .osc-head select { opacity: .4; }
