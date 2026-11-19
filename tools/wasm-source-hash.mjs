@@ -1,5 +1,5 @@
-// The hash of everything client/wasm/renderer.wasm is built from: the renderer crate and its WebAssembly wrapper
-// (sources, manifests and the wrapper's lock file). tools/build-wasm.sh records it next to the module, and
+// The hash of everything client/wasm/renderer.wasm is built from: the renderer crate, its WebAssembly wrapper and the
+// forked web-audio-api crate (sources, manifests and the wrapper's lock file). tools/build-wasm.sh records it next to the module, and
 // client/js/wasm.test.mjs fails when the sources have changed since (the module needs rebuilding).
 // Run directly, it prints the hash.
 import { createHash } from 'node:crypto';
@@ -19,7 +19,8 @@ function files(dir) {
 
 export function wasmSourceHash() {
   const h = createHash('sha256');
-  for (const p of files(join(ROOT, 'renderer')).sort()) {
+  // The renderer, its WebAssembly wrapper, and the forked web-audio-api crate they are built from.
+  for (const p of [...files(join(ROOT, 'renderer')), ...files(join(ROOT, 'vendor', 'web-audio-api'))].sort()) {
     h.update(relative(ROOT, p).split('\\').join('/') + '\0');
     h.update(readFileSync(p));
     h.update('\0');

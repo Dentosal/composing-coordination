@@ -16,3 +16,7 @@ opt-level = 3
 lto = true
 codegen-units = 1
 panic = "abort"
+
+# A fork of web-audio-api 1.7.0 (see vendor/web-audio-api/FORK.md).
+[patch.crates-io]
+web-audio-api = { path = "../../vendor/web-audio-api" }

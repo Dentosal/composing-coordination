@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Streaming player check</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .proto { max-width: 720px; margin: 24px auto; padding: 0 16px; display: grid; gap: 14px; }
+  .proto .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .proto table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  .proto td { padding: 3px 14px 3px 0; }
+  .proto td:first-child { color: var(--muted); }
+  .proto .bad { color: var(--bad); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="proto card">
+  <h2>Streaming player check</h2>
+  <p class="muted">Loops a demo song through the editor's streaming player (the server's renderer, compiled to
+    WebAssembly, running in a worker a little ahead of playback; the audio thread only copies samples), and shows how
+    it keeps up. Underruns are moments it fell behind: audible as dropouts.</p>
+  <div class="row">
+    <label>Song <select id="song"></select></label>
+    <button id="play" class="primary">▶ Play</button>
+    <button id="stop">■ Stop</button>
+  </div>
+  <table>
+    <tr><td>Cross-origin isolated</td><td id="iso"></td></tr>
+    <tr><td>Position</td><td id="pos">–</td></tr>
+    <tr><td>Buffered ahead</td><td id="buf">–</td></tr>
+    <tr><td>Underruns</td><td id="under">–</td></tr>
+    <tr><td>Status</td><td id="status">idle</td></tr>
+  </table>
+</div>
+<script type="module" src="js/stream-test.js"></script>
+</body>
+</html>

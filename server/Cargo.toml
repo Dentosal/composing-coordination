@@ -31,3 +31,7 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# A fork of web-audio-api 1.7.0 (see vendor/web-audio-api/FORK.md).
+[patch.crates-io]
+web-audio-api = { path = "../vendor/web-audio-api" }

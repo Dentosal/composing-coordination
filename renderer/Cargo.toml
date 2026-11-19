@@ -7,7 +7,18 @@ description = "The canonical renderer: orders -> Web Audio graph -> WAV. Used by
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 # Offline rendering only: no audio device (cpal), which also keeps it buildable for WebAssembly.
-web-audio-api = { version = "1.7.0", default-features = false }
+web-audio-api = { version = "=1.7.0", default-features = false }
 
 [dev-dependencies]
 serde_json = "1.0.154"
+
+# As in the server: audio rendering is far too slow unoptimized, so dev builds and tests are optimized too.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# A fork of web-audio-api 1.7.0 (see vendor/web-audio-api/FORK.md).
+[patch.crates-io]
+web-audio-api = { path = "../vendor/web-audio-api" }

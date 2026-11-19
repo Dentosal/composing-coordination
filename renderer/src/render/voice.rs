@@ -240,33 +240,62 @@ impl VoiceJob {
     }
 }
 
+/// One seat's instrument, ready to play: its bus into the master (bus gain -> dry, plus the delay and reverb send taps)
+/// and its noise buffers.
+pub struct InstBus {
+    pub inst: Arc<Instrument>,
+    pub bus: Arc<GainNode>,
+    pub noise: Arc<HashMap<String, AudioBuffer>>,
+}
+
+/// Set up `inst` for playing: its bus, connected to the master now, and its noise buffers from `noise_for(node, color)`.
+pub fn inst_bus(ctx: &OfflineAudioContext, master: &Master, inst: &Instrument, noise_for: &mut dyn FnMut(&str, NoiseColor) -> AudioBuffer) -> InstBus {
+    let input = gain(ctx, inst.gain * SEAT_GAIN);
+    input.connect(&master.dry);
+    let sd = gain(ctx, inst.send_delay);
+    let sr = gain(ctx, inst.send_reverb);
+    input.connect(&sd);
+    input.connect(&sr);
+    sd.connect(&master.delay_in);
+    sr.connect(&master.reverb_in);
+    let mut noise = HashMap::new();
+    for n in &inst.nodes {
+        if let NodeKind::Noise { color } = &n.kind {
+            noise.insert(n.id.clone(), noise_for(&n.id, *color));
+        }
+    }
+    InstBus { inst: Arc::new(inst.clone()), bus: Arc::new(input), noise: Arc::new(noise) }
+}
+
+/// The noise buffer of one noise node (the same for every note of the seat's instrument).
+pub fn seat_noise(cfg: &RenderConfig, seat_index: u32, inst: &str, node: &str, color: NoiseColor) -> AudioBuffer {
+    noise_buffer(cfg, seat_index, inst, node, color)
+}
+
+/// Build, now, every voice of one note: `note` at `vel`, from `row` until `end_row` of `lane` (its effect cells split
+/// and automate it), the row starting at context time `t_row`.
+#[allow(clippy::too_many_arguments)]
+pub fn play_note(ctx: &OfflineAudioContext, cfg: &RenderConfig, seat_index: u32, ib: &InstBus, lane: &Lane, note: u8, vel: u8, row: u32, end_row: u32, t_row: f64) {
+    let hz = midi_hz(note);
+    let inst = &ib.inst;
+    for seg in fx_plan(&lane.fx, row, end_row, cfg.row_secs(), &|node, port| param_target(inst, hz, node, port)) {
+        build_voice(ctx, cfg, seat_index, inst, &ib.bus, &ib.noise, note, vel, t_row + seg.start, t_row + seg.end, &seg);
+    }
+}
+
 /// Set up one seat's part for one loop starting at `loop_start`: a bus per instrument (connected to the master now) and
 /// its noise buffers, and a job in `jobs` for every voice its notes play.
 pub fn plan_part(ctx: &OfflineAudioContext, master: &Master, cfg: &RenderConfig, part: &SeatPart, loop_start: f64, jobs: &mut Vec<VoiceJob>) {
-    // One bus per instrument: bus gain -> dry, plus send taps.
-    let mut buses: HashMap<&str, (Arc<Instrument>, Arc<GainNode>, Arc<HashMap<String, AudioBuffer>>)> = HashMap::new();
+    let mut buses: HashMap<&str, InstBus> = HashMap::new();
     for inst in &part.orders.instruments {
-        let input = gain(ctx, inst.gain * SEAT_GAIN);
-        input.connect(&master.dry);
-        let sd = gain(ctx, inst.send_delay);
-        let sr = gain(ctx, inst.send_reverb);
-        input.connect(&sd);
-        input.connect(&sr);
-        sd.connect(&master.delay_in);
-        sr.connect(&master.reverb_in);
-        let mut noise = HashMap::new();
-        for n in &inst.nodes {
-            if let NodeKind::Noise { color } = &n.kind {
-                noise.insert(n.id.clone(), noise_buffer(cfg, part.seat_index, &inst.id, &n.id, *color));
-            }
-        }
-        buses.insert(inst.id.as_str(), (Arc::new(inst.clone()), Arc::new(input), Arc::new(noise)));
+        let ib = inst_bus(ctx, master, inst, &mut |node, color| noise_buffer(cfg, part.seat_index, &inst.id, node, color));
+        buses.insert(inst.id.as_str(), ib);
     }
 
     let row_secs = cfg.row_secs();
     let total_rows = cfg.total_rows();
     for lane in &part.orders.lanes {
-        let Some((inst, bus, noise)) = buses.get(lane.instrument.as_str()) else {
+        let Some(InstBus { inst, bus, noise }) = buses.get(lane.instrument.as_str()) else {
             continue;
         };
         for (note, vel, row, end_row) in lane_notes(lane, total_rows) {

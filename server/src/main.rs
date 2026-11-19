@@ -21,7 +21,13 @@ async fn main() {
         .merge(version)
         .fallback_service(ServeDir::new(&client_dir).append_index_html_on_directories(true))
         .layer(middleware::map_response(|mut r: Response| async move {
-            r.headers_mut().entry(header::CACHE_CONTROL).or_insert(HeaderValue::from_static("no-cache"));
+            let h = r.headers_mut();
+            h.entry(header::CACHE_CONTROL).or_insert(HeaderValue::from_static("no-cache"));
+            // Cross-origin isolation, which the browser requires before a page may use SharedArrayBuffer (the
+            // streaming player's ring buffer between its render worker and the audio thread). The client loads
+            // nothing from other origins, so this costs nothing; a server in front of this one must keep them.
+            h.insert("cross-origin-opener-policy", HeaderValue::from_static("same-origin"));
+            h.insert("cross-origin-embedder-policy", HeaderValue::from_static("require-corp"));
             r
         }));
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await.expect("bind");

@@ -4,6 +4,7 @@ import { LoopPlayer, decode, getCtx, unlock } from './audio.js';
 import { h, clear } from './dom.js';
 import { InstrumentPanel, ensureTracks, loadPresets, newTrack } from './editor.js';
 import { LiveSequencer } from './live.js';
+import { StreamPlayer } from './stream.js';
 import { PatternEditor } from './pattern.js';
 import { helpButton } from './help.js';
 import { downloadBlob, downloadText } from './download.js';
@@ -45,14 +46,17 @@ export class Game {
     this.errors = [];
     this.view = null;
     this.player = new LoopPlayer();
-    // Preview of this seat's uncommitted part, played over the mix. Two engines: a live sequencer in the browser
-    // (instant, the default) and the server's canonical render looped like the mix (see previewPlayer).
+    // Preview of this seat's uncommitted part, played over the mix. Two engines: live in the browser (the default) and
+    // the server's render of the whole loop, swapped in after each edit (see previewPlayer). Live is the streaming
+    // player (the server's renderer running in a worker, see stream.js); a page that cannot stream (not cross-origin
+    // isolated) falls back to the browser's own voices (live.js).
     this.serverPlayer = new LoopPlayer();
-    this.livePlayer = new LiveSequencer({
-      config: () => this.st.config,
-      seat: () => this.st.you?.seat_index ?? 0,
-      part: () => ({ instruments: this.orders.instruments, lanes: this.orders.lanes.filter((l) => this.isAudible(l.instrument)) }),
-    });
+    const part = () => ({ instruments: this.orders.instruments, lanes: this.orders.lanes.filter((l) => this.isAudible(l.instrument)) });
+    const seat = () => this.st.you?.seat_index ?? 0;
+    this.livePlayer = StreamPlayer.supported
+      ? new StreamPlayer({ config: () => this.st.config, parts: () => [{ seat: seat(), orders: part() }] })
+      : new LiveSequencer({ config: () => this.st.config, seat, part });
+    this.livePlayer.warm?.();
     this.previewOn = true; // your own draft plays along by default
     // Whether the previous round's band mix plays in the background (when there is one).
     this.playMix = true;
@@ -115,6 +119,7 @@ export class Game {
     this.player.stop();
     this.serverPlayer.stop();
     this.livePlayer.stop();
+    this.livePlayer.destroy?.();
     this.panel?.destroy();
     this.pattern?.destroy();
   }
@@ -189,6 +194,7 @@ export class Game {
 
   touch() {
     this.dirty = true;
+    this.livePlayer.changed?.(); // the streaming player renders ahead: tell it (the live sequencer reads the orders as it plays)
     if (this.ready) {
       this.ready = false;
       this.enqueue(() => api.setReady(this.sid, this.token, false)).catch(() => {});
@@ -640,6 +646,7 @@ export class Game {
 
   applyListening() {
     this.pattern.render();
+    this.livePlayer.changed?.();
     // Solo means "hear only this": silence the band mix (it can't be split per track) and make sure the draft preview is on.
     this.applyMixMute();
     if (this.solo.size && !this.previewOn) this.togglePreview();

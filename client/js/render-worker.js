@@ -16,6 +16,10 @@ self.onmessage = async ({ data: { wasmUrl, cfg, seat, orders } }) => {
       env: {
         progress: (fraction) => self.postMessage({ progress: fraction }),
         report_error: (ptr, len) => { message = new TextDecoder().decode(new Uint8Array(exports.memory.buffer, ptr, len)); },
+        // only live playback uses these (see live-worker.js)
+        emit: () => {},
+        cmd_len: () => 0,
+        cmd_read: () => {},
       },
     });
     exports = instance.exports;

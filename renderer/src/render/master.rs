@@ -48,7 +48,8 @@ pub struct Master {
 }
 
 impl Master {
-    pub fn new(ctx: &OfflineAudioContext, cfg: &RenderConfig) -> Self {
+    /// The master chain, its output connected to `out` (the context's destination, or a tap in front of it).
+    pub fn new(ctx: &OfflineAudioContext, cfg: &RenderConfig, out: &dyn AudioNode) -> Self {
         let dry = gain(ctx, 1.0);
         let delay_in = gain(ctx, 1.0);
         let reverb_in = gain(ctx, 1.0);
@@ -58,7 +59,7 @@ impl Master {
         limiter.set_curve(limiter_curve());
         let trim = gain(ctx, OUTPUT_TRIM);
         limiter.connect(&trim);
-        trim.connect(&ctx.destination());
+        trim.connect(out);
         dry.connect(&limiter);
 
         // Delay: in -> delay -> lowpass -> (feedback -> delay) and -> return -> limiter.

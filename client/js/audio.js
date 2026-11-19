@@ -4,7 +4,9 @@ let ctx = null;
 const CROSSFADE = 0.015; // seconds
 
 export function getCtx() {
-  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+  // 48 kHz, the renderer's rate: the streaming player (stream.js) plays its output as is, and the server's mixes are
+  // rendered at it too. The browser converts to the device's own rate.
+  if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive', sampleRate: 48000 });
   return ctx;
 }
 

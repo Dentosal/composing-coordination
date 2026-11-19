@@ -18,6 +18,7 @@ test('the WebAssembly renderer renders a song file, reporting progress', async (
   const { instance } = await WebAssembly.instantiate(readFileSync(file('wasm/renderer.wasm')), {
     env: {
       progress: (f) => progress.push(f),
+      emit: () => {}, cmd_len: () => 0, cmd_read: () => {},
       report_error: (p, n) => { message = new TextDecoder().decode(new Uint8Array(exports.memory.buffer, p, n)); },
     },
   });
@@ -46,7 +47,7 @@ test('a song the renderer cannot read is reported, not a crash', async () => {
   let exports = null;
   let message = '';
   const { instance } = await WebAssembly.instantiate(readFileSync(file('wasm/renderer.wasm')), {
-    env: { progress: () => {}, report_error: (p, n) => { message = new TextDecoder().decode(new Uint8Array(exports.memory.buffer, p, n)); } },
+    env: { progress: () => {}, emit: () => {}, cmd_len: () => 0, cmd_read: () => {}, report_error: (p, n) => { message = new TextDecoder().decode(new Uint8Array(exports.memory.buffer, p, n)); } },
   });
   exports = instance.exports;
   const json = new TextEncoder().encode('{"lanes": 5}');
@@ -54,4 +55,43 @@ test('a song the renderer cannot read is reported, not a crash', async () => {
   new Uint8Array(exports.memory.buffer, ptr, json.length).set(json);
   assert.equal(exports.render_song(ptr, json.length, 120, 1, 16, 1n, 0), 0);
   assert.match(message, /could not be read/);
+});
+
+test('live playback renders the parts until told to stop, and takes edits while it runs', async () => {
+  let exports = null;
+  let message = '';
+  const pad = JSON.parse(readFileSync(file('presets/pad.json'), 'utf8')).instrument;
+  const steps = Array.from({ length: 16 }, (_, i) => ({ row: i * 4, note: 60, vel: 100 })); // a note every beat
+  const song = { instruments: [pad], lanes: [{ instrument: pad.id, steps, fx: [] }] };
+  const commands = [{ parts: [{ seat: 0, orders: { instruments: [], lanes: [] } }] }]; // start silent
+  let pending = null;
+  let frames = 0;
+  const level = []; // peak per 4800 frames (0.1 s)
+  const { instance } = await WebAssembly.instantiate(readFileSync(file('wasm/renderer.wasm')), {
+    env: {
+      progress: () => {},
+      report_error: (p, n) => { message = new TextDecoder().decode(new Uint8Array(exports.memory.buffer, p, n)); },
+      emit: (lp, _rp, n) => {
+        const l = new Float32Array(exports.memory.buffer, lp, n);
+        for (const v of l) {
+          const i = Math.floor(frames++ / 4800);
+          level[i] = Math.max(level[i] ?? 0, Math.abs(v));
+        }
+        if (frames === 128 * 75) commands.push({ parts: [{ seat: 0, orders: song }] }); // an edit at 0.2 s
+        if (frames >= 48000) commands.push({ stop: true }); // stop after 1 s
+      },
+      cmd_len: () => {
+        if (!commands.length) return 0;
+        pending = new TextEncoder().encode(JSON.stringify(commands.shift()));
+        return pending.length;
+      },
+      cmd_read: (ptr) => new Uint8Array(exports.memory.buffer, ptr, pending.length).set(pending),
+    },
+  });
+  exports = instance.exports;
+  const ok = exports.live_run(120, 4, 16, 1n, 0, 0, 64);
+  assert.equal(ok, 1, message);
+  assert.ok(frames >= 48000 && frames < 48000 + 8 * 128, `stopped soon after being asked: ${frames} frames`);
+  assert.equal(level[0], 0, 'silent before the edit');
+  assert.ok(Math.max(...level.slice(3)) > 0.01, `the edit is heard: ${level.map((v) => v.toFixed(3))}`);
 });

@@ -2,6 +2,7 @@
 //!
 //! Keep structurally parallel to client/js/render.js.
 
+pub mod live;
 pub mod master;
 pub mod voice;
 pub mod wav;
@@ -93,12 +94,18 @@ pub fn render_song_with_progress(cfg: &RenderConfig, loops: &[Vec<SeatPart>], pr
     s
 }
 
-fn render_with_tail(cfg: &RenderConfig, loops: &[Vec<SeatPart>], keep_from: usize, tail_frames: usize, progress: Option<fn(f64)>) -> Stereo {
+fn render_with_tail(
+    cfg: &RenderConfig,
+    loops: &[Vec<SeatPart>],
+    keep_from: usize,
+    tail_frames: usize,
+    progress: Option<fn(f64)>,
+) -> Stereo {
     let frames_per_loop = cfg.loop_frames();
     let total_frames = frames_per_loop * loops.len() + tail_frames;
     let mut ctx = OfflineAudioContext::new(2, total_frames, SAMPLE_RATE);
 
-    let master = master::Master::new(&ctx, cfg);
+    let master = master::Master::new(&ctx, cfg, &ctx.destination());
 
     let mut jobs = Vec::new();
     for (loop_idx, parts) in loops.iter().enumerate() {
