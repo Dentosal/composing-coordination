@@ -355,6 +355,10 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
       tg = Math.max(tg, t0 + 0.001);
       for (const { p, e } of envs) envRelease(p, e, t0, tg);
       for (const s of sources) s.stop(tg + maxRelease + STOP_PAD);
+      // Once the sources have stopped, take the voice out of the graph. Left connected, its gains, filters and shapers
+      // would go on being processed (on silence) until garbage collection happened to free them, so the audio thread's
+      // load grew with every note played until a collection, crackling in a busy song before it did.
+      if (sources.length) sources[0].onended = () => { for (const { node } of nodes.values()) node.disconnect(); };
     },
   };
 }
