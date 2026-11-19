@@ -514,7 +514,9 @@ export class Game {
       : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, r.sounds, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
-    r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
+    // A game's own part can be heard over the band or left out; freeform has nothing but your own part, always on.
+    if (free) this.previewOn = true;
+    else r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
     if (!free) { // the previous round's mix: a game has one, a freeform session does not
       r.prevChk = h('input', { type: 'checkbox', checked: this.playMix, onchange: (e) => this.setPlayMix(e.target.checked) });
       r.prevLbl = h('label.muted', {}, r.prevChk, ' Previous round');
@@ -625,16 +627,18 @@ export class Game {
     if (r.prevLbl) r.prevLbl.title = this.mixRound
       ? `Play the band mix of round ${this.mixRound} in the background while you listen to your draft.`
       : 'There is no previous round to play yet.';
-    r.previewBtn.classList.toggle('active', this.previewOn);
-    r.previewBtn.textContent = this.previewOn ? '🎧 Previewing my part' : '🎧 Preview my part';
+    if (r.previewBtn) {
+      r.previewBtn.classList.toggle('active', this.previewOn);
+      r.previewBtn.textContent = this.previewOn ? '🎧 Previewing my part' : '🎧 Preview my part';
+    }
     const free = this.freeform;
     const mixText = free
-      ? (this.previewOn ? '' : 'Turn on Preview to hear your tracks.')
+      ? ''
       : this.mixRound
         ? (this.playMix ? `Round ${this.mixRound}'s band mix plays in the background.` : '')
         : this.previewOn ? '' : 'No mix yet: round 1 is written blind. Use Preview to hear your part.';
     let previewText = '';
-    if (this.previewOn) {
+    if (this.previewOn && !free) {
       previewText = 'Preview is on.';
       if (this.mixRound && this.playMix) previewText += this.stream ? ' (Your draft plays in place of your part from the last round.)' : ' (The mix already contains your last committed part.)';
     }
