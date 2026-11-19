@@ -507,3 +507,7 @@ dialog.round-dialog audio[hidden] { display: none; }
 .listen-mode button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
 .listen-mode button:last-child { border-radius: 0 6px 6px 0; }
 .listen-mode button.active { background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); border-color: var(--accent); position: relative; }
+.footer-links { margin-left: auto; display: inline-flex; gap: 14px; font-size: .85rem; }
+.footer-links a { color: var(--muted); text-decoration: none; }
+.footer-links a:hover { color: var(--text); text-decoration: underline; }
+.bottombar .footer-links + .spectrum { margin-left: 0; }

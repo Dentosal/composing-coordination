@@ -601,7 +601,11 @@ export class Game {
     }
     this.spectrum?.destroy();
     this.spectrum = new Spectrum();
-    r.foot = h('footer.bottombar', r.playBtn, r.listen, this.spectrum.el);
+    const link = (href, text) => h('a', { href, target: '_blank', rel: 'noopener' }, text);
+    r.foot = h('footer.bottombar', r.playBtn, r.listen,
+      h('span.footer-links', link('https://github.com/Dentosal/composing-coordination', 'source code'),
+        link('https://github.com/Dentosal/composing-coordination/issues/new', 'report a bug')),
+      this.spectrum.el);
 
     const instRoot = h('div');
     const patRoot = h('div');
