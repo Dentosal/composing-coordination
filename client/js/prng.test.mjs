@@ -1,5 +1,5 @@
 // Run: node --test client/js/prng.test.mjs
-// The same vectors are pinned in server/src/prng.rs (matches_the_js_port).
+// The same vectors are pinned in renderer/src/prng.rs (matches_the_js_port).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';

@@ -33,7 +33,7 @@ export const PARAMS = [
   { id: 'lfo.amp', label: 'LFO to volume', node: 'lfo_a', type: 'gain', port: 'gain', min: 0, max: 1, step: 0.01, unit: '' },
 ];
 
-/** What the server accepts as a parameter entry on `inst` (see `automation_range` in server/src/orders.rs). */
+/** What the server accepts as a parameter entry on `inst` (see `automation_range` in renderer/src/orders.rs). */
 export function accepts(inst, entry) {
   const n = inst?.nodes.find((x) => x.id === entry.node);
   if (!n) return false;

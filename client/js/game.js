@@ -488,12 +488,12 @@ export class Game {
     const scene = { label: 'Scene file', detail: 'All patches, notes and effects (.json), to open again from the start page', run: () => this.exportAll() };
     if (this.freeform) {
       return [
-        { label: 'Song, rendered on the server', detail: 'Audio (.wav), from the same renderer as game rounds',
+        { label: 'Song, rendered on the server', detail: 'Audio (.wav), made by the server',
           run: async (progress) => { progress('Rendering on the server…'); save('song-server', await api.fetchRender(this.sid, this.token, this.orders)); } },
-        { label: 'Song, rendered in this browser', detail: 'Audio (.wav), from the engine you hear while editing',
+        { label: 'Song, rendered in this browser', detail: 'Audio (.wav): the same file, made on this computer',
           run: async (progress) => {
             progress('Rendering… 0%');
-            save('song-browser', await renderSong(this.st.config, seat, this.orders, (f) => progress(f == null ? 'Rendering…' : `Rendering… ${Math.round(f * 100)}%`)));
+            save('song-browser', await renderSong(this.st.config, seat, this.orders, (f) => progress(`Rendering… ${Math.round(f * 100)}%`)));
           } },
         'sep', scene,
       ];

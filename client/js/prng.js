@@ -1,4 +1,4 @@
-// Seeded PRNG. MUST match server/src/prng.rs exactly.
+// Seeded PRNG. MUST match renderer/src/prng.rs exactly.
 //  - seedFromKey: FNV-1a (32-bit) over the UTF-8 bytes of the key string.
 //  - Mulberry32: the classic mulberry32 generator. nextF64 = nextU32 / 2^32, in [0, 1).
 

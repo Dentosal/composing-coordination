@@ -67,7 +67,7 @@ pub struct Stereo {
 ///   reverb/delay tails and release stages wrap into the loop start.
 /// - The full song is `render(cfg, &per_round_parts, 0)`.
 pub fn render(cfg: &RenderConfig, loops: &[Vec<SeatPart>], keep_from: usize) -> Stereo {
-    render_with_tail(cfg, loops, keep_from, 0)
+    render_with_tail(cfg, loops, keep_from, 0, None)
 }
 
 /// Seconds rendered past the end of a song file, for release stages and reverb/delay tails. Must stay identical to
@@ -79,8 +79,13 @@ const SILENCE: f32 = 0.5 / 32767.0;
 /// A song file: the loops played once from silence, then a tail of up to `SONG_TAIL_SECS` in which notes and
 /// effects ring out, with its trailing silence trimmed.
 pub fn render_song(cfg: &RenderConfig, loops: &[Vec<SeatPart>]) -> Stereo {
+    render_song_with_progress(cfg, loops, None)
+}
+
+/// `render_song`, calling `progress(fraction)` as rendering advances (every few seconds of audio).
+pub fn render_song_with_progress(cfg: &RenderConfig, loops: &[Vec<SeatPart>], progress: Option<fn(f64)>) -> Stereo {
     let tail = (SONG_TAIL_SECS * SAMPLE_RATE as f64).round() as usize;
-    let mut s = render_with_tail(cfg, loops, 0, tail);
+    let mut s = render_with_tail(cfg, loops, 0, tail, progress);
     let body = s.left.len() - tail;
     let end = (body..s.left.len()).rev().find(|&i| s.left[i].abs() > SILENCE || s.right[i].abs() > SILENCE).map_or(body, |i| i + 1);
     s.left.truncate(end);
@@ -88,7 +93,7 @@ pub fn render_song(cfg: &RenderConfig, loops: &[Vec<SeatPart>]) -> Stereo {
     s
 }
 
-fn render_with_tail(cfg: &RenderConfig, loops: &[Vec<SeatPart>], keep_from: usize, tail_frames: usize) -> Stereo {
+fn render_with_tail(cfg: &RenderConfig, loops: &[Vec<SeatPart>], keep_from: usize, tail_frames: usize, progress: Option<fn(f64)>) -> Stereo {
     let frames_per_loop = cfg.loop_frames();
     let total_frames = frames_per_loop * loops.len() + tail_frames;
     let mut ctx = OfflineAudioContext::new(2, total_frames, SAMPLE_RATE);
@@ -120,7 +125,13 @@ fn render_with_tail(cfg: &RenderConfig, loops: &[Vec<SeatPart>], keep_from: usiz
     for (i, &at) in stops.iter().enumerate() {
         let next = stops.get(i + 1).copied().unwrap_or(f64::INFINITY);
         let (jobs, cfg) = (jobs.clone(), cfg.clone());
-        ctx.suspend_sync(at, move |ctx| build_until(ctx, &cfg, &jobs, next));
+        let fraction = (at * SAMPLE_RATE as f64) / total_frames as f64;
+        ctx.suspend_sync(at, move |ctx| {
+            build_until(ctx, &cfg, &jobs, next);
+            if let Some(p) = progress {
+                p(fraction);
+            }
+        });
     }
     drop(jobs);
 

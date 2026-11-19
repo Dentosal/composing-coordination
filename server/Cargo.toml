@@ -21,7 +21,7 @@ tokio = { version = "1.54.1", features = ["full"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 tower-http = { version = "0.7.1", features = ["fs"] }
 uuid = { version = "1.29.1", features = ["v4", "serde"] }
-web-audio-api = "1.7.0"
+band-render = { path = "../renderer" }
 
 # Audio rendering is far too slow unoptimized (the preset test took minutes), so dev builds and
 # tests are optimized too: our own code lightly, to keep rebuilds quick, and dependencies fully,

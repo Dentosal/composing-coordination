@@ -1,5 +1,5 @@
 // Live Web Audio voices and master chain for auditioning instruments in the browser. A port of the voice and
-// master sections of server/src/render/ (voice.rs, master.rs): same node mapping, same constants. The server
+// master sections of renderer/src/render/ (voice.rs, master.rs): same node mapping, same constants. The server
 // render stays canonical; this is for instant feedback while editing.
 import { Mulberry32 } from './prng.js';
 
@@ -9,16 +9,16 @@ const ENV_TAU_DIV = 5;
 const MIN_TIME = 0.001;
 const STOP_PAD = 0.005;
 const SHAPER_CURVE_LEN = 2048;
-const NOISE_SECS = 8; // see NOISE_SECS in server/src/render/voice.rs
+const NOISE_SECS = 8; // see NOISE_SECS in renderer/src/render/voice.rs
 const REVERB_SECS = 1.8;
 const DELAY_BEATS = 0.75;
 const DELAY_FEEDBACK = 0.4;
 const DELAY_LP_HZ = 3000;
 const DELAY_RETURN = 0.7;
 const REVERB_RETURN = 0.8;
-const OUTPUT_TRIM = 0.7; // see OUTPUT_TRIM in server/src/render/master.rs
+const OUTPUT_TRIM = 0.7; // see OUTPUT_TRIM in renderer/src/render/master.rs
 // The master limiter: a static curve, linear up to the threshold, compressed at the ratio above it, with makeup gain.
-// The server uses the same curve (limiter_curve in server/src/render/master.rs; checked against
+// The server uses the same curve (limiter_curve in renderer/src/render/master.rs; checked against
 // server/tests/fixtures/limiter.json). A curve has no look-ahead, so nothing is delayed. (It replaced a
 // DynamicsCompressor on the server, whose look-ahead made every server render 8 ms late, and which browsers'
 // compressors could not match.)
@@ -38,7 +38,7 @@ export function limiterCurve() {
   return c;
 }
 
-/** Detune offsets in cents of the `n` copies of a unison oscillator. Must stay identical to `unison_offsets` in server/src/orders.rs. */
+/** Detune offsets in cents of the `n` copies of a unison oscillator. Must stay identical to `unison_offsets` in renderer/src/orders.rs. */
 export function unisonOffsets(n, spread) {
   if (n <= 1) return [0];
   return Array.from({ length: n }, (_, i) => Math.fround(spread * ((2 * i) / (n - 1) - 1)) + 0); // + 0 turns -0 into 0
@@ -49,7 +49,7 @@ const NYQUIST = 24000; // the server's sample rate / 2, so the tables match what
 /**
  * Fourier coefficients ({real, imag}, index 0 unused) of a built-in wave shape shifted by `phase` cycles. Unison copies
  * use these so they start at different points of the cycle, not all at phase 0. Must stay identical to `wave_coeffs`
- * in server/src/render/voice.rs.
+ * in renderer/src/render/voice.rs.
  */
 export function unisonCoeffs(wave, harmonics, phase) {
   const real = new Float32Array(harmonics + 1);
@@ -139,7 +139,7 @@ export function noiseBuffer(ctx, seed, seatIndex, instId, nodeId, color) {
   return buf;
 }
 
-/** Shaped value for input x in -1..1: `drive` is the gain into the curve, `param` the shape's second setting. Must stay identical to `shape_value` in server/src/render/voice.rs (floor, not Math.round, which rounds ties differently). */
+/** Shaped value for input x in -1..1: `drive` is the gain into the curve, `param` the shape's second setting. Must stay identical to `shape_value` in renderer/src/render/voice.rs (floor, not Math.round, which rounds ties differently). */
 export function shapeValue(shape, drive, param, x) {
   const u = drive * x;
   switch (shape) {

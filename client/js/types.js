@@ -1,4 +1,4 @@
-// JSDoc mirror of the orders format. Source of truth: server/src/orders.rs.
+// JSDoc mirror of the orders format. Source of truth: renderer/src/orders.rs.
 
 /** @typedef {'sine'|'square'|'sawtooth'|'triangle'} Wave */
 /** @typedef {'lowpass'|'highpass'|'bandpass'|'notch'} FilterMode */

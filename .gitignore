@@ -1,3 +1,6 @@
 server/target/
 node_modules/
 *.wav
+renderer/target/
+renderer/Cargo.lock
+renderer/wasm/target/

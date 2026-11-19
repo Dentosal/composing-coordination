@@ -11,7 +11,7 @@
 //                       the note's pitch like the node's own value). Rows without an entry for it are back at the node's own
 //                       value at once; the loop starts there too. `glide`: move there over the row from where the row before
 //                       left off (exponentially for frequencies).
-// The plan below mirrors `fx_plan` in server/src/render/voice.rs; both are checked against
+// The plan below mirrors `fx_plan` in renderer/src/render/voice.rs; both are checked against
 // server/tests/fixtures/fx_plan.json.
 
 export const ARP_MAX_OFFSETS = 4;
@@ -26,7 +26,7 @@ const MIDDLE_C_HZ = 261.6255653005986;
  * How an automatable parameter of `inst` behaves for a note at `hz`, or null (the instrument has no such parameter, or it
  * cannot be automated): `base` is its own value for this note (a filter cutoff includes its key tracking), `factor` what a
  * cell's value is multiplied by, `exp` whether it glides exponentially (frequencies), `lo`/`hi` the range it is held to.
- * Must stay identical to `param_target` in server/src/render/voice.rs.
+ * Must stay identical to `param_target` in renderer/src/render/voice.rs.
  */
 export function paramTarget(inst, hz, node, port) {
   const n = inst.nodes.find((x) => x.id === node);
