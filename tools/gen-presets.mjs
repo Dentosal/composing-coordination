@@ -29,6 +29,22 @@ const presets = {
     filter: { freq: 1100, q: 0.8, key_track: 0.4 },
     aenv: { attack: 0.6, decay: 0.5, sustain: 0.8, release: 1 },
   }],
+  strings: ['Strings', 'Pads & FX', { // a string section: two detuned unison saw stacks, a slow bow-like attack, a gentle lowpass and a little vibrato
+    gain: 0.6, send_delay: 0.05, send_reverb: 0.4,
+    osc: [{ unison: 5, spread: 18, level: 0.3 }, { semitones: 0.1, unison: 3, spread: 10, level: 0.25 }, OFF],
+    filter: { freq: 2800, q: 0.7, key_track: 0.5 },
+    aenv: { attack: 0.35, decay: 0.3, sustain: 0.9, release: 0.6 },
+    lfo: { rate: 5, pitch: 8 },
+  }],
+  choir: ['Choir', 'Pads & FX', { // an "aah" choir: the two filters side by side as bandpasses at the vowel's formants (~750 and ~1150 Hz), each fed a wide unison saw stack (an ensemble, not one buzzy voice); they barely follow the note, so the vowel stays put. The formants are broad (narrow ones ring and sound metallic). A triangle underneath adds body, and a little pink noise through the upper formant is breath
+    gain: 0.72, send_delay: 0.1, send_reverb: 0.5,
+    osc: [{ unison: 5, spread: 20, level: 0.5, route: 1 }, { semitones: 0.05, unison: 5, spread: 20, level: 0.4, route: 2 }, { wave: 'triangle', level: 0.3, route: 0 }],
+    noise: { color: 'pink', level: 0.12, route: 2 },
+    filter: { mode: 'bandpass', freq: 750, q: 3, key_track: 0.1 },
+    filter2: { mode: 'bandpass', freq: 1150, q: 3.5, key_track: 0.1 },
+    aenv: { attack: 0.4, decay: 0.3, sustain: 0.9, release: 0.8 },
+    lfo: { rate: 4.5, pitch: 10 },
+  }],
   lead: ['Lead', 'Lead & Keys', {
     gain: 0.7, send_delay: 0.25, send_reverb: 0.2,
     osc: [{ wave: 'square', unison: 3, spread: 8, level: 0.35 }, { semitones: 0.07, unison: 3, spread: 8, level: 0.35 }, OFF],
@@ -51,6 +67,12 @@ const presets = {
     fenv: { attack: 0.001, decay: 0.015, sustain: 0, release: 0.02, amount: 6000 },
     penv: { attack: 0.001, decay: 0.07, sustain: 0, release: 0.05, amount: 3000 }, // 52 Hz up to ~290 Hz
     aenv: { attack: 0.001, decay: 0.45, sustain: 0, release: 0.05 },
+  }],
+  kick808: ['808 Kick', 'Drums', { // a long, booming sine kick that follows the note, so it can play the bass line too (play it low, A1-D2): a two-octave pitch drop for the punch, soft-clip drive for growl, a long decay
+    gain: 0.9, send_reverb: 0, drive: 2.5,
+    osc: [{ wave: 'sine', level: 1, route: 0 }, OFF, OFF],
+    penv: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05, amount: 2400 },
+    aenv: { attack: 0.001, decay: 1.4, sustain: 0, release: 0.2 },
   }],
   snare: ['Snare', 'Drums', {
     gain: 0.8, send_reverb: 0.2,
@@ -93,6 +115,19 @@ const presets = {
     filter: { mode: 'bandpass', freq: 6000, q: 0.8, key_track: 0 },
     aenv: { attack: 0.015, decay: 0.06, sustain: 0, release: 0.03 },
   }],
+  cowbell: ['Cowbell', 'Drums', { // the classic drum-machine cowbell: two square waves at fixed 540 and 800 Hz (an inharmonic pair) through a broad bandpass, a triangle at 540 Hz underneath for body, a quick filter burst for the clack of the hit, and light drive
+    gain: 0.5, send_reverb: 0.15, drive: 1.5,
+    osc: [{ wave: 'square', fixed_hz: 540, level: 0.4 }, { wave: 'square', fixed_hz: 800, level: 0.35 }, { wave: 'triangle', fixed_hz: 540, level: 0.25, route: 0 }],
+    filter: { mode: 'bandpass', freq: 700, q: 0.8, key_track: 0 },
+    fenv: { attack: 0.001, decay: 0.03, sustain: 0, release: 0.03, amount: 1500 },
+    aenv: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.08 },
+  }],
+  clave: ['Clave', 'Drums', { // a short, high sine knock (a clave or woodblock), with a tiny downward pitch blip for the attack
+    gain: 0.7, send_reverb: 0.15,
+    osc: [{ wave: 'sine', fixed_hz: 2500, level: 0.8, route: 0 }, OFF, OFF],
+    penv: { attack: 0.001, decay: 0.01, sustain: 0, release: 0.01, amount: 300 },
+    aenv: { attack: 0.001, decay: 0.045, sustain: 0, release: 0.02 },
+  }],
   sub: ['Sub bass', 'Bass', { // a bare sine whistles; drive and a darkened saw add harmonics so it also reads on small speakers
     gain: 0.6, send_reverb: 0, drive: 2.5,
     osc: [{ wave: 'sine', level: 0.8, route: 0 }, { level: 0.25 }, OFF],
@@ -105,6 +140,13 @@ const presets = {
     filter: { freq: 900, q: 6, key_track: 0.2 }, // the LFO swings the cutoff 900 ± 700 Hz; keep it above 0
     aenv: { attack: 0.005, decay: 0.2, sustain: 0.9, release: 0.1 },
     lfo: { rate: 2, cutoff: 700 },
+  }],
+  reese: ['Reese bass', 'Bass', { // the drum-and-bass growl: two saws detuned 15 cents either way beat against each other, a sine sub an octave below, and a slow LFO on the lowpass
+    gain: 0.7, send_reverb: 0.05, drive: 1.5,
+    osc: [{ semitones: -0.15, level: 0.4 }, { semitones: 0.15, level: 0.4 }, { wave: 'sine', semitones: -12, level: 0.3, route: 0 }],
+    filter: { freq: 600, q: 1.5, key_track: 0.3 }, // the LFO swings the cutoff 600 ± 250 Hz
+    aenv: { attack: 0.01, decay: 0.2, sustain: 0.9, release: 0.15 },
+    lfo: { rate: 0.25, cutoff: 250 },
   }],
   stab: ['Stab', 'Lead & Keys', {
     gain: 0.7, send_delay: 0.3, send_reverb: 0.2,

@@ -247,10 +247,14 @@ input[type=range] { accent-color: var(--accent); }
 .lfo-row .knob .val { flex: none; width: calc(5ch + 10px); } /* fits four digits (e.g. 4000) plus padding */
 
 .loader { position: relative; }
-.preset-dialog { position: absolute; top: calc(100% + 6px); right: 0; left: auto; margin: 0; z-index: 20; width: min(540px, calc(100vw - 32px)); padding: 8px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
-.preset-list { columns: 3 150px; column-gap: 14px; }
-.preset-group { display: grid; gap: 2px; break-inside: avoid; margin-bottom: 10px; }
-.preset-cat { padding: 2px 8px; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8a8f99); }
+.preset-dialog { position: absolute; top: calc(100% + 6px); right: 0; left: auto; margin: 0; z-index: 20; width: min(760px, calc(100vw - 32px)); padding: 8px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+/* Wide and short: 4 columns (fewer on narrow screens), balanced row by row, so a long group carries on at the top
+   of the next column; a heading stays with its first preset and a row never splits. */
+.preset-list { columns: 4 160px; column-gap: 14px; }
+.preset-group { margin-bottom: 10px; }
+.preset-group > * + * { margin-top: 2px; }
+.preset-row { break-inside: avoid; }
+.preset-cat { break-after: avoid; padding: 2px 8px; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8a8f99); }
 .preset-row { display: flex; gap: 2px; }
 .preset-item { flex: 1; min-width: 0; text-align: left; background: none; border-color: transparent; }
 .preset-row button.hold { flex: none; padding-inline: 8px; background: none; border-color: transparent; color: var(--muted, #8a8f99); user-select: none; touch-action: none; }
