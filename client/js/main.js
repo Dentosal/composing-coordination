@@ -169,17 +169,19 @@ function showHome() {
   // Open an exported scene file (the header's download button) in a fresh freeform session.
   const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true,
     onchange: (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onImport(f); } });
-  const importRow = h('div.import-row', h('span.muted', 'or'),
+  const importMsg = h('p.error');
+  const importCard = h('div.card', h('h2', 'Import a scene file'),
     h('button', { type: 'button', onclick: () => fileIn.click(),
-      title: 'Open a file saved with the download button in the header, as a new freeform session' }, 'Import a scene file…'), fileIn);
-  form.append(submit, importRow, msg);
+      title: 'Open a file saved with the download button in the header, as a new freeform session' }, 'Choose a file…'),
+    fileIn, importMsg);
+  form.append(submit, msg);
 
   async function onImport(file) {
-    msg.textContent = '';
+    importMsg.textContent = '';
     try {
       await openScene(readSceneFile(await file.text()));
     } catch (err) {
-      msg.textContent = err.message;
+      importMsg.textContent = err.message;
     }
   }
 
@@ -233,6 +235,7 @@ function showHome() {
             const m = /([0-9a-f]{10})\s*$/i.exec(code.value.replace(/\?.*$/, ''));
             if (m) location.hash = `#/s/${m[1].toLowerCase()}`;
           } }, code, h('button', { type: 'submit' }, 'Open'))),
+        importCard,
         demoCard())));
 }
 

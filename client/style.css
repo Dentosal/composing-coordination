@@ -408,4 +408,3 @@ input[type=range] { accent-color: var(--accent); }
 .roll-len-btn:disabled { opacity: .35; cursor: default; }
 
 /* Importing a scene on the start page */
-.config .import-row { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
