@@ -743,6 +743,34 @@ impl Session {
         keys.len()
     }
 
+    /// The sounds seat `seat_idx` has played in the song (rounds kept, or up for a vote), one entry per sound: the
+    /// instrument as it was last played (so loading it again is the same sound: free) and the rounds of the song it was
+    /// in, and the track (1-based) it was last on, to name it by when it has no name. `[{instrument, slots, track}]`, in
+    /// the order first played.
+    pub fn sound_list(&self, seat_idx: usize) -> Value {
+        let seat = self.seats[seat_idx].index;
+        let mut list: Vec<(String, Instrument, Vec<u32>, usize)> = Vec::new();
+        for r in self.rounds.iter().filter(|r| r.in_song()) {
+            for (_, o) in r.played.iter().filter(|(s, _)| *s == seat) {
+                for (t, lane) in o.lanes.iter().enumerate().filter(|(_, l)| l.steps.iter().any(|s| s.note.is_some())) {
+                    let Some(inst) = o.instruments.iter().find(|i| i.id == lane.instrument) else { continue };
+                    let key = sound_key(inst);
+                    match list.iter_mut().find(|(k, ..)| *k == key) {
+                        Some((_, i, slots, track)) => {
+                            *i = inst.clone();
+                            *track = t + 1;
+                            if !slots.contains(&r.slot) {
+                                slots.push(r.slot);
+                            }
+                        }
+                        None => list.push((key, inst.clone(), vec![r.slot], t + 1)),
+                    }
+                }
+            }
+        }
+        Value::Array(list.into_iter().map(|(_, i, slots, track)| json!({"instrument": i, "slots": slots, "track": track})).collect())
+    }
+
     /// The orders seat `seat_idx` has in effect now: its draft for the open round, or else its last part.
     fn orders_in_effect(&self, seat_idx: usize) -> (u32, Option<&Orders>) {
         let id = self.seats[seat_idx].id;

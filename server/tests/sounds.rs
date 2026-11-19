@@ -39,7 +39,7 @@ fn play(s: &mut Session, o: Orders) {
     r.played = vec![(0, r.orders[&id].clone())];
     r.state = RoundState::Resolved;
     let n = r.index;
-    s.rounds.push(band_game::state::Round { index: n + 1, ..empty_round() });
+    s.rounds.push(band_game::state::Round { index: n + 1, slot: n + 1, ..empty_round() });
 }
 
 fn empty_round() -> band_game::state::Round {
@@ -103,4 +103,17 @@ fn a_game_is_at_most_256_bars() {
     assert!(cfg(r#"{"bars":4,"rounds":64}"#).validate().is_ok());
     assert!(cfg(r#"{"bars":4,"rounds":65}"#).validate().is_err());
     assert!(cfg(r#"{"bars":16,"rounds":17}"#).validate().is_err());
+}
+
+#[test]
+fn the_sound_list_has_each_played_sound_once_with_its_rounds() {
+    let (mut s, _sh) = game(r#"{"max_lanes":2,"max_instruments":2,"max_sounds":4}"#);
+    play(&mut s, part(&[("a", 0.1, true), ("b", 0.2, false)])); // b is silent: not a sound
+    play(&mut s, part(&[("x", 0.1, true), ("y", 0.3, true)])); // a again (renamed x), and a new one
+    let list = s.sound_list(0);
+    let list = list.as_array().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0]["slots"], serde_json::json!([1, 2]));
+    assert_eq!(list[0]["instrument"]["id"], "x", "as last played");
+    assert_eq!(list[1]["slots"], serde_json::json!([2]));
 }

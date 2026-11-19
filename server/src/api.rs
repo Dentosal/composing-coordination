@@ -218,6 +218,7 @@ async fn get_state(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMa
                 "eligible": cur.map_or(true, |r| seat.joined_round <= r.index),
                 "ready": cur.map_or(false, |r| r.ready.contains(&seat.id)),
                 "sounds": s.sounds_json(i),
+                "sound_list": s.sound_list(i),
                 // This player's own vote on the round being voted on (only theirs: votes are secret).
                 "vote": cur.and_then(|r| r.votes.as_ref()).and_then(|v| v.get(&seat.id)),
                 "orders": orders,

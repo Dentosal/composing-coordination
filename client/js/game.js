@@ -2,7 +2,7 @@
 import * as api from './api.js';
 import { LoopPlayer, decode, getCtx, unlock } from './audio.js';
 import { h, clear } from './dom.js';
-import { InstrumentPanel, ensureTracks, loadPresets, newTrack } from './editor.js';
+import { InstrumentPanel, ensureTracks, holdButton, loadPresets, newTrack } from './editor.js';
 import { LiveSequencer } from './live.js';
 import { StreamPlayer } from './stream.js';
 import { PatternEditor } from './pattern.js';
@@ -373,6 +373,29 @@ export class Game {
     this.songDlg?.close();
   }
 
+  /** The header's list of sounds played in earlier rounds (rebuilt only when it changes, so a held preview keeps going). */
+  fillSoundList() {
+    const r = this.refs;
+    const list = this.st.you?.sound_list;
+    if (!r.soundList || list === this.soundListShown) return;
+    this.soundListShown = list;
+    clear(r.soundList);
+    if (!list?.length) {
+      r.soundList.append(h('p.muted', 'None yet: the sounds of your earlier rounds show up here.'));
+      return;
+    }
+    for (const { instrument: inst, slots, track } of list) {
+      const name = inst.name || `Track ${track}`;
+      r.soundList.append(h('div.sound-row',
+        holdButton(() => this.panel.aud.hold(inst, this.panel.audition.note, this.panel.audition.vel),
+          { title: `Preview ${name}: sounds the audition note while you hold it`, 'aria-label': `Preview ${name}` }),
+        h('span.sound-name', name),
+        h('span.muted.sound-rounds', `round${slots.length > 1 ? 's' : ''} ${slots.join(', ')}`),
+        h('button.small', { type: 'button', title: `Load ${name} into the selected track (its notes and effects stay)`,
+          onclick: () => this.panel.replaceActive(structuredClone(inst), inst.name) }, 'Load')));
+    }
+  }
+
   /** A new player list: notice when the host has removed this player, or let them play in this round already. */
   applyPlayers(players) {
     this.st.players = players;
@@ -492,7 +515,15 @@ export class Game {
       r.ready = h('span.ready-count', { tabindex: 0 }, r.readyText, r.offline,
         h('div.players-pop', { role: 'tooltip' }, h('div.players-pop-title', 'Players'), r.readyList));
       r.nameChip = this.nameChip();
-      r.sounds = h('span.sounds-count', { title: 'Different sounds you have played in this game, of the most each player may use. Reusing one, from this round or an earlier one, is free; effects cost nothing.' });
+      // "sounds 3 / 8", and on hover (or focus) the sounds played in earlier rounds, each one loadable into the
+      // selected track: the same sound again, so it costs nothing more.
+      r.soundsText = h('span');
+      r.soundList = h('div.sound-list');
+      r.sounds = h('span.sounds-count', { tabindex: 0 }, r.soundsText,
+        h('div.players-pop.sounds-pop',
+          h('div.players-pop-title', 'Your sounds'),
+          h('p.muted.sounds-help', 'Different sounds you have played, of the most each player may use. Reusing one is free; effects cost nothing. Load one into the selected track:'),
+          r.soundList));
       r.endBtn = this.host
         ? h('button.small', { onclick: async (e) => {
             if (!confirm('End the session after the current round resolves?')) return;
@@ -615,9 +646,10 @@ export class Game {
     const snd = st.you?.sounds;
     r.sounds.hidden = !snd;
     if (snd) {
-      r.sounds.textContent = `sounds ${snd.used} / ${snd.budget}`;
+      r.soundsText.textContent = `sounds ${snd.used} / ${snd.budget}`;
       r.sounds.classList.toggle('over', snd.used > snd.budget);
     }
+    this.fillSoundList();
     const gone = (st.players ?? []).filter((p) => p.online === false).length;
     r.offline.textContent = gone ? `${gone} disconnected` : '';
     r.offline.hidden = !gone;

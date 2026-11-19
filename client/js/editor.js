@@ -785,7 +785,7 @@ function patchHelp() {
  * `start()` begins the note and resolves to a handle with release().
  * @param {() => Promise<{release: () => void}>} start
  */
-function holdButton(start, attrs) {
+export function holdButton(start, attrs) {
   const btn = h('button.hold', attrs, '●');
   const { press, lift } = holdable(btn, start);
   btn.addEventListener('pointerdown', (e) => { btn.setPointerCapture(e.pointerId); press(); });

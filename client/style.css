@@ -491,3 +491,13 @@ dialog.round-dialog audio[hidden] { display: none; }
 .vote-count { font-size: .85rem; margin-left: 4px; }
 .vote-result.kept { color: var(--ok); }
 .vote-result.again { color: var(--accent); }
+.sounds-count { position: relative; cursor: default; border-bottom: 1px dotted var(--muted); outline-offset: 3px; }
+.sounds-count:hover .players-pop, .sounds-count:focus-within .players-pop { display: block; }
+.sounds-pop { min-width: 320px; }
+.sounds-help { font-size: .8rem; margin: 4px 0 8px; }
+.sound-list { display: grid; gap: 4px; max-height: 50vh; overflow-y: auto; }
+.sound-list > p { margin: 0; font-size: .85rem; }
+.sound-row { display: flex; align-items: center; gap: 8px; }
+.sound-row .sound-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sound-row .sound-rounds { flex: none; font-size: .78rem; }
+.sound-row button.small { padding: 1px 8px; font-size: .78rem; }
