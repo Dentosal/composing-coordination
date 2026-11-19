@@ -13,7 +13,7 @@ See `designdoc.md`. Status: milestones 1 (Rust renderer + CLI), 3 (server) and 4
     tools/build-wasm.sh                                              # renderer -> client/wasm/renderer.wasm
 
 ## Renderer
-The renderer (`renderer/`, crate `band-render`) is shared: the server uses it for round mixes, previews and song files,
+The renderer (`renderer/`, crate `band-render`) is shared: the server uses it for round mixes and song files,
 and the browser runs the same code compiled to WebAssembly (`client/wasm/renderer.wasm`): for the editor's playback
 (`client/js/stream.js`: rendered live in a worker a little ahead of playback, while an AudioWorklet plays it, so the
 audio thread never synthesizes anything) and for the download menu's "rendered in this browser". Live playback needs

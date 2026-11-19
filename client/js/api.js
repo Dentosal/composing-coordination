@@ -43,21 +43,17 @@ export async function putOrders(sid, token, orders) {
   }
 }
 
+/** The parts played in resolved round `n`: [{seat, orders}], what its band mix was rendered from. */
+export async function fetchRoundParts(sid, token, n) {
+  const r = await fetch(`/api/sessions/${sid}/rounds/${n}/parts`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`parts of round ${n}: ${r.status}`);
+  return r.json();
+}
+
 export async function fetchMix(sid, token, n) {
   const r = await fetch(`/api/sessions/${sid}/rounds/${n}/mix.wav?token=${token}`);
   if (!r.ok) throw new Error(`mix ${n}: ${r.status}`);
   return r.arrayBuffer();
-}
-
-/** Render the draft orders alone on the server. Resolves to WAV bytes; rejects with e.errors on a 422. */
-export async function fetchPreview(sid, token, orders, signal) {
-  const r = await fetch(`/api/sessions/${sid}/preview`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify(orders),
-    signal,
-  });
-  return wavOf(r);
 }
 
 /** WAV bytes from a response, or a thrown Error with the server's message (and `status`, `errors` from a 422). */

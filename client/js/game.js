@@ -46,27 +46,23 @@ export class Game {
     this.errors = [];
     this.view = null;
     this.player = new LoopPlayer();
-    // Preview of this seat's uncommitted part, played over the mix. Two engines: live in the browser (the default) and
-    // the server's render of the whole loop, swapped in after each edit (see previewPlayer). Live is the streaming
-    // player (the server's renderer running in a worker, see stream.js); a page that cannot stream (not cross-origin
-    // isolated) falls back to the browser's own voices (live.js).
-    this.serverPlayer = new LoopPlayer();
-    const part = () => ({ instruments: this.orders.instruments, lanes: this.orders.lanes.filter((l) => this.isAudible(l.instrument)) });
+    // Playback of this seat's draft (the preview) and, in a game, of the last round's band. Normally the streaming
+    // player plays both (the server's renderer running in a worker, see stream.js): the band from the parts the
+    // players committed, with this seat's draft in place of its own committed part while previewing. A page that
+    // cannot stream (not cross-origin isolated) falls back to the browser's own voices for the draft (live.js) over the
+    // server's rendered band mix (this.player).
     const seat = () => this.st.you?.seat_index ?? 0;
-    this.livePlayer = StreamPlayer.supported
-      ? new StreamPlayer({ config: () => this.st.config, parts: () => [{ seat: seat(), orders: part() }] })
-      : new LiveSequencer({ config: () => this.st.config, seat, part });
+    this.draftPart = () => ({ instruments: this.orders.instruments, lanes: this.orders.lanes.filter((l) => this.isAudible(l.instrument)) });
+    this.stream = StreamPlayer.supported;
+    this.band = null; // streaming: the parts of the last resolved round ({seat, orders}), from the server
+    this.livePlayer = this.stream
+      ? new StreamPlayer({ config: () => this.st.config, parts: () => this.streamParts() })
+      : new LiveSequencer({ config: () => this.st.config, seat, part: this.draftPart });
     this.livePlayer.warm?.();
     this.previewOn = true; // your own draft plays along by default
     // Whether the previous round's band mix plays in the background (when there is one).
     this.playMix = true;
     try { this.playMix = localStorage.getItem('playPrevRound') !== '0'; } catch {}
-    this.serverPreview = false;
-    try { this.serverPreview = localStorage.getItem('serverPreview') === '1'; } catch {}
-    this.previewT = null;
-    this.previewBusy = false;
-    this.previewStale = false;
-    this.previewMsg = '';
     // Local-only listening state per track (keyed by instrument id). Never part of the orders, so it can't be committed.
     this.muted = new Set();
     this.loop = null; // loop region {from, to} (rows, inclusive) chosen on the bar numbers; null: play the whole song
@@ -115,9 +111,7 @@ export class Game {
     this.es?.close();
     clearInterval(this.tickT);
     clearTimeout(this.saveT);
-    clearTimeout(this.previewT);
     this.player.stop();
-    this.serverPlayer.stop();
     this.livePlayer.stop();
     this.livePlayer.destroy?.();
     this.panel?.destroy();
@@ -162,14 +156,20 @@ export class Game {
     };
   }
 
+  /** Round `n` has been played: load its band (streaming: its parts, to render here; else: the server's mix). */
   async loadMix(n) {
     if (n === this.mixRound || this.mixLoading === n) return;
     this.mixLoading = n;
     try {
-      const buf = await decode(await api.fetchMix(this.sid, this.token, n));
+      const band = this.stream ? await api.fetchRoundParts(this.sid, this.token, n) : await decode(await api.fetchMix(this.sid, this.token, n));
       if (this.mixRound == null || n > this.mixRound) {
         this.mixRound = n;
-        this.player.setBuffer(buf);
+        if (this.stream) {
+          this.band = band;
+          this.livePlayer.changed();
+        } else {
+          this.player.setBuffer(band);
+        }
         this.updateMix();
       }
     } catch (e) {
@@ -192,6 +192,20 @@ export class Game {
     return p;
   }
 
+  /**
+   * What the streaming player plays: the last round's band (when "Previous round" is on and no track is soloed), with
+   * this seat's committed part replaced by the draft while previewing; and the draft.
+   */
+  streamParts() {
+    const mine = this.st.you?.seat_index ?? 0;
+    const parts = [];
+    if (this.band && this.playMix && !this.solo.size) {
+      for (const p of this.band) if (p.seat !== mine || !this.previewOn) parts.push(p);
+    }
+    if (this.previewOn) parts.push({ seat: mine, orders: this.draftPart() });
+    return parts;
+  }
+
   touch() {
     this.dirty = true;
     this.livePlayer.changed?.(); // the streaming player renders ahead: tell it (the live sequencer reads the orders as it plays)
@@ -201,10 +215,6 @@ export class Game {
       this.updateCommit();
     }
     this.scheduleSave(800);
-    if (this.previewOn && this.serverPreview) { // the live sequencer reads the orders as it plays
-      this.editAt ??= performance.now(); // first edit not yet heard; used for latency logging
-      this.schedulePreview(600);
-    }
   }
 
   scheduleSave(ms) {
@@ -359,12 +369,10 @@ export class Game {
       r.prevChk = h('input', { type: 'checkbox', checked: this.playMix, onchange: (e) => this.setPlayMix(e.target.checked) });
       r.prevLbl = h('label.muted', {}, r.prevChk, ' Previous round');
     }
-    r.serverChk = h('input', { type: 'checkbox', checked: this.serverPreview, onchange: (e) => this.setServerPreview(e.target.checked) });
-    r.serverLbl = h('label.muted', { title: 'Render the preview on the server, exactly like the final band mix (slower, edits are heard after a short delay). Off: play it live in your browser.' }, r.serverChk, ' Server render');
     r.mixInfo = h('span.muted');
     this.spectrum?.destroy();
     this.spectrum = new Spectrum();
-    r.foot = h('footer.bottombar', r.playBtn, r.previewBtn, free ? null : r.prevLbl, r.serverLbl, r.mixInfo, this.spectrum.el);
+    r.foot = h('footer.bottombar', r.playBtn, r.previewBtn, free ? null : r.prevLbl, r.mixInfo, this.spectrum.el);
 
     const instRoot = h('div');
     const patRoot = h('div');
@@ -408,7 +416,6 @@ export class Game {
         h('section.panel.pattern', patRoot)),
       r.foot);
     this.applyMixMute();
-    if (this.previewOn && this.serverPreview) this.renderPreview(); // the live preview needs no render
     this.updateMix();
   }
 
@@ -468,12 +475,12 @@ export class Game {
         : this.previewOn ? '' : 'No mix yet: round 1 is written blind. Use Preview to hear your part.';
     let previewText = '';
     if (this.previewOn) {
-      previewText = this.previewMsg || (this.previewBusy || !this.previewPlayer.buffer ? 'Rendering preview…' : 'Preview is on.');
-      if (this.mixRound && this.playMix) previewText += ' (The mix already contains your last committed part.)';
+      previewText = 'Preview is on.';
+      if (this.mixRound && this.playMix) previewText += this.stream ? ' (Your draft plays in place of your part from the last round.)' : ' (The mix already contains your last committed part.)';
     }
     let listenText = '';
-    if (this.solo.size) listenText = free ? 'Solo: you hear only the soloed track.' : 'Solo: the band mix is silenced; you hear only the soloed track(s) of your draft.';
-    else if (this.muted.size) listenText = free ? '' : 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
+    if (this.solo.size) listenText = free ? 'Solo: you hear only the soloed track.' : 'Solo: the band is silenced; you hear only the soloed track(s) of your draft.';
+    else if (this.muted.size) listenText = free || this.stream ? '' : 'Muted tracks are silent in the preview only (the band mix still has your last committed part).';
     r.mixInfo.textContent = [mixText, previewText, listenText].filter(Boolean).join(' ');
   }
 
@@ -555,11 +562,9 @@ export class Game {
       this.playing = false;
       this.player.stop();
       this.livePlayer.stop();
-      this.serverPlayer.stop();
     }
     if (this.pattern) this.pattern.loop = this.loop; // the editor keeps its own copy of the loop
     this.pattern?.setTotalRows(total, grew);
-    if (this.previewOn && this.serverPreview) this.schedulePreview(0);
     this.updateMix();
   }
 
@@ -631,17 +636,26 @@ export class Game {
     this.applyListening();
   }
 
-  /** Update what is heard after a mute/solo change. Only affects local playback, never the orders. */
-  /** The band mix is silenced while a track is soloed (it can't be split per track) or when "Previous round" is off. */
+  /** The band is silenced while a track is soloed or when "Previous round" is off. Only affects local playback. */
   applyMixMute() {
-    this.player.setMuted(this.solo.size > 0 || !this.playMix);
+    if (this.stream) this.livePlayer.changed(); // the band is part of what the stream plays (see streamParts)
+    else this.player.setMuted(this.solo.size > 0 || !this.playMix);
   }
 
   setPlayMix(on) {
     this.playMix = on;
     try { localStorage.setItem('playPrevRound', on ? '1' : '0'); } catch {}
     this.applyMixMute();
+    this.stopIfSilent();
     this.updateMix();
+  }
+
+  /** Streaming: when the band and the preview are both off, there is nothing left to hear, so stop. */
+  stopIfSilent() {
+    if (this.stream && this.playing && !this.streamParts().length) {
+      this.playing = false;
+      this.livePlayer.stop();
+    }
   }
 
   applyListening() {
@@ -650,7 +664,6 @@ export class Game {
     // Solo means "hear only this": silence the band mix (it can't be split per track) and make sure the draft preview is on.
     this.applyMixMute();
     if (this.solo.size && !this.previewOn) this.togglePreview();
-    else if (this.previewOn) this.schedulePreview(150);
     this.updateMix();
   }
 
@@ -698,7 +711,8 @@ export class Game {
       const when = c.currentTime + 0.05;
       this.playing = true;
       const region = this.transportRegion();
-      await Promise.all([this.player.play(when, region), this.previewOn ? this.previewPlayer.play(when, region) : null]);
+      // Streaming, the one player plays the band too (this.player has no buffer then), so it always starts.
+      await Promise.all([this.player.play(when, region), this.previewOn || this.stream ? this.previewPlayer.play(when, region) : null]);
       if (!this.player.playing && !this.previewPlayer.playing) this.playing = false;
     }
     this.updateMix();
@@ -722,98 +736,37 @@ export class Game {
     const c = await unlock();
     const when = c.currentTime + 0.05;
     this.playing = true;
-    await Promise.all([this.player.play(when, region), this.previewOn ? this.previewPlayer.play(when, region) : null]);
+    await Promise.all([this.player.play(when, region), this.previewOn || this.stream ? this.previewPlayer.play(when, region) : null]);
     if (!this.player.playing && !this.previewPlayer.playing) this.playing = false;
     this.updateMix();
   }
 
   togglePreview() {
     this.previewOn = !this.previewOn;
-    this.previewMsg = '';
     if (!this.previewOn) this.pendingPlay = null;
-    clearTimeout(this.previewT);
-    if (this.previewOn) {
-      this.renderPreview();
-    } else {
-      this.previewStale = false;
+    if (this.stream) {
+      // One stream plays the band and the draft: only what it plays changes.
+      this.livePlayer.changed();
+      this.stopIfSilent();
+    } else if (!this.previewOn) {
       this.previewPlayer.stop();
       if (!this.player.playing) this.playing = false;
     }
+    if (this.previewOn) this.previewReady();
     this.updateMix();
   }
 
   get previewPlayer() {
-    return this.serverPreview ? this.serverPlayer : this.livePlayer;
+    return this.livePlayer;
   }
 
-  setServerPreview(on) {
-    this.serverPlayer.stop();
-    this.livePlayer.stop();
-    this.serverPreview = on;
-    try { localStorage.setItem('serverPreview', on ? '1' : '0'); } catch {}
-    if (this.previewOn) this.renderPreview(); // live: joins the running transport at once; server: render first
-  }
-
-  schedulePreview(ms) {
-    clearTimeout(this.previewT);
-    this.previewT = setTimeout(() => this.renderPreview(), ms);
-  }
-
-  /** The live preview needs no render: start it (or the play command that was waiting for it). */
+  /** The preview needs no render: start it (or the play command that was waiting for it). */
   async previewReady() {
-    this.previewMsg = '';
     const pending = this.pendingPlay;
     this.pendingPlay = null;
     if (pending?.kind === 'full') await this.togglePlay();
     else if (pending) await this.playPattern(pending.kind, pending.a, pending.b);
     else await this.startPreviewInSync();
-    this.updateMix();
-  }
-
-  /** Server mode: render the current draft on the server and swap it into the preview loop at the playhead. */
-  async renderPreview() {
-    if (!this.serverPreview) return this.previewReady();
-    if (this.previewBusy) {
-      this.previewStale = true;
-      return;
-    }
-    this.previewBusy = true;
-    this.previewStale = false;
-    this.updateMix();
-    let retry = 0;
-    const t0 = performance.now();
-    const editAt = this.editAt ?? t0;
-    this.editAt = null;
-    try {
-      const snapshot = JSON.parse(JSON.stringify(this.orders));
-      for (const lane of snapshot.lanes) if (!this.isAudible(lane.instrument)) lane.steps = []; // muted / not soloed
-      const wav = await api.fetchPreview(this.sid, this.token, snapshot);
-      const t1 = performance.now();
-      const size = wav.byteLength;
-      const buf = await decode(wav);
-      const t2 = performance.now();
-      if (this.previewOn && this.serverPreview && !this.dead) {
-        this.previewMsg = '';
-        this.serverPlayer.setBuffer(buf, true); // swap in at the current playhead, don't wait for the loop boundary
-        const f = (x) => Math.round(x);
-        console.log(
-          `[preview] edit→audible ${f(t2 - editAt)}ms = wait-before-render ${f(t0 - editAt)} + server ${f(t1 - t0)} (${(size / 1024) | 0} KiB) + decode ${f(t2 - t1)} (loop ${buf.duration.toFixed(2)}s)`,
-        );
-        const pending = this.pendingPlay;
-        this.pendingPlay = null;
-        if (pending) { // a play command was waiting for the first render
-          if (pending.kind === 'full') await this.togglePlay();
-          else await this.playPattern(pending.kind, pending.a, pending.b);
-        } else await this.startPreviewInSync();
-      }
-    } catch (e) {
-      if (e.status === 429) retry = 1500;
-      else this.previewMsg = e.errors?.length ? `Preview needs valid orders: ${e.message}` : `Preview failed: ${e.message}`;
-    } finally {
-      this.previewBusy = false;
-    }
-    if (this.previewMsg && !this.serverPlayer.buffer) this.pendingPlay = null; // the render failed: don't play later by surprise
-    if (this.previewOn && this.serverPreview && (this.previewStale || retry)) this.schedulePreview(retry || 100);
     this.updateMix();
   }
 

@@ -480,12 +480,6 @@ fn render_mix(job: RenderJob) -> Arc<[u8]> {
     Arc::from(wav::encode(&stereo))
 }
 
-/// One seat's orders alone, as a seamless loop (same two-pass render as a round mix).
-pub fn render_preview(cfg: &RenderConfig, seat_index: u32, orders: &Orders) -> Vec<u8> {
-    let parts = vec![SeatPart { seat_index, orders }];
-    wav::encode(&render::render(cfg, &[parts.clone(), parts], 1))
-}
-
 /// One seat's orders alone as a song file: played once from silence, with the tail ringing out (see `render::render_song`).
 pub fn render_part_song(cfg: &RenderConfig, seat_index: u32, orders: &Orders) -> Vec<u8> {
     wav::encode(&render::render_song(cfg, &[vec![SeatPart { seat_index, orders }]]))

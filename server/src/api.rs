@@ -36,8 +36,8 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/orders", put(put_orders))
         .route("/api/sessions/{id}/ready", post(ready))
         .route("/api/sessions/{id}/bars", put(set_bars))
-        .route("/api/sessions/{id}/preview", post(preview))
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
+        .route("/api/sessions/{id}/rounds/{n}/parts", get(round_parts))
         .route("/api/sessions/{id}/song.wav", get(song))
         .route("/api/sessions/{id}/render", post(render_part))
         .route("/api/sessions/{id}/song-so-far.wav", get(song_so_far))
@@ -236,39 +236,11 @@ async fn ready(
     Ok(Json(json!({"ok": true})))
 }
 
-/// Concurrent preview renders allowed; extra requests get 429 so previews cannot starve round renders.
-static PREVIEW_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
-
-/// Render the caller's draft orders on their own, exactly as the round render would (same seat index,
-/// so seeded noise matches). Nothing is stored. The client loops the result over the latest mix.
-async fn preview(
-    State(sh): State<Shared>,
-    Path(id): Path<String>,
-    h: HeaderMap,
-    q: Q,
-    Json(orders): Json<Orders>,
-) -> Result<Response, ApiError> {
-    let (cfg, seat_index) = {
-        let g = sh.read().await;
-        let s = session(&g, &id)?;
-        let i = seat_of(s, &h, &q)?;
-        let errors = orders.validate(&s.config.limits());
-        if !errors.is_empty() {
-            return Ok((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"ok": false, "errors": errors}))).into_response());
-        }
-        (s.config.render_config(), s.seats[i].index)
-    };
-    let Ok(_permit) = PREVIEW_SLOTS.try_acquire() else {
-        return err(StatusCode::TOO_MANY_REQUESTS, "preview renderer busy, try again");
-    };
-    let wav = tokio::task::spawn_blocking(move || render_preview(&cfg, seat_index, &orders))
-        .await
-        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("render failed: {e}")))?;
-    Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "no-store")], wav).into_response())
-}
+/// Concurrent on-demand renders (downloads) allowed; extra requests get 429 so they cannot starve round renders.
+static RENDER_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
 /// Render the caller's orders on their own as a song file to download: played once from silence, with the notes and
-/// effects ringing out at the end (unlike a preview, which is a seamless loop). Shares the preview slots.
+/// effects ringing out at the end (unlike a preview, which is a seamless loop). Shares the render slots.
 async fn render_part(
     State(sh): State<Shared>,
     Path(id): Path<String>,
@@ -286,7 +258,7 @@ async fn render_part(
         }
         (s.config.render_config(), s.seats[i].index)
     };
-    let Ok(_permit) = PREVIEW_SLOTS.try_acquire() else {
+    let Ok(_permit) = RENDER_SLOTS.try_acquire() else {
         return err(StatusCode::TOO_MANY_REQUESTS, "the renderer is busy, try again in a moment");
     };
     let wav = tokio::task::spawn_blocking(move || render_part_song(&cfg, seat_index, &orders))
@@ -295,7 +267,7 @@ async fn render_part(
     Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "no-store")], wav).into_response())
 }
 
-/// Every round played so far, back to back, as a song file (the same render as the finished song). Shares the preview slots.
+/// Every round played so far, back to back, as a song file (the same render as the finished song). Shares the render slots.
 async fn song_so_far(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMap, q: Q) -> Result<Response, ApiError> {
     let (cfg, rounds) = {
         let g = sh.read().await;
@@ -306,7 +278,7 @@ async fn song_so_far(State(sh): State<Shared>, Path(id): Path<String>, h: Header
     if rounds.is_empty() {
         return err(StatusCode::NOT_FOUND, "no round has been played yet");
     }
-    let Ok(_permit) = PREVIEW_SLOTS.try_acquire() else {
+    let Ok(_permit) = RENDER_SLOTS.try_acquire() else {
         return err(StatusCode::TOO_MANY_REQUESTS, "the renderer is busy, try again in a moment");
     };
     let wav = tokio::task::spawn_blocking(move || render_rounds_song(&cfg, &rounds))
@@ -339,6 +311,19 @@ async fn mix(State(sh): State<Shared>, Path((id, n)): Path<(String, u32)>, h: He
     any_auth(s, &h, &q)?;
     match s.rounds.iter().find(|r| r.index == n).and_then(|r| r.mix.clone()) {
         Some(m) => Ok(wav_response(m, None)),
+        None => err(StatusCode::NOT_FOUND, "round not resolved"),
+    }
+}
+
+/// The parts played in a resolved round, each with its seat's join-order index (which seeds its noise): what its band
+/// mix was rendered from. The browser's streaming player renders the band from these, with the listener's own draft in
+/// place of their committed part. Nothing here is secret: every player hears the mix anyway.
+async fn round_parts(State(sh): State<Shared>, Path((id, n)): Path<(String, u32)>, h: HeaderMap, q: Q) -> Result<Response, ApiError> {
+    let g = sh.read().await;
+    let s = session(&g, &id)?;
+    any_auth(s, &h, &q)?;
+    match s.rounds.iter().find(|r| r.index == n && r.state == RoundState::Resolved) {
+        Some(r) => Ok(Json(r.played.iter().map(|(seat, orders)| json!({"seat": seat, "orders": orders})).collect::<Vec<_>>()).into_response()),
         None => err(StatusCode::NOT_FOUND, "round not resolved"),
     }
 }
