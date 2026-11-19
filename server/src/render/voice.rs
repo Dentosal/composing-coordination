@@ -5,6 +5,7 @@ use super::{gain, RenderConfig, SeatPart, SAMPLE_RATE, SEAT_GAIN};
 use crate::orders::{unison_offsets, ShaperShape, Edge, FilterMode, FxStep, Instrument, Lane, NodeKind, NoiseColor, Wave, ARP_TICKS_PER_ROW};
 use crate::prng::Mulberry32;
 use std::collections::HashMap;
+use std::sync::Arc;
 use web_audio_api::context::{BaseAudioContext, OfflineAudioContext};
 use web_audio_api::node::{
     AudioNode, AudioScheduledSourceNode, AudioBufferSourceNode, BiquadFilterNode, BiquadFilterType,
@@ -217,21 +218,33 @@ pub fn shaper_curve(shape: ShaperShape, drive: f32, param: Option<f32>) -> Vec<f
         .collect()
 }
 
-pub fn schedule_part(
-    ctx: &OfflineAudioContext,
-    master: &Master,
-    cfg: &RenderConfig,
-    part: &SeatPart,
-    _loop_idx: usize,
-    loop_start: f64,
-) {
-    // One bus per instrument: bus gain -> dry, plus send taps.
-    struct Bus {
-        input: GainNode,
-        _taps: Vec<GainNode>,
+/// One voice to build, with everything `build_voice` needs owned, so that voices can be built while the context renders
+/// (see `render_with_tail` in mod.rs): a voice is only added to the graph shortly before it starts, because every node
+/// in the graph costs processing time on every render quantum, even one that has not started yet.
+pub struct VoiceJob {
+    /// Seconds into the render at which the voice starts.
+    pub start: f64,
+    end: f64,
+    note: u8,
+    vel: u8,
+    seat_index: u32,
+    inst: Arc<Instrument>,
+    bus: Arc<GainNode>,
+    noise: Arc<HashMap<String, AudioBuffer>>,
+    seg: FxSegment,
+}
+
+impl VoiceJob {
+    pub fn build(&self, ctx: &OfflineAudioContext, cfg: &RenderConfig) {
+        build_voice(ctx, cfg, self.seat_index, &self.inst, &self.bus, &self.noise, self.note, self.vel, self.start, self.end, &self.seg);
     }
-    let mut buses: HashMap<&str, Bus> = HashMap::new();
-    let mut noise: HashMap<(&str, &str), AudioBuffer> = HashMap::new();
+}
+
+/// Set up one seat's part for one loop starting at `loop_start`: a bus per instrument (connected to the master now) and
+/// its noise buffers, and a job in `jobs` for every voice its notes play.
+pub fn plan_part(ctx: &OfflineAudioContext, master: &Master, cfg: &RenderConfig, part: &SeatPart, loop_start: f64, jobs: &mut Vec<VoiceJob>) {
+    // One bus per instrument: bus gain -> dry, plus send taps.
+    let mut buses: HashMap<&str, (Arc<Instrument>, Arc<GainNode>, Arc<HashMap<String, AudioBuffer>>)> = HashMap::new();
     for inst in &part.orders.instruments {
         let input = gain(ctx, inst.gain * SEAT_GAIN);
         input.connect(&master.dry);
@@ -241,30 +254,36 @@ pub fn schedule_part(
         input.connect(&sr);
         sd.connect(&master.delay_in);
         sr.connect(&master.reverb_in);
-        buses.insert(inst.id.as_str(), Bus { input, _taps: vec![sd, sr] });
+        let mut noise = HashMap::new();
         for n in &inst.nodes {
             if let NodeKind::Noise { color } = &n.kind {
-                noise.insert(
-                    (inst.id.as_str(), n.id.as_str()),
-                    noise_buffer(cfg, part.seat_index, &inst.id, &n.id, *color),
-                );
+                noise.insert(n.id.clone(), noise_buffer(cfg, part.seat_index, &inst.id, &n.id, *color));
             }
         }
+        buses.insert(inst.id.as_str(), (Arc::new(inst.clone()), Arc::new(input), Arc::new(noise)));
     }
 
-    let insts: HashMap<&str, &Instrument> = part.orders.instruments.iter().map(|i| (i.id.as_str(), i)).collect();
     let row_secs = cfg.row_secs();
     let total_rows = cfg.total_rows();
-
     for lane in &part.orders.lanes {
-        let (Some(inst), Some(bus)) = (insts.get(lane.instrument.as_str()), buses.get(lane.instrument.as_str())) else {
+        let Some((inst, bus, noise)) = buses.get(lane.instrument.as_str()) else {
             continue;
         };
         for (note, vel, row, end_row) in lane_notes(lane, total_rows) {
             let t0 = loop_start + row as f64 * row_secs;
             let hz = midi_hz(note);
             for seg in fx_plan(&lane.fx, row, end_row, row_secs, &|node, port| param_target(inst, hz, node, port)) {
-                build_voice(ctx, cfg, part.seat_index, inst, &bus.input, &noise, note, vel, t0 + seg.start, t0 + seg.end, &seg);
+                jobs.push(VoiceJob {
+                    start: t0 + seg.start,
+                    end: t0 + seg.end,
+                    note,
+                    vel,
+                    seat_index: part.seat_index,
+                    inst: inst.clone(),
+                    bus: bus.clone(),
+                    noise: noise.clone(),
+                    seg,
+                });
             }
         }
     }
@@ -524,7 +543,7 @@ fn build_voice(
     _seat_index: u32,
     inst: &Instrument,
     bus: &GainNode,
-    noise: &HashMap<(&str, &str), AudioBuffer>,
+    noise: &HashMap<String, AudioBuffer>,
     note: u8,
     vel: u8,
     t0: f64,
@@ -591,7 +610,7 @@ fn build_voice(
             }
             NodeKind::Noise { .. } => {
                 let mut s = ctx.create_buffer_source();
-                if let Some(buf) = noise.get(&(inst.id.as_str(), n.id.as_str())) {
+                if let Some(buf) = noise.get(&n.id) {
                     s.set_buffer(buf.clone());
                 }
                 s.set_loop(true);

@@ -35,7 +35,7 @@ export function readSceneFile(text) {
   } catch {
     throw new Error('That file is not valid JSON.');
   }
-  if (raw?.format !== SCENE_FORMAT) throw new Error('That is not a scene file exported from this game (use the download button in the header).');
+  if (raw?.format !== SCENE_FORMAT) throw new Error('That is not a scene file exported from this game (save one from the download menu in the header).');
   const c = raw.config;
   const o = raw.orders;
   if (!c || typeof c !== 'object') throw new Error('The scene has no tempo or length settings.');

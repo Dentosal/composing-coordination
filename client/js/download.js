@@ -3,7 +3,12 @@ import { h } from './dom.js';
 
 /** Download `text` as a file called `filename`. */
 export function downloadText(filename, text, type = 'application/json') {
-  const url = URL.createObjectURL(new Blob([text], { type }));
+  downloadBlob(filename, new Blob([text], { type }));
+}
+
+/** Download a Blob as a file called `filename`. */
+export function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
   const a = h('a', { href: url, download: filename });
   document.body.append(a);
   a.click();

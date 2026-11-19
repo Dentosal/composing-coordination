@@ -39,6 +39,8 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/preview", post(preview))
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
         .route("/api/sessions/{id}/song.wav", get(song))
+        .route("/api/sessions/{id}/render", post(render_part))
+        .route("/api/sessions/{id}/song-so-far.wav", get(song_so_far))
         .route("/api/sessions/{id}/events", get(events))
         .layer(axum::extract::DefaultBodyLimit::max(4 * 1024 * 1024)) // 64 tracks with every row of a 256-bar song filled is about 1.8 MB
         .with_state(shared)
@@ -260,6 +262,54 @@ async fn preview(
         return err(StatusCode::TOO_MANY_REQUESTS, "preview renderer busy, try again");
     };
     let wav = tokio::task::spawn_blocking(move || render_preview(&cfg, seat_index, &orders))
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("render failed: {e}")))?;
+    Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "no-store")], wav).into_response())
+}
+
+/// Render the caller's orders on their own as a song file to download: played once from silence, with the notes and
+/// effects ringing out at the end (unlike a preview, which is a seamless loop). Shares the preview slots.
+async fn render_part(
+    State(sh): State<Shared>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+    q: Q,
+    Json(orders): Json<Orders>,
+) -> Result<Response, ApiError> {
+    let (cfg, seat_index) = {
+        let g = sh.read().await;
+        let s = session(&g, &id)?;
+        let i = seat_of(s, &h, &q)?;
+        let errors = orders.validate(&s.config.limits());
+        if !errors.is_empty() {
+            return Ok((StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"ok": false, "errors": errors}))).into_response());
+        }
+        (s.config.render_config(), s.seats[i].index)
+    };
+    let Ok(_permit) = PREVIEW_SLOTS.try_acquire() else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "the renderer is busy, try again in a moment");
+    };
+    let wav = tokio::task::spawn_blocking(move || render_part_song(&cfg, seat_index, &orders))
+        .await
+        .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("render failed: {e}")))?;
+    Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "no-store")], wav).into_response())
+}
+
+/// Every round played so far, back to back, as a song file (the same render as the finished song). Shares the preview slots.
+async fn song_so_far(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMap, q: Q) -> Result<Response, ApiError> {
+    let (cfg, rounds) = {
+        let g = sh.read().await;
+        let s = session(&g, &id)?;
+        any_auth(s, &h, &q)?;
+        (s.config.render_config(), played_rounds(s))
+    };
+    if rounds.is_empty() {
+        return err(StatusCode::NOT_FOUND, "no round has been played yet");
+    }
+    let Ok(_permit) = PREVIEW_SLOTS.try_acquire() else {
+        return err(StatusCode::TOO_MANY_REQUESTS, "the renderer is busy, try again in a moment");
+    };
+    let wav = tokio::task::spawn_blocking(move || render_rounds_song(&cfg, &rounds))
         .await
         .map_err(|e| ApiError(StatusCode::INTERNAL_SERVER_ERROR, format!("render failed: {e}")))?;
     Ok(([(header::CONTENT_TYPE, "audio/wav"), (header::CACHE_CONTROL, "no-store")], wav).into_response())

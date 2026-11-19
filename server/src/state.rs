@@ -486,6 +486,23 @@ pub fn render_preview(cfg: &RenderConfig, seat_index: u32, orders: &Orders) -> V
     wav::encode(&render::render(cfg, &[parts.clone(), parts], 1))
 }
 
+/// One seat's orders alone as a song file: played once from silence, with the tail ringing out (see `render::render_song`).
+pub fn render_part_song(cfg: &RenderConfig, seat_index: u32, orders: &Orders) -> Vec<u8> {
+    wav::encode(&render::render_song(cfg, &[vec![SeatPart { seat_index, orders }]]))
+}
+
+/// The parts played in each resolved round so far, in order: the loops of the song.
+pub fn played_rounds(s: &Session) -> Vec<Vec<(u32, Orders)>> {
+    s.rounds.iter().filter(|r| r.state == RoundState::Resolved).map(|r| r.played.clone()).collect()
+}
+
+/// Rounds (each a list of seat index and orders) back to back as a song file, with the tail ringing out.
+pub fn render_rounds_song(cfg: &RenderConfig, rounds: &[Vec<(u32, Orders)>]) -> Vec<u8> {
+    let loops: Vec<Vec<SeatPart>> =
+        rounds.iter().map(|r| r.iter().map(|(i, o)| SeatPart { seat_index: *i, orders: o }).collect()).collect();
+    wav::encode(&render::render_song(cfg, &loops))
+}
+
 /// Resolve round `n` if its conditions hold. Safe to call redundantly.
 pub async fn try_resolve(shared: Shared, sid: String, n: u32, timer: bool) {
     let job = {
@@ -511,22 +528,12 @@ async fn render_song(shared: Shared, sid: String) {
     let job = {
         let g = shared.read().await;
         let Some(s) = g.sessions.get(&sid) else { return };
-        let rounds: Vec<Vec<(u32, Orders)>> =
-            s.rounds.iter().filter(|r| r.state == RoundState::Resolved).map(|r| r.played.clone()).collect();
-        (s.config.render_config(), rounds)
+        (s.config.render_config(), played_rounds(s))
     };
     if job.1.is_empty() {
         return;
     }
-    let wav = tokio::task::spawn_blocking(move || {
-        let loops: Vec<Vec<SeatPart>> = job
-            .1
-            .iter()
-            .map(|r| r.iter().map(|(i, o)| SeatPart { seat_index: *i, orders: o }).collect())
-            .collect();
-        Arc::<[u8]>::from(wav::encode(&render::render(&job.0, &loops, 0)))
-    })
-    .await;
+    let wav = tokio::task::spawn_blocking(move || Arc::<[u8]>::from(render_rounds_song(&job.0, &job.1))).await;
     if let Ok(w) = wav {
         let mut g = shared.write().await;
         if let Some(s) = g.sessions.get_mut(&sid) {

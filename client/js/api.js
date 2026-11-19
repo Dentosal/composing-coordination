@@ -57,6 +57,11 @@ export async function fetchPreview(sid, token, orders, signal) {
     body: JSON.stringify(orders),
     signal,
   });
+  return wavOf(r);
+}
+
+/** WAV bytes from a response, or a thrown Error with the server's message (and `status`, `errors` from a 422). */
+async function wavOf(r) {
   if (r.ok) return r.arrayBuffer();
   let data = null;
   try { data = await r.json(); } catch {}
@@ -64,6 +69,20 @@ export async function fetchPreview(sid, token, orders, signal) {
   e.status = r.status;
   e.errors = data?.errors;
   throw e;
+}
+
+/** Render `orders` alone on the server as a song file (played once, ringing out at the end). Resolves to WAV bytes. */
+export async function fetchRender(sid, token, orders) {
+  return wavOf(await fetch(`/api/sessions/${sid}/render`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(orders),
+  }));
+}
+
+/** Every round played so far, back to back, as a song file. Resolves to WAV bytes. */
+export async function fetchSongSoFar(sid, token) {
+  return wavOf(await fetch(`/api/sessions/${sid}/song-so-far.wav`, { headers: { Authorization: `Bearer ${token}` } }));
 }
 
 export const songUrl = (sid, token, download = false) =>

@@ -104,26 +104,7 @@ export class LiveSequencer {
     const part = this.src.part();
     if (!part) return;
     const seed = this.src.config().seed;
-    for (const lane of part.lanes) {
-      let on = null;
-      let next = r.total; // the note ends at the next step of the lane (note-on or note-off), or the pattern's end
-      for (const s of lane.steps) {
-        if (s.row >= r.total) continue;
-        if (s.row === row) on = s;
-        else if (s.row > row && s.row < next) next = s.row;
-      }
-      if (!on || on.note == null) continue;
-      const inst = part.instruments.find((i) => i.id === lane.instrument);
-      if (!inst) continue;
-      const endRow = row < r.leRow ? Math.min(next, r.leRow) : next; // a looped slice cuts the note at its end
-      // Effect cells can split the note into several voices (retrigger) and end it early (cut); each voice carries its
-      // own volume / pitch automation.
-      const hz = midiHz(on.note);
-      for (const seg of notePlan(lane.fx, row, endRow, r.rowSecs, (node, port) => paramTarget(inst, hz, node, port))) {
-        startVoice(ctx, r.master.bus(ctx, inst), inst, this.noiseFor(ctx, inst, seed), on.note, on.vel, t + seg.start, seg)
-          .release(t + seg.end);
-      }
-    }
+    scheduleRow(ctx, r.master, part, { rowSecs: r.rowSecs, total: r.total, leRow: r.leRow }, row, t, (inst) => this.noiseFor(ctx, inst, seed));
   }
 
   noiseFor(ctx, inst, seed) {
@@ -135,5 +116,34 @@ export class LiveSequencer {
       map.set(n.id, this.noise.get(key));
     }
     return map;
+  }
+}
+
+/**
+ * Start the voices for the notes of `part` that begin at pattern row `row`, at AudioContext time `t`. Shared by the
+ * live sequencer and the offline renderer (offline.js), so both play notes the same way. `leRow` is the end of the
+ * looped slice (a note is cut there; pass `total` when nothing loops). `noiseFor(inst)` gives the instrument's noise buffers.
+ * @param {{rowSecs:number,total:number,leRow:number}} timing
+ */
+export function scheduleRow(ctx, master, part, { rowSecs, total, leRow }, row, t, noiseFor) {
+  for (const lane of part.lanes) {
+    let on = null;
+    let next = total; // the note ends at the next step of the lane (note-on or note-off), or the pattern's end
+    for (const s of lane.steps) {
+      if (s.row >= total) continue;
+      if (s.row === row) on = s;
+      else if (s.row > row && s.row < next) next = s.row;
+    }
+    if (!on || on.note == null) continue;
+    const inst = part.instruments.find((i) => i.id === lane.instrument);
+    if (!inst) continue;
+    const endRow = row < leRow ? Math.min(next, leRow) : next; // a looped slice cuts the note at its end
+    // Effect cells can split the note into several voices (retrigger) and end it early (cut); each voice carries its
+    // own volume / pitch automation.
+    const hz = midiHz(on.note);
+    for (const seg of notePlan(lane.fx, row, endRow, rowSecs, (node, port) => paramTarget(inst, hz, node, port))) {
+      startVoice(ctx, master.bus(ctx, inst), inst, noiseFor(inst), on.note, on.vel, t + seg.start, seg)
+        .release(t + seg.end);
+    }
   }
 }

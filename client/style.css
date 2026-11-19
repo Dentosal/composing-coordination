@@ -262,6 +262,17 @@ input[type=range] { accent-color: var(--accent); }
 .preset-row button.hold.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .preset-item:hover { background: var(--panel); }
 .preset-cancel { width: 100%; margin-top: 6px; }
+.menu-wrap { position: relative; display: inline-flex; }
+.menu-dialog { position: absolute; top: calc(100% + 6px); right: 0; left: auto; margin: 0; z-index: 20; width: min(340px, calc(100vw - 32px)); padding: 6px; background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.menu-list { display: grid; gap: 2px; }
+.menu-item { display: grid; gap: 2px; text-align: left; background: none; border-color: transparent; padding: 7px 10px; }
+.menu-item:hover:not(:disabled) { background: var(--panel); }
+.menu-item:disabled { cursor: default; }
+.menu-item:disabled:not(.busy) .menu-label { opacity: .5; }
+.menu-detail { font-size: .78rem; color: var(--muted, #8a8f99); }
+.menu-detail.err { color: var(--bad); }
+.menu-item.busy .menu-detail { color: var(--accent); }
+.menu-sep { border: 0; border-top: 1px solid var(--line); margin: 4px 2px; }
 
 .loader > button.hint { border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 

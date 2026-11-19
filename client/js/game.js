@@ -6,10 +6,18 @@ import { InstrumentPanel, ensureTracks, loadPresets, newTrack } from './editor.j
 import { LiveSequencer } from './live.js';
 import { PatternEditor } from './pattern.js';
 import { helpButton } from './help.js';
-import { downloadText } from './download.js';
+import { downloadBlob, downloadText } from './download.js';
+import { menuButton } from './menu.js';
+import { renderSong } from './offline.js';
 import { sceneFile } from './scene.js';
 import { icon } from './icons.js';
 import { Spectrum } from './spectrum.js';
+
+/** Local date and time for file names: 20261119-1432. */
+const fileStamp = (d = new Date()) => {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+};
 
 const fmtTime = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -314,13 +322,14 @@ export class Game {
         h('ul', h('li', 'Each row of the track roll is one instrument. Click a track to shape its sound in the panel above, and place notes in its cells.'),
           h('li', 'Drag across the bar numbers to loop a section while you work.'),
           h('li', 'The footer plays everything you have written; your work is kept while the session is open.'),
-          h('li', 'The download button in the header saves all your patches, notes and effects as one file.')),
+          h('li', 'The download menu in the header saves the song as audio (rendered on the server or in this browser), or all your patches, notes and effects as one scene file.')),
       ] : [
         'Every round, each player writes a short looping part. When everyone has committed, the parts are mixed into one band loop that plays under the next round.',
         h('ul', h('li', 'Each row of the track roll is one instrument. Click a track to shape its sound in the panel above, and place notes in its cells.'),
           h('li', 'Drag across the bar numbers to loop a section while you work.'),
           h('li', 'The footer plays your draft, optionally over the previous round.'),
-          h('li', 'Commit & ready sends your part. The round ends when everyone is ready.')),
+          h('li', 'Commit & ready sends your part. The round ends when everyone is ready.'),
+          h('li', 'The download menu in the header saves the song so far or your own part as audio, or your patches, notes and effects as one scene file.')),
       ],
     });
     // Fullscreen toggle (hidden where the browser has no fullscreen API, e.g. iPhones).
@@ -332,8 +341,8 @@ export class Game {
     this.onFullscreen = () => this.updateFullscreenBtn();
     document.addEventListener('fullscreenchange', this.onFullscreen);
     this.updateFullscreenBtn();
-    r.exportBtn = h('button.icon-btn', { type: 'button', title: 'Export everything as one file: all patches, notes and effects', 'aria-label': 'Export all tracks',
-      onclick: () => this.exportAll() }, icon('download'));
+    r.exportBtn = menuButton(h('button.icon-btn', { type: 'button', title: 'Download: the song as audio, or everything as a scene file', 'aria-label': 'Download' }, icon('download')),
+      () => this.downloadItems(), 'Download');
     r.top = free
       ? h('header.topbar', r.fsBtn, h('strong.mode-name', 'Freeform'), h('span.spacer'), r.exportBtn, r.help)
       : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
@@ -468,8 +477,35 @@ export class Game {
    */
   async exportAll() {
     const file = sceneFile(this.st.config, this.orders, await api.version());
-    const stamp = file.exported.slice(0, 16).replace(/[-:]/g, '').replace('T', '-');
-    downloadText(`band-game-tracks-${stamp}.json`, JSON.stringify(file, null, 1) + '\n');
+    downloadText(`band-game-tracks-${fileStamp()}.json`, JSON.stringify(file, null, 1) + '\n');
+  }
+
+  /** The header's download menu: audio files of the song (freeform: rendered on the server or in this browser; a game:
+   *  the rounds so far, or your own draft), and the scene file. The audio has every track, whatever is muted or soloed. */
+  downloadItems() {
+    const seat = this.st.you?.seat_index ?? 0;
+    const save = (name, wav) => downloadBlob(`${name}-${fileStamp()}.wav`, new Blob([wav], { type: 'audio/wav' }));
+    const scene = { label: 'Scene file', detail: 'All patches, notes and effects (.json), to open again from the start page', run: () => this.exportAll() };
+    if (this.freeform) {
+      return [
+        { label: 'Song, rendered on the server', detail: 'Audio (.wav), from the same renderer as game rounds',
+          run: async (progress) => { progress('Rendering on the server…'); save('song-server', await api.fetchRender(this.sid, this.token, this.orders)); } },
+        { label: 'Song, rendered in this browser', detail: 'Audio (.wav), from the engine you hear while editing',
+          run: async (progress) => {
+            progress('Rendering… 0%');
+            save('song-browser', await renderSong(this.st.config, seat, this.orders, (f) => progress(f == null ? 'Rendering…' : `Rendering… ${Math.round(f * 100)}%`)));
+          } },
+        'sep', scene,
+      ];
+    }
+    return [
+      { label: 'Song so far', detail: 'Audio (.wav): every round played so far, back to back',
+        disabled: this.st.latest_mix == null && 'Audio (.wav): available once the first round has been played',
+        run: async (progress) => { progress('Rendering on the server…'); save('song-so-far', await api.fetchSongSoFar(this.sid, this.token)); } },
+      { label: 'My part', detail: 'Audio (.wav): your current draft on its own',
+        run: async (progress) => { progress('Rendering on the server…'); save('my-part', await api.fetchRender(this.sid, this.token, this.orders)); } },
+      'sep', scene,
+    ];
   }
 
   /** Freeform: ask for a different length (asking before it drops anything), then apply it. */
