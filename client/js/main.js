@@ -71,6 +71,60 @@ const FIELDS = [
   ['seed', 'Seed (blank = random)', '', 'text'],
 ];
 
+/** Open a parsed scene as a new freeform session and go to the editor. Throws an Error with a readable message. */
+async function openScene(scene) {
+  await unlock();
+  const cfg = { freeform: true, bpm: scene.config.bpm, bars: scene.config.bars, rows_per_bar: scene.config.rows_per_bar };
+  if (scene.config.seed != null) cfg.seed = scene.config.seed;
+  const { session_id, host_token } = await api.createSession(cfg);
+  const { seat_token } = await api.join(session_id);
+  await api.start(session_id, host_token);
+  const r = await api.putOrders(session_id, seat_token, scene.orders);
+  if (!r.ok) {
+    const e = r.errors[0];
+    throw new Error(`The scene cannot be opened: ${e.path ? `${e.path}: ` : ''}${e.message}`);
+  }
+  const t = { seat: seat_token, host: host_token };
+  saveTokens(session_id, t);
+  setHash(session_id, t);
+  route();
+}
+
+const clock = (secs) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+
+/** The front page's demo section: the scenes listed in demos/index.json, each opened with one click. Absent when there are none. */
+function demoCard() {
+  const card = h('div.card.demos', { hidden: true }, h('h2', 'Demo songs'));
+  const msg = h('p.error');
+  const open = async (d, button) => {
+    msg.textContent = '';
+    button.disabled = true;
+    try {
+      const res = await fetch(`demos/${encodeURIComponent(d.file)}.json`);
+      if (!res.ok) throw new Error(`Could not load the demo (${res.status}).`);
+      await openScene(readSceneFile(await res.text()));
+    } catch (err) {
+      msg.textContent = err.message;
+      button.disabled = false;
+    }
+  };
+  fetch('demos/index.json').then((r) => (r.ok ? r.json() : [])).catch(() => []).then((list) => {
+    if (!Array.isArray(list) || !list.length) return;
+    for (const d of list) {
+      const button = h('button.primary', { type: 'button', onclick: () => open(d, button),
+        title: 'Open it in a new freeform session, where you can play it and change anything' }, 'Open demo');
+      card.append(h('div.demo',
+        h('div.demo-text', h('h3', d.title),
+          h('p.muted', `${clock(d.seconds)} · ${d.tracks} tracks · ${d.bpm} BPM`),
+          h('p', d.description)),
+        button));
+    }
+    card.append(msg);
+    card.hidden = false;
+  });
+  return card;
+}
+
 function showHome() {
   clear(root);
   const inputs = {};
@@ -124,22 +178,7 @@ function showHome() {
   async function onImport(file) {
     msg.textContent = '';
     try {
-      const scene = readSceneFile(await file.text());
-      await unlock();
-      const cfg = { freeform: true, bpm: scene.config.bpm, bars: scene.config.bars, rows_per_bar: scene.config.rows_per_bar };
-      if (scene.config.seed != null) cfg.seed = scene.config.seed;
-      const { session_id, host_token } = await api.createSession(cfg);
-      const { seat_token } = await api.join(session_id);
-      await api.start(session_id, host_token);
-      const r = await api.putOrders(session_id, seat_token, scene.orders);
-      if (!r.ok) {
-        const e = r.errors[0];
-        throw new Error(`The scene cannot be opened: ${e.path ? `${e.path}: ` : ''}${e.message}`);
-      }
-      const t = { seat: seat_token, host: host_token };
-      saveTokens(session_id, t);
-      setHash(session_id, t);
-      route();
+      await openScene(readSceneFile(await file.text()));
     } catch (err) {
       msg.textContent = err.message;
     }
@@ -186,6 +225,7 @@ function showHome() {
   root.append(
     h('div.hero', h('h1', 'Band Game'),
       h('p', 'Write one part of a shared loop. Nobody talks. Everyone hears only the band.')),
+    demoCard(),
     h('div.cols',
       h('div.card', h('h2', 'Create a session'), form),
       h('div.card', h('h2', 'Join a session'),

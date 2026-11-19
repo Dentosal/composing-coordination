@@ -1,4 +1,5 @@
-"""Generates the scene file songs/neon-rain.json (run: python3.14 tools/gen-song.py [out.json] [--orders])
+"""Generates the demo scene client/demos/neon-rain.json and its entry in client/demos/index.json (the front page lists
+the demos from that index). Run: python3.14 tools/gen-song.py [out.json] [--orders]  (with an explicit out.json the index is left alone)
 Reads the instruments from client/presets. With --orders it writes plain orders (for the render CLI) instead of a scene file.
 
 "Neon Rain" (A minor, 100 bpm, 64 bars of 16 rows = 2:34).
@@ -280,7 +281,8 @@ TRACKS = [kick, snare, hat, ohat, clap, bass, acid, pad, saw, pluck, bell, lead,
 
 if __name__ == '__main__':
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
-    out = args[0] if args else os.path.join(ROOT_DIR, 'songs', 'neon-rain.json')
+    demos = os.path.join(ROOT_DIR, 'client', 'demos')
+    out = args[0] if args else os.path.join(demos, 'neon-rain.json')
     orders = {'instruments': [t.inst for t in TRACKS], 'lanes': [t.lane() for t in TRACKS]}
     if '--orders' in sys.argv:
         json.dump(orders, open(out, 'w'))
@@ -292,4 +294,12 @@ if __name__ == '__main__':
             'orders': orders,
         }
         json.dump(scene, open(out, 'w'), separators=(',', ':'))
+        if not args:
+            index = [{
+                'file': 'neon-rain', 'title': 'Neon Rain',
+                'description': 'A slow-building synth-pop piece in A minor: rain and thunder, a pad that opens up, a drop with an acid line, and an ambient outro. It uses most of the editor: unison, FM, two filters, effects and parameter automation.',
+                'bpm': BPM, 'seconds': round(BARS * 4 * 60 / BPM), 'tracks': len(TRACKS),
+            }]
+            json.dump(index, open(os.path.join(demos, 'index.json'), 'w'), indent=1)
+            open(os.path.join(demos, 'index.json'), 'a').write('\n')
     print(out, len(TRACKS), 'tracks')
