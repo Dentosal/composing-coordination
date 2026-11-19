@@ -371,28 +371,8 @@ export class InstrumentPanel {
       onchange: (e) => { st.rate = Number(e.target.value); } },
       LOOP_RATES.map(([v, label]) => h('option', { value: v, selected: v === st.rate }, label)));
 
-    // Hold: sounds while the pointer (or Space/Enter) is down; released on up, leave or cancel.
-    let held = null;
-    let wantHold = false;
-    const holdBtn = h('button.hold', { title: 'Hold: sounds the note while you press and hold', 'aria-label': 'Hold' }, '●');
-    const press = async () => {
-      if (wantHold) return;
-      wantHold = true;
-      holdBtn.classList.add('on');
-      const handle = await this.aud.hold(current(), st.note, st.vel);
-      if (wantHold) held = handle;
-      else handle.release();
-    };
-    const lift = () => {
-      wantHold = false;
-      holdBtn.classList.remove('on');
-      held?.release();
-      held = null;
-    };
-    holdBtn.addEventListener('pointerdown', (e) => { holdBtn.setPointerCapture(e.pointerId); press(); });
-    for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture', 'blur']) holdBtn.addEventListener(ev, lift);
-    holdBtn.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press(); } });
-    holdBtn.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') lift(); });
+    const holdBtn = holdButton(() => this.aud.hold(current(), st.note, st.vel),
+      { title: 'Hold: sounds the note while you press and hold', 'aria-label': 'Hold' });
 
     const looping = () => this.aud.loopId === inst.id;
     const loopBtn = h('button', { onclick: async () => {
@@ -451,7 +431,8 @@ export class InstrumentPanel {
       ? h('button.icon-btn', { type: 'button', title: 'Delete this track', 'aria-label': 'Delete this track', disabled: !this.o.canDeleteTrack?.(),
         onclick: () => this.o.onDeleteTrack(this.o.getActive()) }, icon('trash'))
       : null;
-    const loader = presetPicker(this.o.presets, (key) => this.loadPreset(key));
+    const loader = presetPicker(this.o.presets, (key) => this.loadPreset(key),
+      (key) => this.aud.hold(this.o.presets.get(key).instrument, this.audition.note, this.audition.vel));
     // An untouched Init patch is a blank slate: nudge towards presets until the patch is edited.
     const hintLoad = () => loader.querySelector('button').classList.toggle('hint', isDefaultPatch(this.orders.instruments[idx()] ?? inst));
     hintLoad();
@@ -800,10 +781,87 @@ function patchHelp() {
 }
 
 /**
+ * A ● button that sounds a note while the pointer (or Space/Enter) is down, released on up, leave or cancel.
+ * `start()` begins the note and resolves to a handle with release().
+ * @param {() => Promise<{release: () => void}>} start
+ */
+function holdButton(start, attrs) {
+  const btn = h('button.hold', attrs, '●');
+  const { press, lift } = holdable(btn, start);
+  btn.addEventListener('pointerdown', (e) => { btn.setPointerCapture(e.pointerId); press(); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) btn.addEventListener(ev, lift);
+  return btn;
+}
+
+/**
+ * Give `btn` press() and lift() that start and release a note (see holdButton), with Space/Enter wired up. Pointer
+ * handling is left to the caller, so a group of buttons can pass a held pointer from one to another.
+ */
+function holdable(btn, start) {
+  let held = null;
+  let wantHold = false;
+  const press = async () => {
+    if (wantHold) return;
+    wantHold = true;
+    btn.classList.add('on');
+    const handle = await start();
+    if (wantHold) held = handle;
+    else handle.release();
+  };
+  const lift = () => {
+    wantHold = false;
+    btn.classList.remove('on');
+    held?.release();
+    held = null;
+  };
+  btn.addEventListener('blur', lift);
+  btn.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press(); } });
+  btn.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') lift(); });
+  return { press, lift };
+}
+
+/**
+ * The preset list's preview buttons, played like keys: press one and keep the button down, and moving onto another
+ * switches to that one; moving off them all goes quiet until the pointer is back over one.
+ */
+function previewKeys(list) {
+  const holders = new Map(); // button -> { press, lift }
+  let cur = null; // the button sounding under the held pointer
+  const over = (e) => {
+    const b = document.elementFromPoint(e.clientX, e.clientY)?.closest('button.hold');
+    return b && holders.has(b) ? b : null;
+  };
+  const moveTo = (b) => {
+    if (b === cur) return;
+    if (cur) holders.get(cur).lift();
+    cur = b;
+    if (b) holders.get(b).press();
+  };
+  let pointer = null;
+  const end = (e) => {
+    if (e.pointerId !== pointer) return;
+    pointer = null;
+    moveTo(null);
+  };
+  list.addEventListener('pointerdown', (e) => {
+    const b = over(e);
+    if (!b || pointer !== null) return;
+    e.preventDefault(); // no focus change or text selection while gliding
+    pointer = e.pointerId;
+    list.setPointerCapture(e.pointerId); // keep getting moves (and the release) wherever the pointer goes
+    moveTo(b);
+  });
+  list.addEventListener('pointermove', (e) => { if (e.pointerId === pointer) moveTo(over(e)); });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) list.addEventListener(ev, end);
+  return (btn, start) => { holders.set(btn, holdable(btn, start)); return btn; };
+}
+
+/**
  * A "Load preset" button that opens a small non-modal list of presets with a Cancel button. Picking a preset calls
  * `onPick(key)` and closes the list; Cancel, Escape or a click anywhere outside the list closes it without picking.
+ * Each preset has a hold button beside it that previews it (`preview(key)` starts the note, as holdButton's start).
  */
-function presetPicker(presets, onPick) {
+function presetPicker(presets, onPick, preview) {
   const dlg = h('dialog.preset-dialog', { 'aria-label': 'Load preset' });
   const btn = h('button', { 'aria-haspopup': 'dialog' }, 'Load preset');
   const wrap = h('div.loader', btn, dlg);
@@ -816,11 +874,15 @@ function presetPicker(presets, onPick) {
     document.removeEventListener('keydown', onKey, true);
   }
   function open() {
-    dlg.replaceChildren(
-      h('div.preset-list', categories(presets).map(([cat, items]) => h('div.preset-group',
-        h('div.preset-cat', cat),
-        items.map(([key, p]) => h('button.preset-item', { onclick: () => { close(); onPick(key); } }, p.label ?? key))))),
-      h('button.preset-cancel', { onclick: close }, 'Cancel'));
+    const list = h('div.preset-list');
+    const asKey = previewKeys(list);
+    list.replaceChildren(...categories(presets).map(([cat, items]) => h('div.preset-group',
+      h('div.preset-cat', cat),
+      items.map(([key, p]) => h('div.preset-row',
+        h('button.preset-item', { onclick: () => { close(); onPick(key); } }, p.label ?? key),
+        asKey(h('button.hold', { title: `Preview ${p.label ?? key}: sounds the audition note while you press and hold; slide onto another to switch`,
+          'aria-label': `Preview ${p.label ?? key}` }, '●'), () => preview(key)))))));
+    dlg.replaceChildren(list, h('button.preset-cancel', { onclick: close }, 'Cancel'));
     dlg.show(); // show(), not showModal(): the rest of the page stays interactive
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey, true);

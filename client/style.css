@@ -251,7 +251,11 @@ input[type=range] { accent-color: var(--accent); }
 .preset-list { columns: 3 150px; column-gap: 14px; }
 .preset-group { display: grid; gap: 2px; break-inside: avoid; margin-bottom: 10px; }
 .preset-cat { padding: 2px 8px; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted, #8a8f99); }
-.preset-item { text-align: left; background: none; border-color: transparent; }
+.preset-row { display: flex; gap: 2px; }
+.preset-item { flex: 1; min-width: 0; text-align: left; background: none; border-color: transparent; }
+.preset-row button.hold { flex: none; padding-inline: 8px; background: none; border-color: transparent; color: var(--muted, #8a8f99); user-select: none; touch-action: none; }
+.preset-row button.hold:hover { background: var(--panel); color: var(--text); }
+.preset-row button.hold.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .preset-item:hover { background: var(--panel); }
 .preset-cancel { width: 100%; margin-top: 6px; }
 
