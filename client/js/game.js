@@ -360,9 +360,10 @@ export class Game {
       sid: this.sid, token: this.token, state: () => this.st, stamp: () => fileStamp(),
       onListen: () => { if (this.playing) this.togglePlay(); }, // not both at once
       voteResult: () => this.voteResult ?? null,
-      onClose: () => { this.songDlg = null; },
+      onClose: () => { this.songDlg = null; this.updateTop(); }, // the header's Vote button reopens it
     });
     this.songDlg.show(n);
+    this.updateTop(); // the dialog is open: no Vote button
   }
 
   updateRoundDialog() {
@@ -508,6 +509,10 @@ export class Game {
     const free = this.freeform;
     if (!free) { // the round machinery of a game; a freeform session has none of it
       r.round = h('span'); r.timer = h('span'); r.seats = h('span');
+      // While the round just played is put to a vote and its dialog has been closed: open it again.
+      r.voteBtn = h('button.small.primary.vote-open', { type: 'button', hidden: true,
+        title: 'Listen to the song so far and vote on keeping this round',
+        onclick: () => { const rd = this.st.round; if (rd?.vote) this.showRoundDialog(rd.n); } });
       // "ready 2 / 3", and on hover (or focus) who is ready and who is still writing.
       r.readyText = h('span');
       r.readyList = h('ul.player-list');
@@ -565,7 +570,7 @@ export class Game {
       () => this.downloadItems(), 'Download');
     r.top = free
       ? h('header.topbar', r.fsBtn, h('strong.mode-name', 'Freeform'), this.bpmField(), h('span.spacer'), r.exportBtn, r.help)
-      : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, r.sounds, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
+      : h('header.topbar', r.fsBtn, r.round, r.timer, r.voteBtn, r.ready, r.seats, r.sounds, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     // A game's own part can be heard over the band or left out; freeform has nothing but your own part, always on.
@@ -643,6 +648,9 @@ export class Game {
     r.round.textContent = `Round ${rd?.slot ?? '–'}${st.config.rounds ? ` / ${st.config.rounds}` : ''}`
       + (rd && rd.attempts > 1 ? ` · attempt ${rd.attempt} / ${rd.attempts}` : '');
     r.readyText.textContent = `ready ${st.ready_count} / ${st.eligible_count}`;
+    const vote = st.round?.vote;
+    r.voteBtn.hidden = !vote || !!this.songDlg;
+    if (vote) r.voteBtn.textContent = `Vote (${vote.cast} / ${vote.total})`;
     const snd = st.you?.sounds;
     r.sounds.hidden = !snd;
     if (snd) {
