@@ -6,7 +6,7 @@
 # although the loudness envelope agrees. Cause (measured): the browser's built-in sawtooth and square are band-limited and peak at about
 # 0.93, where the server's reach 1.0, so such an LFO sweeps the pitch about 7% less deeply in the browser; the difference accumulates into
 # the oscillator's phase. A sine or triangle LFO matches exactly (corr 1.00). The server render is the canonical one.
-# Needs: cargo, node, deno, and CHROME_PATH pointing at a Chrome/Chromium binary. Uses port 8765.
+# Needs: cargo, node, deno, and CHROME_PATH pointing at a Chrome/Chromium binary. Serves client/ on port $PORT (default 8765).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 : "${CHROME_PATH:?set CHROME_PATH to a Chrome binary}"
@@ -47,6 +47,10 @@ PY
 "$ROOT/server/target/release/render" "$TMP/auto.json" "$TMP/auto.wav" --bpm 120 --bars 1 --rows-per-bar 16 --seed 1 --raw >/dev/null
 echo "auto:1" >> "$TMP/names.txt"
 cp "$ROOT/tools/parity/page.html" "$ROOT/client/_parity.html"
-(cd "$ROOT/client" && python3.14 -m http.server 8765 >/dev/null 2>&1) & PID=$!
-sleep 1
-deno run -A "$ROOT/tools/parity/run.ts" http://localhost:8765/_parity.html 2>&1 | grep -v -E '^\S*\[0m|^$'
+PORT="${PORT:-8765}"
+# Something else on the port would answer instead (an old server without this run's files): refuse rather than mislead.
+if curl -s -o /dev/null "http://localhost:$PORT/"; then echo "port $PORT is in use: set PORT to a free one" >&2; exit 1; fi
+# Started directly (not in a subshell), so that $! is the server itself and the trap's kill stops it.
+python3.14 -m http.server "$PORT" --directory "$ROOT/client" >/dev/null 2>&1 & PID=$!
+for _ in $(seq 1 50); do curl -s -o /dev/null "http://localhost:$PORT/" && break; sleep 0.1; done
+deno run -A "$ROOT/tools/parity/run.ts" "http://localhost:$PORT/_parity.html" 2>&1 | grep -v -E '^\S*\[0m|^$'

@@ -67,9 +67,13 @@ the browser's own audio engine, which can crackle with bigger songs.
 
 ## Development
 
-    cd server && cargo test                    # server and renderer tests
+    cd server && cargo test                    # server tests (they render audio through the renderer too)
+    cd renderer && cargo test                  # the renderer's own tests (a separate crate: not run by the above)
     node --test client/js/*.test.mjs           # client tests
     tools/build-wasm.sh                        # rebuild client/wasm/renderer.wasm after changing renderer/
+
+    # a two-player game in two headless browsers, voting included (needs Deno; server running)
+    CHROME_PATH=/path/to/chrome deno run -A tests/e2e/smoke.ts http://localhost:3000
 
 After any change to `renderer/` or `vendor/web-audio-api/`, rebuild the WebAssembly module and commit it with the
 change: the client tests fail while it is out of date. Building it needs
@@ -80,7 +84,8 @@ Other tools:
     cd server && cargo run --release --bin render -- ../fixtures/band.json out.wav   # orders JSON -> WAV
     node tools/gen-presets.mjs                 # regenerate client/presets/
     python3 tools/gen-song-low-orbit.py        # regenerate a demo song (also gen-song-night-relay.py, gen-song.py)
-    tools/parity/run.sh                        # compare the browser's voices with the server renderer (needs Chrome)
+    tools/parity/run.sh                        # compare the browser's voices with the server renderer (needs Chrome, Deno;
+                                               # serves client/ on $PORT, default 8765)
 
 `client/stream-test.html` is a check page for the streaming player: it loops a demo song and shows whether playback
 keeps up.
