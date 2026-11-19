@@ -31,7 +31,7 @@ test('files that are not scenes are refused with a reason', () => {
   bad('nope', /not valid JSON/);
   bad('{"format":"band-game-patch"}', /not a scene file/);
   const f = sceneFile(cfg, orders);
-  bad(JSON.stringify({ ...f, config: { ...f.config, bars: 65 } }), /1 to 64 bars/);
+  bad(JSON.stringify({ ...f, config: { ...f.config, bars: 257 } }), /1 to 256 bars/);
   bad(JSON.stringify({ ...f, config: { ...f.config, bpm: 10 } }), /tempo/);
   bad(JSON.stringify({ ...f, config: { ...f.config, rows_per_bar: 6 } }), /multiple of 4/);
   bad(JSON.stringify({ ...f, orders: { instruments: [], lanes: [] } }), /no tracks/);

@@ -3,7 +3,7 @@
 
 export const SCENE_FORMAT = 'band-game-tracks';
 const MAX_BYTES = 1024 * 1024; // the server takes bodies up to 1 MiB
-const MAX_BARS = 64; // the longest freeform song
+const MAX_BARS = 256; // the longest freeform song
 
 /**
  * The file's content for a session config and its (draft) orders. `build` is what GET /api/version said (the git

@@ -35,7 +35,7 @@ pub enum TimeoutPolicy {
 }
 
 /// A freeform session can make its loop longer than a game's 16 bars, up to this many.
-pub const MAX_FREEFORM_BARS: u32 = 64;
+pub const MAX_FREEFORM_BARS: u32 = 256;
 
 /// "Unlimited" tracks still have a ceiling: every track costs render time for the whole band.
 pub const UNLIMITED_TRACK_CAP: usize = 64;

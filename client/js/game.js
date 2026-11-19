@@ -19,7 +19,7 @@ const fmtTime = (ms) => {
 /** The most tracks a player can have in an unlimited session (the server enforces the same ceiling). */
 const MAX_UNLIMITED_TRACKS = 64;
 /** The longest freeform song, in bars (the server enforces the same). */
-const MAX_FREEFORM_BARS = 64;
+const MAX_FREEFORM_BARS = 256;
 
 export class Game {
   /** @param {HTMLElement} root @param {{sid:string,seat:string|null,host:string|null,onLeave:()=>void}} o */
