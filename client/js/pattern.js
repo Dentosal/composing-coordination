@@ -1442,7 +1442,7 @@ export class PatternEditor {
       const inLoop = !!lp && r >= lp.from && r <= lp.to;
       const cell = h('div', { class: `roll-hcell${barStart ? ' bar' : ''}${inLoop ? ' in-loop' : ''}`,
         title: inLoop ? 'Loop: click to clear it, drag to move it' : 'Drag across these to loop that region, double-click to loop the bar' },
-        beatStart ? h('div.rc-text', h('span', barStart ? `${bar}` : `${bar}.${n}`)) : null);
+        beatStart ? h('div.rc-text', h('span', barStart ? `${bar}` : `.${n}`)) : null);
       cell.dataset.row = String(r);
       group.append(cell);
     });
