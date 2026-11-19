@@ -1,4 +1,4 @@
-# Band Game
+# Band Coordination Game
 
 A browser game where a group of people write a song together without talking to each other.
 
