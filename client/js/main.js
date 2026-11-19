@@ -112,11 +112,10 @@ function demoCard() {
     if (!Array.isArray(list) || !list.length) return;
     for (const d of list) {
       const button = h('button.primary', { type: 'button', onclick: () => open(d, button),
-        title: 'Open it in a new freeform session, where you can play it and change anything' }, 'Open demo');
+        title: 'Open it in a new freeform session, where you can play it and change anything' }, 'Open in editor');
       card.append(h('div.demo',
-        h('div.demo-text', h('h3', d.title),
-          h('p.muted', `${clock(d.seconds)} · ${d.tracks} tracks · ${d.bpm} BPM`),
-          h('p', d.description)),
+        h('div.demo-text', h('h3', d.artist ? `${d.title} - ${d.artist}` : d.title),
+          h('p.muted', `${clock(d.seconds)} · ${d.tracks} tracks · ${d.bpm} BPM`)),
         button));
     }
     card.append(msg);
@@ -225,7 +224,6 @@ function showHome() {
   root.append(
     h('div.hero', h('h1', 'Band Game'),
       h('p', 'Write one part of a shared loop. Nobody talks. Everyone hears only the band.')),
-    demoCard(),
     h('div.cols',
       h('div.card', h('h2', 'Create a session'), form),
       h('div.card', h('h2', 'Join a session'),
@@ -233,7 +231,8 @@ function showHome() {
           e.preventDefault();
           const m = /([0-9a-f]{10})\s*$/i.exec(code.value.replace(/\?.*$/, ''));
           if (m) location.hash = `#/s/${m[1].toLowerCase()}`;
-        } }, code, h('button', { type: 'submit' }, 'Open')))));
+        } }, code, h('button', { type: 'submit' }, 'Open')))),
+    demoCard());
 }
 
 async function showJoin(sid, tokens) {

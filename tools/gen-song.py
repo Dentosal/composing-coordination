@@ -297,7 +297,7 @@ if __name__ == '__main__':
         if not args:
             index = [{
                 'file': 'neon-rain', 'title': 'Neon Rain',
-                'description': 'A slow-building synth-pop piece in A minor: rain and thunder, a pad that opens up, a drop with an acid line, and an ambient outro. It uses most of the editor: unison, FM, two filters, effects and parameter automation.',
+                'artist': 'Claude Sonnet 5.5',
                 'bpm': BPM, 'seconds': round(BARS * 4 * 60 / BPM), 'tracks': len(TRACKS),
             }]
             json.dump(index, open(os.path.join(demos, 'index.json'), 'w'), indent=1)
