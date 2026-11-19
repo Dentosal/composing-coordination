@@ -226,13 +226,14 @@ function showHome() {
       h('p', 'Write one part of a shared loop. Nobody talks. Everyone hears only the band.')),
     h('div.cols',
       h('div.card', h('h2', 'Create a session'), form),
-      h('div.card', h('h2', 'Join a session'),
-        h('form', { onsubmit: (e) => {
-          e.preventDefault();
-          const m = /([0-9a-f]{10})\s*$/i.exec(code.value.replace(/\?.*$/, ''));
-          if (m) location.hash = `#/s/${m[1].toLowerCase()}`;
-        } }, code, h('button', { type: 'submit' }, 'Open')))),
-    demoCard());
+      h('div', // the right-hand column: joining, and below it the demo songs
+        h('div.card', h('h2', 'Join a session'),
+          h('form', { onsubmit: (e) => {
+            e.preventDefault();
+            const m = /([0-9a-f]{10})\s*$/i.exec(code.value.replace(/\?.*$/, ''));
+            if (m) location.hash = `#/s/${m[1].toLowerCase()}`;
+          } }, code, h('button', { type: 'submit' }, 'Open'))),
+        demoCard())));
 }
 
 async function showJoin(sid, tokens) {
