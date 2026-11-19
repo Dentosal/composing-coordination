@@ -295,11 +295,16 @@ if __name__ == '__main__':
         }
         json.dump(scene, open(out, 'w'), separators=(',', ':'))
         if not args:
-            index = [{
+            # Replace only this demo's entry: the other demos' generators keep theirs.
+            path = os.path.join(demos, 'index.json')
+            entry = {
                 'file': 'neon-rain', 'title': 'Neon Rain',
                 'artist': 'Claude Sonnet 5.5',
                 'bpm': BPM, 'seconds': round(BARS * 4 * 60 / BPM), 'tracks': len(TRACKS),
-            }]
-            json.dump(index, open(os.path.join(demos, 'index.json'), 'w'), indent=1)
+            }
+            index = [entry if d['file'] == 'neon-rain' else d for d in json.load(open(path))]
+            if entry not in index:
+                index.insert(0, entry)
+            json.dump(index, open(path, 'w'), indent=1)
             open(os.path.join(demos, 'index.json'), 'a').write('\n')
     print(out, len(TRACKS), 'tracks')
