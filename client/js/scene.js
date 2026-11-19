@@ -4,6 +4,7 @@
 export const SCENE_FORMAT = 'band-game-tracks';
 const MAX_BYTES = 1024 * 1024; // the server takes bodies up to 1 MiB
 const MAX_BARS = 256; // the longest freeform song
+const ROWS_PER_BAR = 16; // every session's (the server's ROWS_PER_BAR)
 
 /**
  * The file's content for a session config and its (draft) orders. `build` is what GET /api/version said (the git
@@ -41,8 +42,9 @@ export function readSceneFile(text) {
   if (!c || typeof c !== 'object') throw new Error('The scene has no tempo or length settings.');
   if (!Number.isFinite(c.bpm) || c.bpm < 40 || c.bpm > 240) throw new Error('The scene\'s tempo (bpm) must be between 40 and 240.');
   if (!Number.isInteger(c.bars) || c.bars < 1 || c.bars > MAX_BARS) throw new Error(`The scene's length must be 1 to ${MAX_BARS} bars.`);
-  if (!Number.isInteger(c.rows_per_bar) || c.rows_per_bar < 4 || c.rows_per_bar > 32 || c.rows_per_bar % 4) {
-    throw new Error('The scene\'s rows per bar must be a multiple of 4 from 4 to 32.');
+  // Sessions used to have a choice of rows per bar; now it is always 16. An older file without the setting had 16 too.
+  if ((c.rows_per_bar ?? ROWS_PER_BAR) !== ROWS_PER_BAR) {
+    throw new Error(`The scene has ${c.rows_per_bar} rows per bar; only ${ROWS_PER_BAR} can be opened.`);
   }
   if (!o || !Array.isArray(o.instruments) || !Array.isArray(o.lanes)) throw new Error('The scene has no tracks.');
   if (!o.lanes.length) throw new Error('The scene has no tracks.');
@@ -50,7 +52,7 @@ export function readSceneFile(text) {
   const seedText = String(c.seed ?? '').trim();
   const seed = /^\d{1,20}$/.test(seedText) && BigInt(seedText) <= 18446744073709551615n ? seedText : null;
   return {
-    config: { bpm: c.bpm, bars: c.bars, rows_per_bar: c.rows_per_bar, seed },
+    config: { bpm: c.bpm, bars: c.bars, rows_per_bar: ROWS_PER_BAR, seed },
     orders: { instruments: o.instruments, lanes: o.lanes },
   };
 }

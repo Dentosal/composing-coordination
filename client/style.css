@@ -59,7 +59,8 @@ a.button { display: inline-block; padding: 6px 12px; border-radius: 6px; backgro
 .config label.wide-select { grid-template-columns: 1fr auto; } /* the select takes the width of its longest option */
 .invite { display: flex; gap: 8px; margin: 8px 0 16px; }
 /* Nicknames: the field on the front page and the join card, the player list in the lobby and the ready popover. */
-.config label.nick-row { grid-template-columns: 1fr minmax(0, 200px); }
+.config label.nick-row { grid-template-columns: 1fr minmax(0, 200px); padding-bottom: 10px; margin-bottom: 2px; border-bottom: 1px solid var(--line); }
+.config label.nick-row span { color: var(--text); font-weight: 600; font-size: .95rem; }
 .join-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0 4px; }
 .join-form label { display: flex; align-items: center; gap: 10px; flex: 0 1 420px; }
 .join-form label span { color: var(--muted); font-size: .9rem; white-space: nowrap; }
@@ -450,9 +451,10 @@ input[type=range] { accent-color: var(--accent); }
 
 /* Freeform mode on the home screen and in the header */
 .config [hidden] { display: none !important; }
-.config .freeform-opt { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-.config .freeform-opt span { color: var(--text); font-size: .95rem; }
+.freeform-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .topbar .mode-name { letter-spacing: .06em; text-transform: uppercase; font-size: .8rem; color: var(--muted); }
+.bpm-field { display: inline-flex; align-items: center; gap: 6px; }
+.bpm-input { width: 5.5em; padding: 4px 8px; font-variant-numeric: tabular-nums; }
 /* Freeform: add / remove a bar at the right end of the roll */
 .roll-len, .roll-len-spacer { flex: none; width: 62px; margin-left: 12px; }
 .roll-len { display: flex; align-items: center; gap: 4px; }

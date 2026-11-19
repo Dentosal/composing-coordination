@@ -36,6 +36,10 @@ pub enum TimeoutPolicy {
 
 /// A freeform session can make its loop longer than a game's 16 bars, up to this many.
 pub const MAX_FREEFORM_BARS: u32 = 256;
+/// Every session has this many rows per bar (16ths in 4/4). `Config::rows_per_bar` stays in the JSON, fixed at this.
+pub const ROWS_PER_BAR: u32 = 16;
+pub const MIN_BPM: f32 = 40.0;
+pub const MAX_BPM: f32 = 240.0;
 
 /// "Unlimited" tracks still have a ceiling: every track costs render time for the whole band.
 pub const UNLIMITED_TRACK_CAP: usize = 64;
@@ -45,6 +49,7 @@ pub const UNLIMITED_TRACK_CAP: usize = 64;
 pub struct Config {
     pub bpm: f32,
     pub bars: u32,
+    /// Always `ROWS_PER_BAR`: a request may leave it out, or send that value.
     pub rows_per_bar: u32,
     pub max_lanes: u32,
     pub max_instruments: u32,
@@ -88,7 +93,7 @@ impl Default for Config {
         Config {
             bpm: 112.0,
             bars: 4,
-            rows_per_bar: 16,
+            rows_per_bar: ROWS_PER_BAR,
             max_lanes: 4,
             max_instruments: 4,
             unlimited_tracks: false,
@@ -104,13 +109,10 @@ impl Default for Config {
 impl Config {
     pub fn validate(&self) -> Result<(), String> {
         let chk = |ok: bool, m: &str| if ok { Ok(()) } else { Err(m.to_string()) };
-        chk(self.bpm.is_finite() && (40.0..=240.0).contains(&self.bpm), "bpm must be 40..=240")?;
+        chk(self.bpm.is_finite() && (MIN_BPM..=MAX_BPM).contains(&self.bpm), "bpm must be 40..=240")?;
         let max_bars = if self.freeform { MAX_FREEFORM_BARS } else { 16 };
         chk((1..=max_bars).contains(&self.bars), &format!("bars must be 1..={max_bars}"))?;
-        chk(
-            (4..=32).contains(&self.rows_per_bar) && self.rows_per_bar % 4 == 0,
-            "rows_per_bar must be a multiple of 4 within 4..=32",
-        )?;
+        chk(self.rows_per_bar == ROWS_PER_BAR, &format!("rows_per_bar is fixed at {ROWS_PER_BAR}"))?;
         chk((1..=16).contains(&self.max_lanes), "max_lanes must be 1..=16")?;
         chk((1..=16).contains(&self.max_instruments), "max_instruments must be 1..=16")?;
         chk(self.rounds.map_or(true, |r| (1..=500).contains(&r)), "rounds must be 1..=500")?;
@@ -495,8 +497,26 @@ impl Session {
                 orders.truncate_rows(total);
             }
         }
-        self.emit("config", json!({"bars": bars}));
+        self.emit_config();
         Ok(())
+    }
+
+    /// Freeform sessions only: change the tempo.
+    pub fn set_bpm(&mut self, bpm: f32) -> Result<(), ApiError> {
+        if !self.config.freeform {
+            return err(StatusCode::CONFLICT, "only a freeform session can change its tempo");
+        }
+        if !(bpm.is_finite() && (MIN_BPM..=MAX_BPM).contains(&bpm)) {
+            return err(StatusCode::UNPROCESSABLE_ENTITY, format!("bpm must be {MIN_BPM}..={MAX_BPM}"));
+        }
+        self.config.bpm = bpm;
+        self.emit_config();
+        Ok(())
+    }
+
+    /// The settings a freeform session can change: its length and tempo.
+    fn emit_config(&self) {
+        self.emit("config", json!({"bars": self.config.bars, "bpm": self.config.bpm}));
     }
 
     /// The seat with join-order index `seat`, unless it has been kicked.

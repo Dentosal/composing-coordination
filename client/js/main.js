@@ -67,28 +67,36 @@ function enter(sid, tokens) {
 
 // ---- screens
 
+// The seed (noise and reverb) is not asked for: the server picks a random one. A scene file brings its own.
 const FIELDS = [
   ['bpm', 'BPM', 112, 'number'],
   ['bars', 'Bars per loop', 4, 'number'],
-  ['rows_per_bar', 'Rows per bar', 16, 'number'],
   ['max_tracks', 'Tracks per player', 4, 'number'], // a track = one instrument + its pattern lane
   ['rounds', 'Rounds (blank = until host ends)', '', 'number'],
   ['round_timer_secs', 'Round timer, seconds (blank = none)', '', 'number'],
-  ['seed', 'Seed (blank = random)', '', 'text'],
 ];
 
-/** Open a parsed scene as a new freeform session and go to the editor. Throws an Error with a readable message. */
-async function openScene(scene) {
+/**
+ * Open a new freeform session (one person, no game) and go to the editor: empty with the server's defaults (tempo and
+ * length can be changed there), or with a parsed scene's settings and tracks. Throws an Error with a readable message.
+ */
+async function openFreeform(scene = null) {
   await unlock();
-  const cfg = { freeform: true, bpm: scene.config.bpm, bars: scene.config.bars, rows_per_bar: scene.config.rows_per_bar };
-  if (scene.config.seed != null) cfg.seed = scene.config.seed;
+  const cfg = { freeform: true };
+  if (scene) {
+    cfg.bpm = scene.config.bpm;
+    cfg.bars = scene.config.bars;
+    if (scene.config.seed != null) cfg.seed = scene.config.seed;
+  }
   const { session_id, host_token } = await api.createSession(cfg);
   const { seat_token } = await api.join(session_id, loadNick() || undefined);
-  await api.start(session_id, host_token);
-  const r = await api.putOrders(session_id, seat_token, scene.orders);
-  if (!r.ok) {
-    const e = r.errors[0];
-    throw new Error(`The scene cannot be opened: ${e.path ? `${e.path}: ` : ''}${e.message}`);
+  await api.start(session_id, host_token); // no lobby: straight to the work
+  if (scene) {
+    const r = await api.putOrders(session_id, seat_token, scene.orders);
+    if (!r.ok) {
+      const e = r.errors[0];
+      throw new Error(`The scene cannot be opened: ${e.path ? `${e.path}: ` : ''}${e.message}`);
+    }
   }
   const t = { seat: seat_token, host: host_token };
   saveTokens(session_id, t);
@@ -108,7 +116,7 @@ function demoCard() {
     try {
       const res = await fetch(`demos/${encodeURIComponent(d.file)}.json`);
       if (!res.ok) throw new Error(`Could not load the demo (${res.status}).`);
-      await openScene(readSceneFile(await res.text()));
+      await openFreeform(readSceneFile(await res.text()));
     } catch (err) {
       msg.textContent = err.message;
       button.disabled = false;
@@ -134,28 +142,11 @@ function showHome() {
   clear(root);
   const inputs = {};
   const form = h('form.config', { onsubmit: onCreate });
-  const gameOnly = []; // settings that only make sense in a game; a freeform session hides them
-  // Freeform mode: one person, no game. Only the tempo, the loop size and the seed matter.
-  inputs.freeform = h('input', { name: 'freeform', type: 'checkbox', onchange: () => {
-    for (const el of gameOnly) el.hidden = inputs.freeform.checked;
-    inputs.nick.required = !inputs.freeform.checked;
-    submit.textContent = inputs.freeform.checked ? 'Start freeform' : 'Create session';
-  } });
-  form.append(h('label.check.freeform-opt', { title: 'Just you: no rounds, no other players. Write with as many tracks as you like.' },
-    inputs.freeform, h('span', 'Freeform mode (just you, no game)')));
-  // The nickname the others see: the host plays too. A freeform session has nobody to show it to.
+  // The nickname the others see: the host plays too.
   inputs.nick = nickInput();
-  const nickRow = h('label.nick-row', h('span', 'Your nickname'), inputs.nick);
-  gameOnly.push(nickRow);
-  form.append(nickRow);
+  form.append(h('label.nick-row', h('span', 'Your nickname'), inputs.nick));
   for (const [name, label, def, type] of FIELDS) {
     inputs[name] = h('input', { name, type, value: String(def), step: 'any' });
-    if (name === 'rounds' || name === 'round_timer_secs') {
-      const row = h('label', h('span', label), inputs[name]);
-      gameOnly.push(row);
-      form.append(row);
-      continue;
-    }
     if (name !== 'max_tracks') { form.append(h('label', h('span', label), inputs[name])); continue; }
     // "Unlimited tracks" sits beside "Tracks per player" and replaces it: players start with the default number and
     // add or delete tracks themselves, so the field is switched off.
@@ -166,71 +157,62 @@ function showHome() {
       h('label.check', { title: 'Players add and delete tracks themselves (up to 64) instead of having a fixed number. Everyone starts with 4.' },
         inputs.unlimited_tracks, h('span', 'Unlimited')),
       inputs.max_tracks); // the field stays in the right-hand column with the others
-    gameOnly.push(pair);
     form.append(pair);
   }
   inputs.timeout_policy = h('select', { name: 'timeout_policy' },
     h('option', { value: 'Wait' }, 'Wait for everyone'),
     h('option', { value: 'RepeatLast' }, 'Repeat last orders on timeout'));
-  const timeoutRow = h('label.wide-select', h('span', 'When the timer runs out'), inputs.timeout_policy);
-  gameOnly.push(timeoutRow);
-  form.append(timeoutRow);
+  form.append(h('label.wide-select', h('span', 'When the timer runs out'), inputs.timeout_policy));
 
   const msg = h('p.error');
   const submit = h('button.primary', { type: 'submit' }, 'Create session');
-  // Open an exported scene file (the download menu in the header) in a fresh freeform session.
-  const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true,
-    onchange: (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) onImport(f); } });
-  const importMsg = h('p.error');
-  const importCard = h('div.card', h('h2', 'Import a scene file'),
-    h('button', { type: 'button', onclick: () => fileIn.click(),
-      title: 'Open a scene file saved from the download menu in the header, as a new freeform session' }, 'Choose a file…'),
-    fileIn, importMsg);
   form.append(submit, msg);
 
-  async function onImport(file) {
-    importMsg.textContent = '';
+  // The freeform editor: one person, no game. Empty, or with an exported scene file (the download menu in the header).
+  const fileIn = h('input', { type: 'file', accept: '.json,application/json', hidden: true,
+    onchange: (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) open(importBtn, () => file(f)); } });
+  const file = async (f) => readSceneFile(await f.text());
+  const freeMsg = h('p.error');
+  const open = async (button, scene) => {
+    freeMsg.textContent = '';
+    button.disabled = true;
     try {
-      await openScene(readSceneFile(await file.text()));
+      await openFreeform(scene ? await scene() : null);
     } catch (err) {
-      importMsg.textContent = err.message;
+      freeMsg.textContent = err.message;
+      button.disabled = false;
     }
-  }
+  };
+  const openBtn = h('button.primary', { type: 'button', onclick: () => open(openBtn) }, 'Open editor');
+  const importBtn = h('button', { type: 'button', onclick: () => fileIn.click(),
+    title: 'Open a scene file saved from the download menu in the header' }, 'Import a scene file…');
+  const freeCard = h('div.card.freeform-card', h('h2', 'Freeform editor'),
+    h('div.freeform-actions', openBtn, importBtn), fileIn, freeMsg);
 
   async function onCreate(e) {
     e.preventDefault();
     const cfg = {};
-    for (const [name, , , type] of FIELDS) {
+    for (const [name] of FIELDS) {
       if (inputs[name].disabled) continue; // "Tracks per player" while unlimited tracks is on
       const v = inputs[name].value.trim();
       if (v === '') continue;
-      cfg[name] = name === 'seed' ? v : Number(v); // the seed goes as typed: it can be bigger than a number holds exactly
+      cfg[name] = Number(v);
     }
     if (cfg.max_tracks != null) cfg.max_lanes = cfg.max_instruments = cfg.max_tracks;
     delete cfg.max_tracks;
     cfg.timeout_policy = inputs.timeout_policy.value;
     if (inputs.unlimited_tracks.checked) cfg.unlimited_tracks = true;
-    if (cfg.seed !== undefined && !(/^\d{1,20}$/.test(cfg.seed) && BigInt(cfg.seed) <= 18446744073709551615n)) {
-      msg.textContent = 'The seed must be a whole number (digits only, up to 18446744073709551615), or blank for a random one.';
-      return;
-    }
-    const freeform = inputs.freeform.checked;
     const nick = tidyNick(inputs.nick.value);
-    if (!freeform && !nick) {
+    if (!nick) {
       msg.textContent = 'Choose a nickname: the other players see it.';
       return;
     }
-    if (nick) saveNick(nick);
-    if (freeform) { // only the loop's settings count; the game settings are not sent
-      for (const k of Object.keys(cfg)) if (!['bpm', 'bars', 'rows_per_bar', 'seed'].includes(k)) delete cfg[k];
-      cfg.freeform = true;
-    }
+    saveNick(nick);
     try {
       await unlock();
       const { session_id, host_token } = await api.createSession(cfg);
       // The host takes a seat like everyone else; the two tokens are unrelated on the server.
-      const { seat_token } = await api.join(session_id, nick || undefined);
-      if (freeform) await api.start(session_id, host_token); // no lobby: straight to the work
+      const { seat_token } = await api.join(session_id, nick);
       const t = { seat: seat_token, host: host_token };
       saveTokens(session_id, t);
       setHash(session_id, t);
@@ -246,14 +228,14 @@ function showHome() {
       h('p', 'Write one part of a shared loop. Nobody talks. Everyone hears only the band.')),
     h('div.cols',
       h('div.card', h('h2', 'Create a session'), form),
-      h('div', // the right-hand column: joining, and below it the demo songs
+      h('div', // the right-hand column: joining, the freeform editor, and below them the demo songs
         h('div.card', h('h2', 'Join a session'),
           h('form', { onsubmit: (e) => {
             e.preventDefault();
             const m = /([0-9a-f]{10})\s*$/i.exec(code.value.replace(/\?.*$/, ''));
             if (m) location.hash = `#/s/${m[1].toLowerCase()}`;
           } }, code, h('button', { type: 'submit' }, 'Open'))),
-        importCard,
+        freeCard,
         demoCard())));
 }
 

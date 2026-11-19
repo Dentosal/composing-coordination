@@ -4,8 +4,10 @@ use band_game::state::{Config, Session, UNLIMITED_TRACK_CAP};
 
 #[test]
 fn a_freeform_session_has_one_seat_and_unlimited_tracks() {
-    let cfg: Config = serde_json::from_str(r#"{"freeform":true,"bpm":90,"bars":2,"rows_per_bar":8,"seed":7}"#).unwrap();
+    let cfg: Config = serde_json::from_str(r#"{"freeform":true,"bpm":90,"bars":2,"rows_per_bar":16,"seed":7}"#).unwrap();
     assert!(cfg.validate().is_ok());
+    let odd: Config = serde_json::from_str(r#"{"rows_per_bar":8}"#).unwrap();
+    assert!(odd.validate().is_err(), "rows per bar is fixed");
     assert_eq!(cfg.limits().max_lanes, UNLIMITED_TRACK_CAP);
     let mut s = Session::new(cfg);
     assert!(s.join().is_ok(), "the first person takes the seat");
@@ -27,6 +29,14 @@ fn only_freeform_sessions_can_change_their_length() {
     assert!(s.set_bars(MAX_FREEFORM_BARS + 1).is_err());
     assert!(s.set_bars(0).is_err());
     assert_eq!(s.config.bars, MAX_FREEFORM_BARS);
+
+    assert!(game.set_bpm(120.0).is_err(), "a game has a fixed tempo");
+    assert!(s.set_bpm(140.5).is_ok());
+    assert_eq!(s.config.bpm, 140.5);
+    for bad in [39.0, 241.0, f32::NAN] {
+        assert!(s.set_bpm(bad).is_err(), "{bad}");
+    }
+    assert_eq!(s.config.bpm, 140.5);
 
     // a freeform loop may be longer than a game's 16 bars; a game may not
     assert!(serde_json::from_str::<Config>(r#"{"freeform":true,"bars":40}"#).unwrap().validate().is_ok());

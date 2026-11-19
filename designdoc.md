@@ -48,7 +48,7 @@ All configurable at session creation; defaults in brackets.
 
 | Field | Meaning |
 |---|---|
-| `bpm`, `bars`, `rows_per_bar` | loop shape [112, 4, 16] |
+| `bpm`, `bars` | loop shape [112, 4]; `rows_per_bar` is fixed at 16 (accepted only as 16, still reported) |
 | `max_lanes`, `max_instruments` | per-player limits [4, 4]; one track = one instrument + one lane, so the lobby sets both from one "tracks" field |
 | `rounds` | `Option<u32>`, None = until host ends [None] |
 | `round_timer_secs` | `Option<u32>`, None = no timer [None] |

@@ -175,6 +175,11 @@ export function shaperCurve(drive, shape = 'soft', param = null) {
 
 /** Shared sends and limiter. Everything ends up in `dry`; `delayIn` and `reverbIn` are the send inputs. */
 export class Master {
+  /** The tempo changed: the delay follows it. */
+  setBpm(bpm) {
+    this.delay.delayTime.value = (DELAY_BEATS * 60) / bpm;
+  }
+
   constructor(ctx, { bpm, seed }, dest = ctx.destination) {
     this.dry = gain(ctx, 1);
     this.delayIn = gain(ctx, 1);
@@ -187,6 +192,7 @@ export class Master {
 
     const delay = ctx.createDelay(4);
     delay.delayTime.value = (DELAY_BEATS * 60) / bpm;
+    this.delay = delay;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass';
     lp.frequency.value = DELAY_LP_HZ;

@@ -34,6 +34,8 @@ export const end = (sid, token) => req('POST', `/${sid}/end`, { token });
 export const getState = (sid, token) => req('GET', `/${sid}/state`, { token });
 /** Freeform sessions: change the number of bars. */
 export const setBars = (sid, token, bars) => req('PUT', `/${sid}/bars`, { token, body: { bars } });
+/** Freeform sessions: change the tempo. */
+export const setBpm = (sid, token, bpm) => req('PUT', `/${sid}/bpm`, { token, body: { bpm } });
 /** Host: remove the player with join-order index `seat` from the session. */
 export const kick = (sid, host, seat) => req('POST', `/${sid}/players/${seat}/kick`, { token: host });
 /** Host: let the player with join-order index `seat`, waiting for the next round, play in the open round. */

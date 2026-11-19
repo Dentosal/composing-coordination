@@ -39,6 +39,7 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/players/{seat}/kick", post(kick))
         .route("/api/sessions/{id}/players/{seat}/admit", post(admit))
         .route("/api/sessions/{id}/bars", put(set_bars))
+        .route("/api/sessions/{id}/bpm", put(set_bpm))
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
         .route("/api/sessions/{id}/rounds/{n}/parts", get(round_parts))
         .route("/api/sessions/{id}/song.wav", get(song))
@@ -242,6 +243,26 @@ async fn put_orders(
         Ok(()) => Json(json!({"ok": true})).into_response(),
         Err(errors) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"ok": false, "errors": errors}))).into_response(),
     })
+}
+
+#[derive(Deserialize)]
+struct BpmBody {
+    bpm: f32,
+}
+
+/// Freeform sessions: change the tempo.
+async fn set_bpm(
+    State(sh): State<Shared>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+    q: Q,
+    Json(body): Json<BpmBody>,
+) -> Result<Json<Value>, ApiError> {
+    let mut g = sh.write().await;
+    let s = session_mut(&mut g, &id)?;
+    seat_of(s, &h, &q)?;
+    s.set_bpm(body.bpm)?;
+    Ok(Json(json!({"ok": true, "bpm": s.config.bpm})))
 }
 
 #[derive(Deserialize)]

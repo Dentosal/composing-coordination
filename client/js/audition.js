@@ -18,6 +18,12 @@ export class Auditioner {
     this.holds = new Set();
   }
 
+  /** The session's tempo changed (freeform): looping notes and the delay follow it. */
+  setBpm(bpm) {
+    this.cfg = { ...this.cfg, bpm };
+    this.master?.setBpm(bpm);
+  }
+
   async ready() {
     const ctx = await unlock();
     this.master ??= new Master(ctx, this.cfg, getBus());

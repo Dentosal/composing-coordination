@@ -28,6 +28,9 @@ const fmtTime = (ms) => {
 
 /** The most tracks a player can have in an unlimited session (the server enforces the same ceiling). */
 const MAX_UNLIMITED_TRACKS = 64;
+/** The tempo range (the server enforces the same). */
+const MIN_BPM = 40;
+const MAX_BPM = 240;
 /** The longest freeform song, in bars (the server enforces the same). */
 const MAX_FREEFORM_BARS = 256;
 
@@ -148,7 +151,10 @@ export class Game {
     on('seat_count', (d) => { this.st.seat_count = d.count; this.updateTop(); this.updateLobby(); });
     on('ready_count', (d) => { this.st.ready_count = d.ready; this.st.eligible_count = d.total; this.updateTop(); });
     on('players', (d) => this.applyPlayers(d.players));
-    on('config', (d) => this.applyBars(d.bars)); // freeform: the song's length changed (another tab, or this one)
+    on('config', (d) => { // freeform: the song's length or tempo changed (another tab, or this one)
+      this.applyBars(d.bars);
+      if (d.bpm != null) this.applyBpm(d.bpm);
+    });
     on('round_opened', () => this.refresh().catch(() => {}));
     on('round_resolved', (d) => this.loadMix(d.n));
     on('session_ended', () => this.refresh().catch(() => {}));
@@ -477,7 +483,7 @@ export class Game {
     r.exportBtn = menuButton(h('button.icon-btn', { type: 'button', title: 'Download: the song as audio, or everything as a scene file', 'aria-label': 'Download' }, icon('download')),
       () => this.downloadItems(), 'Download');
     r.top = free
-      ? h('header.topbar', r.fsBtn, h('strong.mode-name', 'Freeform'), h('span.spacer'), r.exportBtn, r.help)
+      ? h('header.topbar', r.fsBtn, h('strong.mode-name', 'Freeform'), this.bpmField(), h('span.spacer'), r.exportBtn, r.help)
       : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
@@ -661,6 +667,54 @@ export class Game {
       return;
     }
     this.applyBars(bars);
+  }
+
+  /**
+   * Freeform: the tempo box in the header. Typing or the arrows apply it after a short pause (so holding an arrow does
+   * not restart playback at every step); Enter or leaving the box applies it at once. A value out of range is put back.
+   */
+  bpmField() {
+    const input = h('input.bpm-input', { type: 'number', min: MIN_BPM, max: MAX_BPM, step: 'any', value: String(this.st.config.bpm),
+      'aria-label': 'Tempo (BPM)', title: `Tempo in beats per minute, ${MIN_BPM} to ${MAX_BPM}` });
+    let t = null;
+    const apply = () => { clearTimeout(t); this.setBpm(input.value); };
+    input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(apply, 500); });
+    input.addEventListener('change', apply);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); apply(); input.blur(); }
+      e.stopPropagation(); // typing digits is not playing notes
+    });
+    this.refs.bpm = input;
+    return h('label.bpm-field', input, h('span.muted', 'BPM'));
+  }
+
+  async setBpm(value) {
+    const bpm = Math.round(Number(value) * 100) / 100;
+    if (!this.freeform || !(bpm >= MIN_BPM && bpm <= MAX_BPM)) {
+      if (this.refs.bpm) this.refs.bpm.value = String(this.st.config.bpm);
+      return;
+    }
+    if (bpm === this.st.config.bpm) return;
+    try {
+      await api.setBpm(this.sid, this.token, bpm);
+    } catch (e) {
+      alert(e.message);
+      if (this.refs.bpm) this.refs.bpm.value = String(this.st.config.bpm);
+      return;
+    }
+    this.applyBpm(bpm);
+  }
+
+  /** The tempo changed: the instrument panel's auditioner follows, and playback carries on from the same row at the new tempo. */
+  applyBpm(bpm) {
+    const cfg = this.st.config;
+    if (bpm === cfg.bpm) return;
+    const pos = this.playing ? this.previewPlayer.position() : null;
+    const row = pos == null ? null : Math.floor(pos / (60 / (cfg.bpm * (cfg.rows_per_bar / 4)))) % (cfg.bars * cfg.rows_per_bar);
+    cfg.bpm = bpm;
+    this.panel?.aud.setBpm(bpm);
+    if (this.refs.bpm && document.activeElement !== this.refs.bpm) this.refs.bpm.value = String(bpm);
+    if (this.playing) this.playPattern('cursor', row ?? 0);
   }
 
   /** The song length changed: trim the draft, resize the roll and stop playback (it was cut to the old length). */
