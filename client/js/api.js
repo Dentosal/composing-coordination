@@ -40,6 +40,8 @@ export const setBpm = (sid, token, bpm) => req('PUT', `/${sid}/bpm`, { token, bo
 export const kick = (sid, host, seat) => req('POST', `/${sid}/players/${seat}/kick`, { token: host });
 /** Host: let the player with join-order index `seat`, waiting for the next round, play in the open round. */
 export const admit = (sid, host, seat) => req('POST', `/${sid}/players/${seat}/admit`, { token: host });
+/** Vote on the round just played: keep it, or play it again. */
+export const vote = (sid, token, keep) => req('POST', `/${sid}/vote`, { token, body: { keep } });
 export const setReady = (sid, token, ready) => req('POST', `/${sid}/ready`, { token, body: { ready } });
 
 /** @returns {Promise<{ok:true}|{ok:false,errors:{path:string,message:string}[]}>} */

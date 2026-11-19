@@ -35,6 +35,7 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/state", get(get_state))
         .route("/api/sessions/{id}/orders", put(put_orders))
         .route("/api/sessions/{id}/ready", post(ready))
+        .route("/api/sessions/{id}/vote", post(vote))
         .route("/api/sessions/{id}/name", put(set_name))
         .route("/api/sessions/{id}/players/{seat}/kick", post(kick))
         .route("/api/sessions/{id}/players/{seat}/admit", post(admit))
@@ -158,7 +159,7 @@ async fn kick(State(sh): State<Shared>, Path((id, seat)): Path<(String, u32)>, h
         if !matches!(any_auth(s, &h, &q)?, Who::Host) {
             return err(StatusCode::FORBIDDEN, "host only");
         }
-        s.kick(seat)?
+        s.kick(seat, &sh)?
     };
     if let Some(n) = resolve {
         tokio::spawn(try_resolve(sh.clone(), id, n, false));
@@ -192,13 +193,13 @@ async fn get_state(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMa
     let s = session(&g, &id)?;
     let who = any_auth(s, &h, &q)?;
     let cur = s.current();
-    let round = cur.map(|r| json!({"n": r.index, "state": r.state, "deadline": r.deadline_ms}));
-    let latest_mix = s
-        .rounds
-        .iter()
-        .rev()
-        .find(|r| r.state == RoundState::Resolved)
-        .map(|r| r.index);
+    let round = cur.map(|r| json!({
+        "n": r.index, "state": r.state, "deadline": r.deadline_ms,
+        "slot": r.slot, "attempt": r.attempt, "attempts": s.config.attempts_at(r.slot),
+        "vote": s.vote_count().map(|(cast, total)| json!({"cast": cast, "total": total})),
+    }));
+    // The band under the open round: the last round in the song (an attempt voted down is not), or the one being voted on.
+    let latest_mix = s.rounds.iter().rev().find(|r| r.in_song()).map(|r| r.index);
     let you = match who {
         Who::Host => Value::Null,
         Who::Seat(i) => {
@@ -217,6 +218,8 @@ async fn get_state(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMa
                 "eligible": cur.map_or(true, |r| seat.joined_round <= r.index),
                 "ready": cur.map_or(false, |r| r.ready.contains(&seat.id)),
                 "sounds": s.sounds_json(i),
+                // This player's own vote on the round being voted on (only theirs: votes are secret).
+                "vote": cur.and_then(|r| r.votes.as_ref()).and_then(|v| v.get(&seat.id)),
                 "orders": orders,
             })
         }
@@ -319,6 +322,20 @@ async fn ready(
     Ok(Json(json!({"ok": true})))
 }
 
+#[derive(Deserialize)]
+struct VoteBody {
+    keep: bool,
+}
+
+/// Vote on keeping the round just played: `{"keep": true}` keeps it, `false` plays it again (see `Session::vote`).
+async fn vote(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMap, q: Q, Json(body): Json<VoteBody>) -> Result<Json<Value>, ApiError> {
+    let mut g = sh.write().await;
+    let s = session_mut(&mut g, &id)?;
+    let seat = seat_of(s, &h, &q)?;
+    s.vote(seat, body.keep, &sh)?;
+    Ok(Json(json!({"ok": true})))
+}
+
 /// Concurrent on-demand renders (downloads) allowed; extra requests get 429 so they cannot starve round renders.
 static RENDER_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 
@@ -418,8 +435,9 @@ async fn song_parts(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderM
     let g = sh.read().await;
     let s = session(&g, &id)?;
     any_auth(s, &h, &q)?;
-    let rounds: Vec<Value> = s.rounds.iter().filter(|r| r.state == RoundState::Resolved).map(|r| json!({
+    let rounds: Vec<Value> = s.rounds.iter().filter(|r| r.in_song()).map(|r| json!({
         "n": r.index,
+        "slot": r.slot,
         "parts": r.played.iter().map(|(seat, orders)| json!({"seat": seat, "orders": orders})).collect::<Vec<_>>(),
     })).collect();
     let players: Vec<Value> = s.seats.iter().map(|p| json!({"seat": p.index, "name": p.name})).collect();

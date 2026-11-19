@@ -63,6 +63,9 @@ pub struct Config {
     /// (see `sound_key`); every one a player has played in a round counts, and reusing one is free. The game's combined
     /// scene file needs a track for each, so this keeps it within `UNLIMITED_TRACK_CAP` tracks.
     pub max_sounds: Option<u32>,
+    /// Attempts at each round of a game: after every attempt but the last, the players vote (anonymously) whether to
+    /// keep it, and a single no plays the round again. The first round has one more attempt: it is written blind.
+    pub attempts: u32,
     /// Players may add and delete tracks themselves (up to `UNLIMITED_TRACK_CAP`); `max_lanes` / `max_instruments`
     /// are then only the number of tracks everyone starts with.
     pub unlimited_tracks: bool,
@@ -107,6 +110,7 @@ impl Default for Config {
             max_lanes: 4,
             max_instruments: 4,
             max_sounds: None,
+            attempts: 2,
             unlimited_tracks: false,
             freeform: false,
             rounds: None,
@@ -128,6 +132,7 @@ impl Config {
         chk((1..=16).contains(&self.max_instruments), "max_instruments must be 1..=16")?;
         let cap = UNLIMITED_TRACK_CAP as u32;
         chk(self.max_sounds.map_or(true, |s| (1..=cap).contains(&s)), &format!("max_sounds must be 1..={cap}"))?;
+        chk((1..=10).contains(&self.attempts), "attempts must be 1..=10")?;
         chk(
             self.unlimited_tracks || self.sound_budget() >= self.max_lanes.min(self.max_instruments),
             "max_sounds must be at least the tracks per player",
@@ -148,6 +153,11 @@ impl Config {
     /// opens in the freeform editor. A game without a set number of rounds ends there.
     pub fn max_rounds(&self) -> u32 {
         MAX_FREEFORM_BARS / self.bars.max(1)
+    }
+
+    /// Attempts at round `slot` of the song (1-based): the first round has one more.
+    pub fn attempts_at(&self, slot: u32) -> u32 {
+        self.attempts + u32::from(slot == 1)
     }
 
     /// Sounds per player for the whole game.
@@ -253,6 +263,20 @@ pub struct Round {
     pub mix: Option<Arc<[u8]>>,
     /// Orders actually rendered, with seat index (set when the round leaves Open).
     pub played: Vec<(u32, Orders)>,
+    /// Which round of the song this is (1-based; `index` counts attempts too) and which attempt at it.
+    pub slot: u32,
+    pub attempt: u32,
+    /// While the players vote on keeping this attempt: each one's vote so far (secret: only counts are told).
+    pub votes: Option<HashMap<SeatId, bool>>,
+    /// Voted down: not in the song (another attempt at its slot follows).
+    pub rejected: bool,
+}
+
+impl Round {
+    /// Played and not voted down: part of the song (or up for a vote on it).
+    pub fn in_song(&self) -> bool {
+        self.state == RoundState::Resolved && !self.rejected
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
@@ -463,6 +487,12 @@ impl Session {
             Some(s) => (Some(Instant::now() + Duration::from_secs(s as u64)), Some(now_ms() + s as u64 * 1000)),
             None => (None, None),
         };
+        // The next round of the song, or another attempt at the one just voted down.
+        let (slot, attempt) = match self.rounds.last() {
+            None => (1, 1),
+            Some(r) if r.rejected => (r.slot, r.attempt + 1),
+            Some(r) => (r.slot + 1, 1),
+        };
         self.rounds.push(Round {
             index: n,
             state: RoundState::Open,
@@ -472,6 +502,10 @@ impl Session {
             ready: HashSet::new(),
             mix: None,
             played: Vec::new(),
+            slot,
+            attempt,
+            votes: None,
+            rejected: false,
         });
         self.phase = Phase::Running;
         self.emit("round_opened", json!({"n": n, "deadline": deadline_ms}));
@@ -590,7 +624,7 @@ impl Session {
 
     /// The host removes a player: their token stops working, their draft for the open round is dropped and they play
     /// no more rounds. Returns the open round's index when everyone left is now ready (the caller resolves it).
-    pub fn kick(&mut self, seat: u32) -> Result<Option<u32>, ApiError> {
+    pub fn kick(&mut self, seat: u32, shared: &Shared) -> Result<Option<u32>, ApiError> {
         if self.config.freeform {
             return err(StatusCode::CONFLICT, "a freeform session has nobody to remove");
         }
@@ -607,7 +641,75 @@ impl Session {
         }
         self.emit_seat_count();
         self.emit_ready_count();
+        self.count_votes(shared); // a vote may now be complete without them
         Ok(open.filter(|&n| self.all_ready(n)))
+    }
+
+    /// Who votes on round `r`: the players who played in it and are still here.
+    fn voters(&self, r: &Round) -> Vec<SeatId> {
+        self.seats.iter().filter(|s| s.plays_in(r.index)).map(|s| s.id).collect()
+    }
+
+    /// The vote on the last round, if one is going on: `(cast, total)`. Only counts: the votes are secret.
+    pub fn vote_count(&self) -> Option<(usize, usize)> {
+        let r = self.rounds.last()?;
+        let votes = r.votes.as_ref()?;
+        let voters = self.voters(r);
+        Some((voters.iter().filter(|id| votes.contains_key(id)).count(), voters.len()))
+    }
+
+    /// A player votes to keep the round just played (`keep`) or to play it again. A vote can be changed until the last
+    /// one is in; then the round is kept if every vote is yes, else played again.
+    pub fn vote(&mut self, seat_idx: usize, keep: bool, shared: &Shared) -> Result<(), ApiError> {
+        let id = self.seats[seat_idx].id;
+        let Some(r) = self.rounds.last() else { return err(StatusCode::CONFLICT, "nothing to vote on") };
+        if r.votes.is_none() {
+            return err(StatusCode::CONFLICT, "nothing to vote on");
+        }
+        if !self.voters(r).contains(&id) {
+            return err(StatusCode::CONFLICT, "you did not play in this round");
+        }
+        self.rounds.last_mut().unwrap().votes.as_mut().unwrap().insert(id, keep);
+        self.count_votes(shared);
+        Ok(())
+    }
+
+    /// Tell everyone how many have voted; when everyone has, decide: keep the round or play it again.
+    fn count_votes(&mut self, shared: &Shared) {
+        let Some((cast, total)) = self.vote_count() else { return };
+        let r = self.rounds.last().unwrap();
+        self.emit("votes", json!({"n": r.index, "cast": cast, "total": total}));
+        if cast < total {
+            return;
+        }
+        let voters = self.voters(r);
+        let votes = r.votes.as_ref().unwrap();
+        let keep = voters.iter().all(|id| votes.get(id) == Some(&true));
+        let n = r.index;
+        let r = self.rounds.last_mut().unwrap();
+        r.votes = None;
+        r.rejected = !keep;
+        self.emit("vote_result", json!({"n": n, "kept": keep}));
+        if keep {
+            self.keep_round(n, shared);
+        } else {
+            self.open_round(n + 1, shared);
+        }
+    }
+
+    /// Round `n` is in the song: end the game when that was the last round, else open the next one.
+    fn keep_round(&mut self, n: u32, shared: &Shared) {
+        let slot = self.rounds.last().map_or(1, |r| r.slot);
+        let done = self.end_requested || slot >= self.config.rounds.unwrap_or(self.config.max_rounds());
+        if done {
+            self.phase = Phase::Ended;
+            self.emit("session_ended", json!({}));
+            let shared = shared.clone();
+            let sid = self.id.clone();
+            tokio::spawn(render_song(shared, sid));
+        } else {
+            self.open_round(n + 1, shared);
+        }
     }
 
     /// The host lets a player who would join next round play in the open round already.
@@ -630,7 +732,7 @@ impl Session {
     pub fn sounds_used(&self, seat_idx: usize, n: u32, draft: Option<&Orders>) -> usize {
         let seat = self.seats[seat_idx].index;
         let mut keys = HashSet::new();
-        for r in self.rounds.iter().filter(|r| r.state == RoundState::Resolved && r.index < n) {
+        for r in self.rounds.iter().filter(|r| r.in_song() && r.index < n) {
             for (_, o) in r.played.iter().filter(|(s, _)| *s == seat) {
                 keys.extend(part_sounds(o));
             }
@@ -727,23 +829,27 @@ impl Session {
         Some(RenderJob { cfg: self.config.render_config(), parts: round.played.clone() })
     }
 
-    fn finish_resolve(&mut self, n: u32, wav: Arc<[u8]>, shared: &Shared) {
+    /// Phase two of resolving, once round `n`'s mix is rendered: put it to a vote, or keep it.
+    pub fn finish_resolve(&mut self, n: u32, wav: Arc<[u8]>, shared: &Shared) {
         let Some(round) = self.rounds.last_mut() else { return };
         if round.index != n {
             return;
         }
         round.mix = Some(wav);
         round.state = RoundState::Resolved;
+        // Every attempt but the last is put to a vote; the last one is kept as it is.
+        let vote = round.attempt < self.config.attempts_at(round.slot);
+        if vote {
+            round.votes = Some(HashMap::new());
+        }
         self.emit("round_resolved", json!({"n": n}));
-        let done = self.end_requested || n >= self.config.rounds.unwrap_or(self.config.max_rounds());
-        if done {
-            self.phase = Phase::Ended;
-            self.emit("session_ended", json!({}));
-            let shared = shared.clone();
-            let sid = self.id.clone();
-            tokio::spawn(render_song(shared, sid));
+        if vote && self.vote_count().is_some_and(|(_, total)| total > 0) {
+            self.count_votes(shared); // tells everyone the vote is on (0 of n)
         } else {
-            self.open_round(n + 1, shared);
+            if let Some(r) = self.rounds.last_mut() {
+                r.votes = None;
+            }
+            self.keep_round(n, shared);
         }
     }
 }
@@ -766,7 +872,7 @@ pub fn render_part_song(cfg: &RenderConfig, seat_index: u32, orders: &Orders) ->
 
 /// The parts played in each resolved round so far, in order: the loops of the song.
 pub fn played_rounds(s: &Session) -> Vec<Vec<(u32, Orders)>> {
-    s.rounds.iter().filter(|r| r.state == RoundState::Resolved).map(|r| r.played.clone()).collect()
+    s.rounds.iter().filter(|r| r.in_song()).map(|r| r.played.clone()).collect()
 }
 
 /// Rounds (each a list of seat index and orders) back to back as a song file, with the tail ringing out.

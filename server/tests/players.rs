@@ -77,7 +77,7 @@ fn the_host_can_kick_a_player_and_let_a_late_one_join_now() {
     s.put_orders(1, Orders::default()).unwrap().unwrap();
     s.set_ready(0, true).unwrap();
     assert!(!s.set_ready(2, true).unwrap(), "Bob is not ready");
-    assert_eq!(s.kick(1).unwrap(), Some(1), "everyone left is ready");
+    assert_eq!(s.kick(1, &sh).unwrap(), Some(1), "everyone left is ready");
     assert!(!s.rounds[0].orders.contains_key(&s.seats[1].id), "the kicked player's draft is gone");
     assert!(matches!(s.auth(bob), None), "the kicked player's token no longer works");
     assert!(matches!(s.auth(ada), Some(Who::Seat(0))) && matches!(s.auth(cleo), Some(Who::Seat(2))));
@@ -86,6 +86,6 @@ fn the_host_can_kick_a_player_and_let_a_late_one_join_now() {
     assert_eq!(s.players()[1]["seat"], 2, "the others keep their index");
     assert_eq!(s.seat_count(), 2);
     assert_eq!(s.eligible_count(1), 2);
-    assert!(s.kick(1).is_err(), "already gone");
-    assert!(s.kick(9).is_err(), "no such player");
+    assert!(s.kick(1, &sh).is_err(), "already gone");
+    assert!(s.kick(9, &sh).is_err(), "no such player");
 }

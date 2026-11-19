@@ -1,5 +1,6 @@
-// The dialog after each round of a game: the song so far (every round back to back), played in this browser. When the
-// game is over it also offers the song as audio (the server's render) and the whole game as one scene file.
+// The dialog after each round of a game: the song so far (every round back to back), played in this browser, and below
+// it the vote on keeping the round (every attempt but the last: anonymous, and it takes everyone's yes). When the game is
+// over it also offers the song as audio (the server's render) and the whole game as one scene file.
 import * as api from './api.js';
 import { h, clear } from './dom.js';
 import { icon } from './icons.js';
@@ -30,8 +31,9 @@ export async function downloadGameScene(sid, token, cfg, stamp) {
 export class SongDialog {
   /**
    * @param {{sid:string, token:string, state:() => any, stamp:() => string, onListen:() => void, onClose:() => void}} o
-   *   `state()` is the session state (config, phase, song_ready); `onListen` is called when the song starts playing (the
-   *   editor stops its own playback).
+   *   `state()` is the session state (config, phase, song_ready, round, you); `onListen` is called when the song starts
+   *   playing (the editor stops its own playback). `voteResult()` is the last vote's outcome, `{n, kept}`.
+   * @param {{voteResult:() => ({n:number, kept:boolean}|null)}} o
    */
   constructor(o) {
     this.o = o;
@@ -50,9 +52,10 @@ export class SongDialog {
     this.controls = h('div.song-player', this.playBtn, this.seek, this.time);
     this.audio = h('audio', { controls: true }); // the fallback: the song rendered whole first
     this.audio.addEventListener('play', () => this.o.onListen());
+    this.voteBox = h('div.round-vote');
     this.downloads = h('div.round-downloads');
     this.el = h('dialog.round-dialog', { onclose: () => this.close() },
-      this.title, this.status, this.controls, this.audio, this.downloads,
+      this.title, this.status, this.controls, this.audio, this.voteBox, this.downloads,
       h('form.round-close', { method: 'dialog' }, h('button', { type: 'submit' }, 'Close')));
     document.body.append(this.el); // not in the game's root: the view under it is rebuilt when the session ends
     this.el.showModal();
@@ -64,6 +67,8 @@ export class SongDialog {
   async show(n) {
     if (n <= this.n) return;
     this.n = n;
+    const r = this.o.state().round; // still round n here: the state moves on when the next round opens
+    this.round = r?.n === n ? { slot: r.slot, attempt: r.attempt, attempts: r.attempts } : { slot: n, attempt: 1, attempts: 1 };
     this.stop();
     this.song = null;
     this.error = '';
@@ -97,7 +102,9 @@ export class SongDialog {
   update() {
     const st = this.o.state();
     const ended = st.phase === 'ended';
-    this.title.textContent = ended ? 'Game over' : `Round ${this.n} done`;
+    const rd = this.round ?? { slot: this.n, attempt: 1, attempts: 1 };
+    this.title.textContent = ended ? 'Game over' : `Round ${rd.slot} done` + (rd.attempts > 1 ? ` (attempt ${rd.attempt} of ${rd.attempts})` : '');
+    this.updateVote(st, rd);
     const ready = !!this.song && (StreamPlayer.supported || !!this.audioUrl);
     this.status.textContent = this.error || (!this.song ? 'Loading the song so far…' : ended
       ? 'The whole song, every round back to back:' : `The song so far, round${this.n > 1 ? `s 1–${this.n}` : ' 1'}:`);
@@ -120,6 +127,36 @@ export class SongDialog {
       const scene = h('button', { type: 'button', title: 'Every player\'s tracks over the whole game, to open in the freeform editor',
         onclick: () => saveScene(this.song, this.o.stamp()) }, icon('download'), ' Scene file (.json)');
       this.downloads.append(wav, scene);
+    }
+  }
+
+  /** The vote on keeping this round, its count, and once everyone has voted, the outcome. */
+  updateVote(st, rd) {
+    clear(this.voteBox);
+    const result = this.o.voteResult();
+    const voting = st.round?.n === this.n ? st.round.vote : null;
+    if (result?.n === this.n) {
+      this.voteBox.append(h(`p.vote-result${result.kept ? '.kept' : '.again'}`, result.kept
+        ? 'Everyone voted to keep it.'
+        : `Not everyone was happy with it: round ${rd.slot} again (attempt ${rd.attempt + 1} of ${rd.attempts}).`));
+    } else if (voting) {
+      const mine = st.you?.vote;
+      const canVote = st.you && st.you.joined_round <= this.n;
+      const btn = (keep, label) => h(`button${mine === keep ? '.active' : ''}`, { type: 'button', disabled: !canVote,
+        onclick: async () => {
+          try {
+            await api.vote(this.o.sid, this.o.token, keep);
+            st.you.vote = keep;
+          } catch (e) { alert(e.message); }
+          this.update();
+        } }, label);
+      this.voteBox.append(
+        h('p.vote-q', 'Keep this round?', h('span.muted', ' It takes everyone\'s yes; the votes are secret.')),
+        h('div.vote-buttons', btn(true, '👍 Keep it'), btn(false, '🔁 Play it again'),
+          h('span.muted.vote-count', `${voting.cast} of ${voting.total} voted`)));
+      if (!canVote) this.voteBox.append(h('p.muted', 'You join in the next round: the players of this one decide.'));
+    } else if (rd.attempts > 1 && rd.attempt === rd.attempts && st.phase !== 'ended') {
+      this.voteBox.append(h('p.muted', 'That was the last attempt at this round: it is kept.'));
     }
   }
 

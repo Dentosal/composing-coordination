@@ -74,6 +74,7 @@ const FIELDS = [
   ['max_tracks', 'Tracks per player', 4, 'number'], // a track = one instrument + its pattern lane
   ['max_sounds', 'Sounds per player (blank = 2 × tracks)', '', 'number'], // different instruments over the whole game
   ['rounds', 'Rounds (blank = until host ends)', '', 'number'],
+  ['attempts', 'Attempts per round (the first gets one more)', 2, 'number'], // retried until everyone votes to keep it
   ['round_timer_secs', 'Round timer, seconds (blank = none)', '', 'number'],
 ];
 

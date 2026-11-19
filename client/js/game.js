@@ -143,6 +143,7 @@ export class Game {
     this.ready = !!st.you?.ready;
     this.render();
     if (st.latest_mix != null && st.latest_mix !== this.mixRound) this.loadMix(st.latest_mix);
+    else if (st.latest_mix == null && this.mixRound != null) this.clearMix(); // the first round was voted down
     if (this.dirty && this.canEdit()) this.scheduleSave(50);
   }
 
@@ -158,7 +159,13 @@ export class Game {
       if (d.bpm != null) this.applyBpm(d.bpm);
     });
     on('round_opened', () => this.refresh().catch(() => {}));
-    on('round_resolved', (d) => { this.loadMix(d.n); this.showRoundDialog(d.n); });
+    on('round_resolved', (d) => { this.loadMix(d.n); this.showRoundDialog(d.n); this.refresh().catch(() => {}); }); // the state has the vote, if any
+    on('votes', (d) => {
+      if (this.st.round?.n === d.n) this.st.round.vote = { cast: d.cast, total: d.total };
+      this.updateTop();
+      this.updateRoundDialog();
+    });
+    on('vote_result', (d) => { this.voteResult = d; this.updateRoundDialog(); }); // the next round's opening follows
     on('session_ended', () => this.refresh().catch(() => {}));
     on('song_ready', () => this.refresh().catch(() => {}));
     on('resync', () => this.refresh().catch(() => {}));
@@ -172,9 +179,10 @@ export class Game {
   async loadMix(n) {
     if (n === this.mixRound || this.mixLoading === n) return;
     this.mixLoading = n;
+    this.mixWanted = n;
     try {
       const band = this.stream ? await api.fetchRoundParts(this.sid, this.token, n) : await decode(await api.fetchMix(this.sid, this.token, n));
-      if (this.mixRound == null || n > this.mixRound) {
+      if (this.mixWanted === n) { // the latest asked for (a round voted down makes the band go back to the one before)
         this.mixRound = n;
         if (this.stream) {
           this.band = band;
@@ -189,6 +197,19 @@ export class Game {
     } finally {
       this.mixLoading = null;
     }
+  }
+
+  /** No band any more: the only round played was voted down. */
+  clearMix() {
+    this.mixRound = null;
+    this.mixWanted = null;
+    this.band = null;
+    if (this.stream) this.livePlayer.changed();
+    else {
+      this.mixPlayer?.stop();
+      this.mixPlayer?.setBuffer(null);
+    }
+    this.updateMix();
   }
 
   // ------------------------------------------------------------ editing
@@ -338,6 +359,7 @@ export class Game {
     this.songDlg ??= new SongDialog({
       sid: this.sid, token: this.token, state: () => this.st, stamp: () => fileStamp(),
       onListen: () => { if (this.playing) this.togglePlay(); }, // not both at once
+      voteResult: () => this.voteResult ?? null,
       onClose: () => { this.songDlg = null; },
     });
     this.songDlg.show(n);
@@ -495,6 +517,7 @@ export class Game {
           h('li', 'Drag across the bar numbers to loop a section while you work.'),
           h('li', 'The footer plays your draft, optionally over the previous round.'),
           h('li', 'Commit & ready sends your part. The round ends when everyone is ready.'),
+          h('li', 'Then everyone hears the song so far and votes, in secret, on keeping the round. It takes everyone\'s yes: otherwise the round is played again, up to the attempts the game allows (the last attempt is kept as it is).'),
           h('li', 'The download menu in the header saves the song so far or your own part as audio, or your patches, notes and effects as one scene file.')),
       ],
     });
@@ -585,7 +608,9 @@ export class Game {
     const r = this.refs;
     if (this.view !== 'game' || !r.round) return;
     const st = this.st;
-    r.round.textContent = `Round ${st.round?.n ?? '–'}${st.config.rounds ? ` / ${st.config.rounds}` : ''}`;
+    const rd = st.round;
+    r.round.textContent = `Round ${rd?.slot ?? '–'}${st.config.rounds ? ` / ${st.config.rounds}` : ''}`
+      + (rd && rd.attempts > 1 ? ` · attempt ${rd.attempt} / ${rd.attempts}` : '');
     r.readyText.textContent = `ready ${st.ready_count} / ${st.eligible_count}`;
     const snd = st.you?.sounds;
     r.sounds.hidden = !snd;
@@ -608,6 +633,8 @@ export class Game {
     const r = this.refs;
     if (this.view !== 'game' || !r.timer) return;
     const d = this.st.round?.deadline;
+    const vote = this.st.round?.vote;
+    if (vote) { r.timer.textContent = `voting (${vote.cast} / ${vote.total})`; return; }
     if (!d) r.timer.textContent = this.st.round?.state === 'rendering' ? 'rendering…' : 'no timer';
     else {
       const left = d - Date.now();
@@ -625,7 +652,7 @@ export class Game {
     if (r.prevChk) r.prevChk.checked = this.playMix && !!this.mixRound;
     if (r.prevChk) r.prevChk.disabled = !this.mixRound;
     if (r.prevLbl) r.prevLbl.title = this.mixRound
-      ? `Play the band mix of round ${this.mixRound} in the background while you listen to your draft.`
+      ? 'Play the last round\'s band mix in the background while you listen to your draft.'
       : 'There is no previous round to play yet.';
     if (r.previewBtn) {
       r.previewBtn.classList.toggle('active', this.previewOn);
@@ -635,7 +662,7 @@ export class Game {
     const mixText = free
       ? ''
       : this.mixRound
-        ? (this.playMix ? `Round ${this.mixRound}'s band mix plays in the background.` : '')
+        ? (this.playMix ? 'The last round\'s band mix plays in the background.' : '')
         : this.previewOn ? '' : 'No mix yet: round 1 is written blind. Use Preview to hear your part.';
     let previewText = '';
     if (this.previewOn && !free) {
@@ -1021,7 +1048,7 @@ export class Game {
       r.commitInfo.textContent = 'You can keep editing; your part starts in the next round.';
     } else if (rs !== 'open') {
       r.commit.disabled = true;
-      r.commit.textContent = 'Rendering mix…';
+      r.commit.textContent = this.st.round?.vote ? 'Voting…' : 'Rendering mix…';
       r.commitInfo.textContent = '';
     } else if (this.ready) {
       r.commit.textContent = '✓ Ready. Click to keep editing';

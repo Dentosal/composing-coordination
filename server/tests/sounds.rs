@@ -45,7 +45,7 @@ fn play(s: &mut Session, o: Orders) {
 fn empty_round() -> band_game::state::Round {
     band_game::state::Round {
         index: 0, state: RoundState::Open, deadline: None, deadline_ms: None, orders: Default::default(),
-        ready: Default::default(), mix: None, played: Vec::new(),
+        ready: Default::default(), mix: None, played: Vec::new(), slot: 1, attempt: 1, votes: None, rejected: false,
     }
 }
 

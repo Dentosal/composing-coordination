@@ -482,3 +482,12 @@ dialog.round-dialog audio[hidden] { display: none; }
 .end-downloads { display: flex; flex-wrap: wrap; gap: 8px; }
 .sounds-count { font-size: .9rem; }
 .sounds-count.over { color: var(--bad); }
+.round-vote:empty { display: none; }
+.round-vote { margin: 0 0 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.round-vote p { margin: 0 0 8px; }
+.vote-q { font-weight: 600; }
+.vote-q .muted { font-weight: 400; font-size: .85rem; }
+.vote-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vote-count { font-size: .85rem; margin-left: 4px; }
+.vote-result.kept { color: var(--ok); }
+.vote-result.again { color: var(--accent); }

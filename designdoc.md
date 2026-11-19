@@ -51,6 +51,7 @@ All configurable at session creation; defaults in brackets.
 | `bpm`, `bars` | loop shape [112, 4]; `rows_per_bar` is fixed at 16 (accepted only as 16, still reported) |
 | `max_lanes`, `max_instruments` | per-player limits [4, 4]; one track = one instrument + one lane, so the lobby sets both from one "tracks" field |
 | `max_sounds` | `Option<u32>`: different sounds (instruments as set up, names aside) each player may play over the whole game, None = 2 × tracks. Checked on ready; reusing a sound is free, effects cost nothing, a track without notes does not count. It sizes the game's combined scene (one track per player and sound), so players × sounds ≤ 64 and joins past that are refused [None] |
+| `attempts` | attempts at each round [2; the first round gets one more, as it is written blind]. After every attempt but the last, the players of the round vote in secret on keeping it (`POST /vote {keep}`, changeable until the last vote is in; only counts are told). All yes keeps it; otherwise the round is played again: an attempt voted down is not in the song, its sounds are free again, the band is the round before it, and each player's draft starts from their rejected part. The last attempt is kept without a vote |
 | `rounds` | `Option<u32>`, None = until host ends [None]. A game is at most 256 bars (so its combined scene opens in the freeform editor): rounds ≤ 256 / bars, and an open-ended game ends there |
 | `round_timer_secs` | `Option<u32>`, None = no timer [None] |
 | `timeout_policy` | `Wait` \| `RepeatLast` [Wait] |
@@ -98,7 +99,7 @@ Auth: `Authorization: Bearer <token>` (seat token or host token).
 
 The seat token can also be passed as a `?token=` query parameter on `events` and `.wav` routes, because `EventSource` and `<audio>` can't set headers.
 
-SSE events (JSON payloads): `seat_count`, `ready_count`, `players {players: [{seat, name, ready, eligible, online}]}`, `round_opened {n, deadline}`, `round_resolved {n}`, `session_ended`. Players are listed by nickname with their ready state in the current round, and `online` false once their page has had no event stream for 5 s (a reload stays within that); nothing says what anyone wrote, though `seat` (the join order) is also on each part from `rounds/:n/parts`.
+SSE events (JSON payloads): `seat_count`, `ready_count`, `players {players: [{seat, name, ready, eligible, online}]}`, `round_opened {n, deadline}`, `round_resolved {n}`, `votes {n, cast, total}`, `vote_result {n, kept}`, `session_ended`. Players are listed by nickname with their ready state in the current round, and `online` false once their page has had no event stream for 5 s (a reload stays within that); nothing says what anyone wrote, though `seat` (the join order) is also on each part from `rounds/:n/parts`.
 
 ### Validation
 
