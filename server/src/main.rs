@@ -8,6 +8,7 @@ use tower_http::services::ServeDir;
 #[tokio::main]
 async fn main() {
     let shared: Shared = Arc::new(Default::default());
+    band_game::state::spawn_sweeper(shared.clone()); // idle sessions are removed after an hour
     let client_dir = std::env::var("CLIENT_DIR").unwrap_or_else(|_| "../client".into());
     let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3000);
 

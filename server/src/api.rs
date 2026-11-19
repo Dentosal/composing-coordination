@@ -61,12 +61,17 @@ fn token_from(headers: &HeaderMap, q: &HashMap<String, String>) -> Result<Uuid, 
         .ok_or(ApiError(StatusCode::UNAUTHORIZED, "missing or invalid token".into()))
 }
 
+/// The session `id`, marked as in use (every route finds its session through here or `session_mut`).
 fn session<'a>(g: &'a AppState, id: &str) -> Result<&'a Session, ApiError> {
-    g.sessions.get(id).ok_or(ApiError(StatusCode::NOT_FOUND, "no such session".into()))
+    let s = g.sessions.get(id).ok_or(ApiError(StatusCode::NOT_FOUND, "no such session".into()))?;
+    s.touch();
+    Ok(s)
 }
 
 fn session_mut<'a>(g: &'a mut AppState, id: &str) -> Result<&'a mut Session, ApiError> {
-    g.sessions.get_mut(id).ok_or(ApiError(StatusCode::NOT_FOUND, "no such session".into()))
+    let s = g.sessions.get_mut(id).ok_or(ApiError(StatusCode::NOT_FOUND, "no such session".into()))?;
+    s.touch();
+    Ok(s)
 }
 
 /// Resolve auth to a seat index (host token alone is not a seat).
@@ -425,15 +430,17 @@ async fn events(
         let s = session_mut(&mut g, &id)?;
         let who = any_auth(s, &h, &q)?;
         let rx = s.tx.subscribe();
-        // A seat's open stream is what shows the player as connected; the guard counts it out when the stream ends.
-        let guard = match who {
+        // An open stream keeps the session from expiring, and a seat's shows the player as connected; the guard counts
+        // it out when the stream ends.
+        s.streams += 1;
+        let seat = match who {
             Who::Seat(i) => {
                 s.connected(i);
-                Some(StreamGuard { shared: sh.clone(), sid: id.clone(), seat: i })
+                Some(i)
             }
             Who::Host => None,
         };
-        (rx, guard)
+        (rx, StreamGuard { shared: sh.clone(), sid: id.clone(), seat })
     };
     let stream = BroadcastStream::new(rx).filter_map(move |r| {
         let _alive = &guard; // the closure owns the guard, so it is dropped with the stream
@@ -446,13 +453,14 @@ async fn events(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
-/// Lives as long as one seat's event stream: when the browser goes away (the tab closes, the network drops: the
-/// keep-alives stop getting through), the stream is dropped with it and the seat has one connection fewer. If that was its
-/// last one and it is still not back after the grace period, everyone is told the player has disconnected.
+/// Lives as long as one event stream: when the browser goes away (the tab closes, the network drops: the keep-alives
+/// stop getting through), the stream is dropped with it. The session has one stream fewer (its idle time starts when the
+/// last one closes), and a seat one connection fewer: if that was the seat's last one and it is still not back after the
+/// grace period, everyone is told the player has disconnected.
 struct StreamGuard {
     shared: Shared,
     sid: String,
-    seat: usize,
+    seat: Option<usize>,
 }
 
 impl Drop for StreamGuard {
@@ -461,10 +469,14 @@ impl Drop for StreamGuard {
         let (shared, sid, seat) = (self.shared.clone(), std::mem::take(&mut self.sid), self.seat);
         rt.spawn(async move {
             let last = match shared.write().await.sessions.get_mut(&sid) {
-                Some(s) => s.disconnected(seat),
+                Some(s) => {
+                    s.streams = s.streams.saturating_sub(1);
+                    s.touch();
+                    seat.filter(|&i| s.disconnected(i))
+                }
                 None => return,
             };
-            if last {
+            if let Some(seat) = last {
                 offline_check(shared, sid, seat).await;
             }
         });

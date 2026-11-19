@@ -17,7 +17,7 @@ Purely for fun. Not competitive, not a research tool.
 
 ## Stack
 
-- **Server:** Rust, axum, tokio, serde, `web-audio-api` crate for canonical offline renders. In-memory state only. Serves the client as static files (tower-http `ServeDir`). One binary.
+- **Server:** Rust, axum, tokio, serde, `web-audio-api` crate for canonical offline renders. In-memory state only; a session nobody has open (no event stream) and nobody has used for an hour is removed, so at most 200 live sessions are kept. Serves the client as static files (tower-http `ServeDir`). One binary.
 - **Client:** vanilla JS (ES modules, no build step), a fixed-architecture synth patch editor (`client/js/synth.js`, 3 oscillators + noise, filter, drive, amp/filter/pitch envelopes, LFO) that reads and writes ordinary orders graphs; playback rendered by the server's own renderer, compiled to WebAssembly and running in the browser (`client/js/stream.js`). **No Tone.js.**
 - **Shared contract:** the orders format, defined by the existing Rust serde structs. These are the source of truth. Do not redesign them; the JS side mirrors them (JSDoc types are enough).
 

@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{broadcast, RwLock};
@@ -20,6 +21,11 @@ pub struct AppState {
 }
 
 pub const MAX_SESSIONS: usize = 200;
+/// A session nobody has had open (no event stream) and nobody has used for this long is removed, with its rounds and
+/// audio. An ended game's song can be downloaded until then.
+pub const IDLE_EXPIRY: Duration = Duration::from_secs(60 * 60);
+/// How often the sweeper looks for idle sessions.
+pub const SWEEP_EVERY: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
 pub struct ApiError(pub StatusCode, pub String);
@@ -242,6 +248,11 @@ pub struct Session {
     pub end_requested: bool,
     pub tx: broadcast::Sender<Event>,
     pub song: Option<Arc<[u8]>>,
+    /// Open event streams, any token (a seat's or the host's).
+    pub streams: u32,
+    /// When the session was last used (`now_ms`): any request to it, or an event stream opening or closing. Atomic so
+    /// requests holding only the read lock can mark it.
+    pub last_active: AtomicU64,
 }
 
 pub enum Who {
@@ -266,7 +277,20 @@ impl Session {
             end_requested: false,
             tx,
             song: None,
+            streams: 0,
+            last_active: AtomicU64::new(now_ms()),
         }
+    }
+
+    /// Mark the session as in use now.
+    pub fn touch(&self) {
+        self.last_active.store(now_ms(), Ordering::Relaxed);
+    }
+
+    /// Whether the session can be removed at time `now` (`now_ms`): nobody has it open and it has been idle for
+    /// `IDLE_EXPIRY`.
+    pub fn expired(&self, now: u64) -> bool {
+        self.streams == 0 && now.saturating_sub(self.last_active.load(Ordering::Relaxed)) >= IDLE_EXPIRY.as_millis() as u64
     }
 
     pub fn emit(&self, name: &'static str, data: Value) {
@@ -691,6 +715,18 @@ pub async fn try_resolve(shared: Shared, sid: String, n: u32, timer: bool) {
     if let Some(s) = g.sessions.get_mut(&sid) {
         s.finish_resolve(n, wav, &shared);
     }
+}
+
+/// Every `SWEEP_EVERY`, remove the sessions that have `expired`. Runs for the life of the server.
+pub fn spawn_sweeper(shared: Shared) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(SWEEP_EVERY);
+        loop {
+            tick.tick().await;
+            let now = now_ms();
+            shared.write().await.sessions.retain(|_, s| !s.expired(now));
+        }
+    });
 }
 
 async fn render_song(shared: Shared, sid: String) {
