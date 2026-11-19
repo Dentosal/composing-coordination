@@ -13,6 +13,7 @@ import { renderSong } from './offline.js';
 import { sceneFile } from './scene.js';
 import { icon } from './icons.js';
 import { Spectrum } from './spectrum.js';
+import { saveNick, tidyNick, MAX_NICK } from './nick.js';
 
 /** Local date and time for file names: 20261119-1432. */
 const fileStamp = (d = new Date()) => {
@@ -144,6 +145,7 @@ export class Game {
     const on = (name, fn) => es.addEventListener(name, (e) => fn(JSON.parse(e.data || '{}')));
     on('seat_count', (d) => { this.st.seat_count = d.count; this.updateTop(); this.updateLobby(); });
     on('ready_count', (d) => { this.st.ready_count = d.ready; this.st.eligible_count = d.total; this.updateTop(); });
+    on('players', (d) => { this.st.players = d.players; this.updateTop(); this.updateLobby(); });
     on('config', (d) => this.applyBars(d.bars)); // freeform: the song's length changed (another tab, or this one)
     on('round_opened', () => this.refresh().catch(() => {}));
     on('round_resolved', (d) => this.loadMix(d.n));
@@ -297,9 +299,12 @@ export class Game {
           try { await api.start(this.sid, this.host); } catch (err) { alert(err.message); e.target.disabled = false; }
         } }, 'Start session')
       : h('p.muted', 'Waiting for the host to start…');
+    r.players = h('ul.player-list');
     this.root.append(h('div.card.lobby',
       h('h2', 'Lobby'),
-      h('p', 'Seats taken: ', r.seats),
+      h('p.lobby-you', 'You are ', this.nameChip()),
+      h('p', 'Players: ', r.seats),
+      r.players,
       h('p.muted', 'Share this link so others can join:'),
       h('div.invite', h('input', { readonly: true, value: this.inviteLink(), onfocus: (e) => e.target.select() }),
         h('button', { onclick: () => navigator.clipboard?.writeText(this.inviteLink()) }, 'Copy')),
@@ -309,6 +314,69 @@ export class Game {
   updateLobby() {
     if (this.view !== 'lobby') return;
     this.refs.seats.textContent = String(this.st.seat_count);
+    this.fillPlayers(this.refs.players, false);
+  }
+
+  /**
+   * List the players in `ul`, this one marked "(you)", and those whose page has gone away marked disconnected; with
+   * `round`, each one's state in the current round: ready, still writing, or joining next round.
+   */
+  fillPlayers(ul, round) {
+    const mine = this.st.you?.seat_index;
+    clear(ul);
+    for (const p of this.st.players ?? []) {
+      const state = !round ? '' : !p.eligible ? 'next' : p.ready ? 'ready' : 'waiting';
+      const mark = { ready: '✓', waiting: '…', next: '→', '': '' }[state];
+      const note = { ready: 'ready', waiting: 'writing', next: 'joins next round', '': '' }[state];
+      const li = h(`li${state ? `.${state}` : ''}`,
+        mark ? h('span.mark', { 'aria-hidden': 'true' }, mark) : null,
+        h('span.who', p.name, p.seat === mine ? h('span.muted', ' (you)') : null),
+        p.online === false ? h('span.offline-tag', { title: 'Their page is closed or has lost its connection' }, 'disconnected') : null,
+        note ? h('span.note', note) : null);
+      li.classList.toggle('offline', p.online === false);
+      ul.append(li);
+    }
+  }
+
+  /**
+   * This player's nickname as a button: click it to type a new one (Enter or leaving the field saves it, Escape keeps the
+   * old one). Saved on the server and in this browser, for the next session.
+   */
+  nameChip() {
+    const label = h('span.name-text');
+    const btn = h('button.name-chip', { type: 'button', title: 'Your nickname: click to change it' }, icon('user'), label);
+    const show = () => { label.textContent = this.st.you?.name ?? ''; };
+    this.nameChips = [...(this.nameChips ?? []).filter((c) => c.btn.isConnected), { btn, show }];
+    show();
+    btn.addEventListener('click', () => {
+      const input = h('input.name-edit', { type: 'text', value: this.st.you?.name ?? '', maxlength: MAX_NICK, 'aria-label': 'Your nickname' });
+      let done = false;
+      const finish = async (save) => {
+        if (done) return;
+        done = true;
+        const name = tidyNick(input.value);
+        input.replaceWith(btn);
+        if (!save || !name || name === this.st.you?.name) return;
+        try {
+          const r = await api.setName(this.sid, this.token, name);
+          this.st.you.name = r.name;
+          saveNick(r.name);
+          for (const c of this.nameChips) c.show();
+        } catch (err) {
+          alert(`The nickname was not changed: ${err.message}`);
+        }
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+        else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+        e.stopPropagation(); // typing a name is not playing notes
+      });
+      input.addEventListener('blur', () => finish(true));
+      btn.replaceWith(input);
+      input.focus();
+      input.select();
+    });
+    return btn;
   }
 
   buildGame() {
@@ -320,7 +388,14 @@ export class Game {
     const totalRows = cfg.bars * cfg.rows_per_bar;
     const free = this.freeform;
     if (!free) { // the round machinery of a game; a freeform session has none of it
-      r.round = h('span'); r.timer = h('span'); r.ready = h('span'); r.seats = h('span');
+      r.round = h('span'); r.timer = h('span'); r.seats = h('span');
+      // "ready 2 / 3", and on hover (or focus) who is ready and who is still writing.
+      r.readyText = h('span');
+      r.readyList = h('ul.player-list');
+      r.offline = h('span.offline-count', { hidden: true });
+      r.ready = h('span.ready-count', { tabindex: 0 }, r.readyText, r.offline,
+        h('div.players-pop', { role: 'tooltip' }, h('div.players-pop-title', 'Players'), r.readyList));
+      r.nameChip = this.nameChip();
       r.endBtn = this.host
         ? h('button.small', { onclick: async (e) => {
             if (!confirm('End the session after the current round resolves?')) return;
@@ -361,7 +436,7 @@ export class Game {
       () => this.downloadItems(), 'Download');
     r.top = free
       ? h('header.topbar', r.fsBtn, h('strong.mode-name', 'Freeform'), h('span.spacer'), r.exportBtn, r.help)
-      : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
+      : h('header.topbar', r.fsBtn, r.round, r.timer, r.ready, r.seats, h('span.spacer'), r.nameChip, r.endBtn, r.commitInfo, r.commit, r.exportBtn, r.help);
 
     r.playBtn = h('button.primary', { onclick: () => this.togglePlay() }, '▶ Play');
     r.previewBtn = h('button', { onclick: () => this.togglePreview() }, '🎧 Preview my part');
@@ -434,7 +509,11 @@ export class Game {
     if (this.view !== 'game' || !r.round) return;
     const st = this.st;
     r.round.textContent = `Round ${st.round?.n ?? '–'}${st.config.rounds ? ` / ${st.config.rounds}` : ''}`;
-    r.ready.textContent = `ready ${st.ready_count} / ${st.eligible_count}`;
+    r.readyText.textContent = `ready ${st.ready_count} / ${st.eligible_count}`;
+    const gone = (st.players ?? []).filter((p) => p.online === false).length;
+    r.offline.textContent = gone ? `${gone} disconnected` : '';
+    r.offline.hidden = !gone;
+    this.fillPlayers(r.readyList, true);
     const waiting = st.seat_count - st.eligible_count; // seated, but their first round is the next one
     r.seats.textContent = waiting > 0 ? `${waiting} joining next round` : '';
     r.seats.hidden = waiting <= 0;

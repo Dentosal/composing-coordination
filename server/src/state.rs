@@ -148,8 +148,44 @@ pub struct Seat {
     pub token: Uuid,
     pub kind: SeatKind,
     pub joined_round: u32,
-    /// Join order; part of the render PRNG key. Never sent to clients.
+    /// Join order; part of the render PRNG key.
     pub index: u32,
+    /// The player's nickname, shown to the others (see `clean_name`).
+    pub name: String,
+    /// Open event streams (browser tabs) of this seat. With none for longer than `OFFLINE_GRACE` the player shows as
+    /// disconnected.
+    pub connections: u32,
+    /// Since when the seat has had no event stream (None: connected now). Joining starts it: the page has until the
+    /// grace period ends to connect.
+    pub left_at: Option<Instant>,
+}
+
+/// How long a seat may have no event stream before it shows as disconnected: a page reload or a brief network hiccup
+/// reconnects well within this.
+pub const OFFLINE_GRACE: Duration = Duration::from_secs(5);
+
+impl Seat {
+    /// Whether the player counts as here: a tab is open, or the last one closed (or the seat was taken) only moments ago.
+    pub fn online(&self) -> bool {
+        self.connections > 0 || self.left_at.map_or(true, |t| t.elapsed() < OFFLINE_GRACE)
+    }
+}
+
+pub const MAX_NAME_CHARS: usize = 24;
+
+/// A nickname as stored: trimmed, runs of whitespace made one space, 1..=`MAX_NAME_CHARS` characters, no control characters.
+pub fn clean_name(raw: &str) -> Result<String, ApiError> {
+    let name = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    if name.is_empty() {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, "the nickname is empty");
+    }
+    if name.chars().count() > MAX_NAME_CHARS {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, format!("the nickname is longer than {MAX_NAME_CHARS} characters"));
+    }
+    if name.chars().any(char::is_control) {
+        return err(StatusCode::UNPROCESSABLE_ENTITY, "the nickname has control characters");
+    }
+    Ok(name)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
@@ -244,15 +280,72 @@ impl Session {
 
     pub fn emit_seat_count(&self) {
         self.emit("seat_count", json!({"count": self.seats.len()}));
+        self.emit_players();
     }
 
     pub fn emit_ready_count(&self) {
         if let Some(r) = self.current() {
             self.emit("ready_count", json!({"ready": r.ready.len(), "total": self.eligible_count(r.index)}));
         }
+        self.emit_players();
+    }
+
+    /// Everyone seated, in join order: `[{seat, name, ready, eligible}]`. `seat` is the join-order index (what the band's
+    /// parts and `you.seat_index` carry); `ready` and `eligible` are about the current round (false and true in the lobby).
+    pub fn players(&self) -> Value {
+        let cur = self.current();
+        Value::Array(self.seats.iter().map(|s| json!({
+            "seat": s.index,
+            "name": s.name,
+            "ready": cur.map_or(false, |r| r.ready.contains(&s.id)),
+            "eligible": cur.map_or(true, |r| s.joined_round <= r.index),
+            "online": s.online(),
+        })).collect())
+    }
+
+    /// A seat's event stream opened. Tells everyone if that brings the player back.
+    pub fn connected(&mut self, seat_idx: usize) {
+        let seat = &mut self.seats[seat_idx];
+        let was = seat.online();
+        seat.connections += 1;
+        seat.left_at = None;
+        if !was {
+            self.emit_players();
+        }
+    }
+
+    /// A seat's event stream closed. Returns true when it was the last one: the caller checks again after
+    /// `OFFLINE_GRACE` (see `offline_check`) and tells everyone if the player is still gone.
+    pub fn disconnected(&mut self, seat_idx: usize) -> bool {
+        let seat = &mut self.seats[seat_idx];
+        seat.connections = seat.connections.saturating_sub(1);
+        if seat.connections == 0 {
+            seat.left_at = Some(Instant::now());
+        }
+        seat.connections == 0
+    }
+
+    pub fn emit_players(&self) {
+        self.emit("players", json!({"players": self.players()}));
+    }
+
+    /// Change a seat's nickname.
+    pub fn rename(&mut self, seat_idx: usize, name: &str) -> Result<(), ApiError> {
+        self.seats[seat_idx].name = clean_name(name)?;
+        self.emit_players();
+        Ok(())
     }
 
     pub fn join(&mut self) -> Result<Uuid, ApiError> {
+        self.join_as(None)
+    }
+
+    /// Take a seat under a nickname (none: "Player N", N counting from 1 in join order).
+    pub fn join_as(&mut self, name: Option<&str>) -> Result<Uuid, ApiError> {
+        let name = match name {
+            Some(n) => clean_name(n)?,
+            None => format!("Player {}", self.seats.len() + 1),
+        };
         if self.phase == Phase::Ended {
             return err(StatusCode::CONFLICT, "session has ended");
         }
@@ -269,6 +362,9 @@ impl Session {
             kind: SeatKind::Human,
             joined_round,
             index: self.seats.len() as u32,
+            name,
+            connections: 0,
+            left_at: Some(Instant::now()),
         };
         let token = seat.token;
         self.seats.push(seat);

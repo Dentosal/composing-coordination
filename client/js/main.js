@@ -4,6 +4,7 @@ import { unlock } from './audio.js';
 import { h, clear } from './dom.js';
 import { Game } from './game.js';
 import { readSceneFile } from './scene.js';
+import { loadNick, saveNick, tidyNick, MAX_NICK } from './nick.js';
 const root = document.getElementById('app');
 let game = null;
 
@@ -77,7 +78,7 @@ async function openScene(scene) {
   const cfg = { freeform: true, bpm: scene.config.bpm, bars: scene.config.bars, rows_per_bar: scene.config.rows_per_bar };
   if (scene.config.seed != null) cfg.seed = scene.config.seed;
   const { session_id, host_token } = await api.createSession(cfg);
-  const { seat_token } = await api.join(session_id);
+  const { seat_token } = await api.join(session_id, loadNick() || undefined);
   await api.start(session_id, host_token);
   const r = await api.putOrders(session_id, seat_token, scene.orders);
   if (!r.ok) {
@@ -132,10 +133,16 @@ function showHome() {
   // Freeform mode: one person, no game. Only the tempo, the loop size and the seed matter.
   inputs.freeform = h('input', { name: 'freeform', type: 'checkbox', onchange: () => {
     for (const el of gameOnly) el.hidden = inputs.freeform.checked;
+    inputs.nick.required = !inputs.freeform.checked;
     submit.textContent = inputs.freeform.checked ? 'Start freeform' : 'Create session';
   } });
   form.append(h('label.check.freeform-opt', { title: 'Just you: no rounds, no other players. Write with as many tracks as you like.' },
     inputs.freeform, h('span', 'Freeform mode (just you, no game)')));
+  // The nickname the others see: the host plays too. A freeform session has nobody to show it to.
+  inputs.nick = nickInput();
+  const nickRow = h('label.nick-row', h('span', 'Your nickname'), inputs.nick);
+  gameOnly.push(nickRow);
+  form.append(nickRow);
   for (const [name, label, def, type] of FIELDS) {
     inputs[name] = h('input', { name, type, value: String(def), step: 'any' });
     if (name === 'rounds' || name === 'round_timer_secs') {
@@ -203,6 +210,12 @@ function showHome() {
       return;
     }
     const freeform = inputs.freeform.checked;
+    const nick = tidyNick(inputs.nick.value);
+    if (!freeform && !nick) {
+      msg.textContent = 'Choose a nickname: the other players see it.';
+      return;
+    }
+    if (nick) saveNick(nick);
     if (freeform) { // only the loop's settings count; the game settings are not sent
       for (const k of Object.keys(cfg)) if (!['bpm', 'bars', 'rows_per_bar', 'seed'].includes(k)) delete cfg[k];
       cfg.freeform = true;
@@ -211,7 +224,7 @@ function showHome() {
       await unlock();
       const { session_id, host_token } = await api.createSession(cfg);
       // The host takes a seat like everyone else; the two tokens are unrelated on the server.
-      const { seat_token } = await api.join(session_id);
+      const { seat_token } = await api.join(session_id, nick || undefined);
       if (freeform) await api.start(session_id, host_token); // no lobby: straight to the work
       const t = { seat: seat_token, host: host_token };
       saveTokens(session_id, t);
@@ -250,27 +263,42 @@ async function showJoin(sid, tokens) {
     return;
   }
   const msg = h('p.error');
-  root.append(h('div.card',
+  const ended = info.phase === 'ended';
+  const nick = nickInput();
+  nick.required = true;
+  nick.disabled = ended;
+  const take = h('button.primary', { type: 'submit', disabled: ended }, 'Take a seat');
+  root.append(h('div.card.join',
     h('h2', 'Join session'),
     h('p', `${info.seat_count} seated · ${info.config.bpm} BPM · ${info.config.bars} bars`),
-    info.phase === 'ended' ? h('p', 'This session has ended.') : null,
+    ended ? h('p', 'This session has ended.') : null,
     tokens.host && !tokens.seat ? h('p.muted', 'You hold the host token for this session.') : null,
-    h('button.primary', {
-      disabled: info.phase === 'ended',
-      onclick: async () => {
-        try {
-          await unlock();
-          const { seat_token } = await api.join(sid);
-          const t = { ...tokens, seat: seat_token };
-          saveTokens(sid, t);
-          setHash(sid, t);
-          route();
-        } catch (err) {
-          msg.textContent = err.message;
-        }
-      },
-    }, 'Take a seat'),
+    h('form.join-form', { onsubmit: async (e) => {
+      e.preventDefault();
+      const name = tidyNick(nick.value);
+      if (!name) { msg.textContent = 'Choose a nickname: the other players see it.'; return; }
+      take.disabled = true;
+      try {
+        await unlock();
+        const { seat_token } = await api.join(sid, name);
+        saveNick(name);
+        const t = { ...tokens, seat: seat_token };
+        saveTokens(sid, t);
+        setHash(sid, t);
+        route();
+      } catch (err) {
+        msg.textContent = err.message;
+        take.disabled = false;
+      }
+    } }, h('label', h('span', 'Your nickname'), nick), take),
     msg));
+  if (!ended) nick.focus();
+}
+
+/** The nickname field, filled in with the saved one. */
+function nickInput() {
+  return h('input', { name: 'nick', type: 'text', value: loadNick(), maxlength: MAX_NICK, required: true,
+    autocomplete: 'nickname', placeholder: 'What the others call you' });
 }
 
 window.addEventListener('hashchange', route);

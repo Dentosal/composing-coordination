@@ -35,6 +35,7 @@ pub fn router(shared: Shared) -> Router {
         .route("/api/sessions/{id}/state", get(get_state))
         .route("/api/sessions/{id}/orders", put(put_orders))
         .route("/api/sessions/{id}/ready", post(ready))
+        .route("/api/sessions/{id}/name", put(set_name))
         .route("/api/sessions/{id}/bars", put(set_bars))
         .route("/api/sessions/{id}/rounds/{n}/mix.wav", get(mix))
         .route("/api/sessions/{id}/rounds/{n}/parts", get(round_parts))
@@ -100,11 +101,34 @@ async fn info(State(sh): State<Shared>, Path(id): Path<String>) -> Result<Json<V
     })))
 }
 
-async fn join(State(sh): State<Shared>, Path(id): Path<String>) -> Result<Json<Value>, ApiError> {
+#[derive(Deserialize, Default)]
+struct NameBody {
+    name: Option<String>,
+}
+
+/// Take a seat. The body `{"name": "..."}` is the nickname (optional: "Player N" without one).
+async fn join(State(sh): State<Shared>, Path(id): Path<String>, body: Option<Json<NameBody>>) -> Result<Json<Value>, ApiError> {
+    let name = body.and_then(|b| b.0.name);
     let mut g = sh.write().await;
     let s = session_mut(&mut g, &id)?;
-    let token = s.join()?;
+    let token = s.join_as(name.as_deref())?;
+    tokio::spawn(offline_check(sh.clone(), id, s.seats.len() - 1)); // in case the page never connects
     Ok(Json(json!({"seat_token": token})))
+}
+
+/// Change the caller's nickname: `{"name": "..."}`.
+async fn set_name(
+    State(sh): State<Shared>,
+    Path(id): Path<String>,
+    h: HeaderMap,
+    q: Q,
+    Json(body): Json<NameBody>,
+) -> Result<Json<Value>, ApiError> {
+    let mut g = sh.write().await;
+    let s = session_mut(&mut g, &id)?;
+    let seat = seat_of(s, &h, &q)?;
+    s.rename(seat, body.name.as_deref().unwrap_or(""))?;
+    Ok(Json(json!({"ok": true, "name": s.seats[seat].name})))
 }
 
 async fn start(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMap, q: Q) -> Result<Json<Value>, ApiError> {
@@ -151,6 +175,7 @@ async fn get_state(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMa
                 _ => s.last_orders(seat.id, n + 1),
             };
             json!({
+                "name": seat.name,
                 "joined_round": seat.joined_round,
                 "seat_index": seat.index,
                 "eligible": cur.map_or(true, |r| seat.joined_round <= r.index),
@@ -167,6 +192,7 @@ async fn get_state(State(sh): State<Shared>, Path(id): Path<String>, h: HeaderMa
         "seat_count": s.seats.len(),
         "ready_count": cur.map_or(0, |r| r.ready.len()),
         "eligible_count": cur.map_or(s.seats.len(), |r| s.eligible_count(r.index)),
+        "players": s.players(),
         "song_ready": s.song.is_some(),
         "end_requested": s.end_requested,
         "you": you,
@@ -344,16 +370,63 @@ async fn events(
     h: HeaderMap,
     q: Q,
 ) -> Result<Sse<impl Stream<Item = Result<SseEvent, Infallible>>>, ApiError> {
-    let rx = {
-        let g = sh.read().await;
-        let s = session(&g, &id)?;
-        any_auth(s, &h, &q)?;
-        s.tx.subscribe()
+    let (rx, guard) = {
+        let mut g = sh.write().await;
+        let s = session_mut(&mut g, &id)?;
+        let who = any_auth(s, &h, &q)?;
+        let rx = s.tx.subscribe();
+        // A seat's open stream is what shows the player as connected; the guard counts it out when the stream ends.
+        let guard = match who {
+            Who::Seat(i) => {
+                s.connected(i);
+                Some(StreamGuard { shared: sh.clone(), sid: id.clone(), seat: i })
+            }
+            Who::Host => None,
+        };
+        (rx, guard)
     };
-    let stream = BroadcastStream::new(rx).filter_map(|r| match r {
-        Ok(ev) => Some(Ok(SseEvent::default().event(ev.name).data(ev.data.to_string()))),
-        // Lagged: tell the client to resync.
-        Err(_) => Some(Ok(SseEvent::default().event("resync").data("{}"))),
+    let stream = BroadcastStream::new(rx).filter_map(move |r| {
+        let _alive = &guard; // the closure owns the guard, so it is dropped with the stream
+        match r {
+            Ok(ev) => Some(Ok(SseEvent::default().event(ev.name).data(ev.data.to_string()))),
+            // Lagged: tell the client to resync.
+            Err(_) => Some(Ok(SseEvent::default().event("resync").data("{}"))),
+        }
     });
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+}
+
+/// Lives as long as one seat's event stream: when the browser goes away (the tab closes, the network drops: the
+/// keep-alives stop getting through), the stream is dropped with it and the seat has one connection fewer. If that was its
+/// last one and it is still not back after the grace period, everyone is told the player has disconnected.
+struct StreamGuard {
+    shared: Shared,
+    sid: String,
+    seat: usize,
+}
+
+impl Drop for StreamGuard {
+    fn drop(&mut self) {
+        let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
+        let (shared, sid, seat) = (self.shared.clone(), std::mem::take(&mut self.sid), self.seat);
+        rt.spawn(async move {
+            let last = match shared.write().await.sessions.get_mut(&sid) {
+                Some(s) => s.disconnected(seat),
+                None => return,
+            };
+            if last {
+                offline_check(shared, sid, seat).await;
+            }
+        });
+    }
+}
+
+/// After the grace period: if the seat still has no event stream, tell everyone it has gone.
+async fn offline_check(shared: Shared, sid: String, seat: usize) {
+    tokio::time::sleep(OFFLINE_GRACE + std::time::Duration::from_millis(100)).await;
+    if let Some(s) = shared.read().await.sessions.get(&sid) {
+        if !s.seats[seat].online() {
+            s.emit_players();
+        }
+    }
 }

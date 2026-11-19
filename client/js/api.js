@@ -25,7 +25,10 @@ async function req(method, path, { token, body } = {}) {
 
 export const createSession = (config) => req('POST', '', { body: config });
 export const info = (sid) => req('GET', `/${sid}/info`);
-export const join = (sid) => req('POST', `/${sid}/join`);
+/** Take a seat; `name` is the nickname (the server makes one up without it). */
+export const join = (sid, name) => req('POST', `/${sid}/join`, name ? { body: { name } } : {});
+/** Change this seat's nickname. Resolves to {ok, name} with the name as stored. */
+export const setName = (sid, token, name) => req('PUT', `/${sid}/name`, { token, body: { name } });
 export const start = (sid, token) => req('POST', `/${sid}/start`, { token });
 export const end = (sid, token) => req('POST', `/${sid}/end`, { token });
 export const getState = (sid, token) => req('GET', `/${sid}/state`, { token });
