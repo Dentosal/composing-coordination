@@ -5,8 +5,9 @@ import { h } from './dom.js';
  * @typedef {{label:string, detail?:string, disabled?:boolean|string,
  *   run:(progress:(text:string)=>void)=>(void|Promise<void>)}} MenuItem
  * `disabled` may be a string: the reason, shown in place of the detail. `run` may be async: while it runs the item
- * shows "Working…" (or what it passes to `progress`) and the other items wait; when it finishes the menu closes, and
- * if it throws, the error is shown under the item. Closing the menu meanwhile does not stop it.
+ * shows "Working…" (or what it passes to `progress`) and cannot be started again, but the other items can. When the
+ * last running item finishes the menu closes; if one throws, its error is shown under it. Closing the menu meanwhile
+ * does not stop anything.
  */
 
 /**
@@ -18,7 +19,7 @@ export function menuButton(btn, items, label) {
   const dlg = h('dialog.menu-dialog', { 'aria-label': label });
   btn.setAttribute('aria-haspopup', 'menu');
   const wrap = h('div.menu-wrap', btn, dlg);
-  let busy = false;
+  let running = 0; // items whose run() has not finished yet
 
   const onDown = (e) => { if (!wrap.contains(e.target)) close(); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -28,30 +29,34 @@ export function menuButton(btn, items, label) {
     document.removeEventListener('keydown', onKey, true);
   }
   function build() {
-    const buttons = []; // [button, item]
     const rows = items().map((it) => {
       if (it === 'sep') return h('hr.menu-sep');
-      const status = h('span.menu-detail', typeof it.disabled === 'string' ? it.disabled : it.detail ?? '');
+      const detail = typeof it.disabled === 'string' ? it.disabled : it.detail ?? '';
+      const status = h('span.menu-detail', detail);
       const b = h('button.menu-item', { type: 'button', role: 'menuitem', disabled: !!it.disabled }, h('span.menu-label', it.label), status);
-      buttons.push([b, it]);
       b.addEventListener('click', async () => {
-        if (busy) return;
-        busy = true;
-        for (const [x] of buttons) x.disabled = true;
+        if (b.classList.contains('busy')) return;
+        running++;
+        b.disabled = true;
         b.classList.add('busy');
         status.classList.remove('err');
         status.textContent = 'Working…';
+        let ok = false;
         try {
           await it.run((text) => { status.textContent = text; });
-          close();
-          build(); // fresh labels and states next time
+          ok = true;
+          status.textContent = detail;
         } catch (e) {
           status.textContent = e?.message || String(e);
           status.classList.add('err');
-          for (const [x, xit] of buttons) x.disabled = !!xit.disabled;
         } finally {
-          busy = false;
+          running--;
+          b.disabled = !!it.disabled;
           b.classList.remove('busy');
+        }
+        if (ok && !running) {
+          close();
+          build(); // fresh labels and states next time
         }
       });
       return b;
@@ -59,7 +64,7 @@ export function menuButton(btn, items, label) {
     dlg.replaceChildren(h('div.menu-list', { role: 'menu' }, rows));
   }
   function open() {
-    if (!busy) build(); // while an item runs, keep showing its progress
+    if (!running) build(); // while items run, keep showing their progress
     dlg.show(); // show(), not showModal(): the rest of the page stays interactive
     document.addEventListener('pointerdown', onDown, true);
     document.addEventListener('keydown', onKey, true);

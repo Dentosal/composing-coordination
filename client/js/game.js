@@ -476,7 +476,10 @@ export class Game {
    * the orders format holds them, plus the loop's tempo and size for context.
    */
   async exportAll() {
-    const file = sceneFile(this.st.config, this.orders, await api.version());
+    // Copy the scene as it is now: the version lookup can take a moment, and edits made meanwhile must not slip in.
+    const cfg = { ...this.st.config };
+    const orders = structuredClone(this.orders);
+    const file = sceneFile(cfg, orders, await api.version());
     downloadText(`band-game-tracks-${fileStamp()}.json`, JSON.stringify(file, null, 1) + '\n');
   }
 
