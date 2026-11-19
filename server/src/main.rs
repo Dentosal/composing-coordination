@@ -11,6 +11,10 @@ async fn main() {
     band_game::state::spawn_sweeper(shared.clone()); // idle sessions are removed after an hour
     let client_dir = std::env::var("CLIENT_DIR").unwrap_or_else(|_| "../client".into());
     let port: u16 = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3000);
+    // Behind a reverse proxy, BIND=127.0.0.1 keeps the server off the public network.
+    let bind: std::net::IpAddr = std::env::var("BIND")
+        .map(|b| b.parse().expect("BIND must be an IP address"))
+        .unwrap_or([0, 0, 0, 0].into());
 
     // Static client files are revalidated on every load (cheap 304s), so edits show up without a hard refresh.
     // Responses that set their own Cache-Control (the immutable mix WAVs) keep it.
@@ -37,7 +41,7 @@ async fn main() {
         // to about 265 KB with brotli). Not the event stream (the default leaves it alone, so events are never held
         // back) and not WAV audio, which hardly compresses.
         .layer(CompressionLayer::new().compress_when(DefaultPredicate::new().and(NotForContentType::const_new("audio/"))));
-    let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await.expect("bind");
-    println!("band-game listening on http://localhost:{port} (client: {client_dir})");
+    let listener = tokio::net::TcpListener::bind((bind, port)).await.expect("bind");
+    println!("band-game listening on http://{bind}:{port} (client: {client_dir})");
     axum::serve(listener, app).await.unwrap();
 }

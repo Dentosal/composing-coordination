@@ -1,0 +1,40 @@
+# /etc/nginx/sites-available/bandgame (symlinked into sites-enabled).
+# Installed as HTTP only; `certbot --nginx -d bandgame.dento.fi` then adds the 443 listener and the redirect.
+
+server {
+    server_name bandgame.dento.fi;
+
+    # Friends only: one shared login.
+    auth_basic "Band game";
+    auth_basic_user_file /etc/nginx/bandgame.htpasswd;
+
+    client_max_body_size 16m;  # the server's own request limit (a combined game scene)
+
+    location / {
+        proxy_pass http://127.0.0.1:3055;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 10m;  # song renders
+    }
+
+    # Server-sent events: pass each event through at once, and keep idle streams open.
+    location ~ ^/api/sessions/[^/]+/events$ {
+        proxy_pass http://127.0.0.1:3055;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 1h;
+    }
+
+    listen 80;
+    listen [::]:80;
+}
