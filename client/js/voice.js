@@ -252,12 +252,44 @@ function envRelease(p, e, t0, tg) {
  * semitones (a slide gives fractions), and its params set node parameters (filter cutoff, a gain, ...). Times in the
  * plan are seconds after `t0`.
  */
+/**
+ * The ids of the nodes a voice needs: those whose output can reach the instrument's `out` without being multiplied by
+ * zero on the way. A gain of 0 (that nothing modulates and no effect cell automates) and an envelope with amount 0
+ * output nothing, so they are left out, and so is everything that only feeds them: an oscillator or noise at level 0,
+ * an LFO whose depths are all 0. Leaving out a signal that would be multiplied by zero changes nothing in the sound,
+ * but it saves the browser real work: every source runs on every block, and a parameter with anything connected to
+ * it (a filter cutoff with a filter envelope, say, even one of amount 0) is computed per sample instead of once.
+ */
+export function audibleNodes(inst, hz, plan = null) {
+  const automated = new Set((plan?.params ?? []).map((tr) => `${tr.node}:${tr.port}`));
+  const modulated = new Set(inst.edges.filter((e) => e.port).map((e) => `${e.to}:${e.port}`));
+  const silent = (n) =>
+    (n.type === 'gain' && n.gain * (hz / MIDDLE_C_HZ) ** (n.key_track ?? 0) === 0
+      && !modulated.has(`${n.id}:gain`) && !automated.has(`${n.id}:gain`))
+    || (n.type === 'env' && n.amount === 0);
+  const byId = new Map(inst.nodes.map((n) => [n.id, n]));
+  const used = new Set(inst.nodes.filter((n) => n.type === 'out').map((n) => n.id));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const { from, to } of inst.edges) {
+      const n = byId.get(from);
+      if (n && used.has(to) && !used.has(from) && !silent(n)) {
+        used.add(from);
+        grew = true;
+      }
+    }
+  }
+  return used;
+}
+
 export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
   const hz = midiHz(note);
   const nodes = new Map(); // id -> { node, params }
   const sources = [];
   const envs = [];
+  const used = audibleNodes(inst, hz, plan);
   for (const n of inst.nodes) {
+    if (!used.has(n.id)) continue;
     let node;
     let params = {};
     switch (n.type) {
@@ -346,7 +378,8 @@ export function startVoice(ctx, bus, inst, noise, note, vel, t0, plan = null) {
       }
     }
   }
-  const maxRelease = Math.max(0, ...envs.map(({ e }) => e.release));
+  // Every envelope counts, built or not, so a voice stops when it always did (as the server's do).
+  const maxRelease = Math.max(0, ...inst.nodes.filter((n) => n.type === 'env').map((n) => n.release));
   let released = false;
   return {
     release(tg) {
